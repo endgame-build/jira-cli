@@ -11,6 +11,9 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - IOStreams: `Test()` returns `*TestIOStreams` with `.OutBuf`/`.ErrBuf`/`.InBuf` buffers for assertions
 - IOStreams: pager tests use `JIRA_PAGER=cat` + `stdoutIsTTY=true` to exercise lifecycle without a real TTY
 - IOStreams: `NoPager` and `IsJSON` are public fields — set them before calling `StartPager()`
+- Config: `LoadFromPath(path)` for tests; `Load()` for production (uses XDG path)
+- Config: profile/alias methods live on `*fileConfig` (concrete type), not the `Config` interface — type-assert when needed
+- Config: write-to-temp-then-rename pattern in `Save()` — never write directly to config.toml
 
 ---
 
@@ -45,4 +48,18 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - Pager test trick: set `JIRA_PAGER=cat` + fake `stdoutIsTTY=true` to exercise full StartPager/StopPager lifecycle without a terminal
   - `fatih/color` has a global `color.NoColor` — `SetColorEnabled()` syncs it. Tests that enable color should be aware of this global state
   - `NoPager` and `IsJSON` are public fields set by commands before calling `StartPager()` — not via constructor args
+---
+
+## 2026-02-26 - US-004
+- Implemented TOML configuration system with XDG paths, profile management, and alias storage
+- Files changed: internal/config/paths.go, internal/config/config.go, internal/config/profile.go, internal/config/config_test.go
+- Removed internal/config/.gitkeep (replaced by real .go files)
+- 19 tests (all passing): missing file default, set/get round-trip, invalid key/value errors, delete, list, save/reload persistence, nested dir creation, atomic write (no temp file leakage), profile CRUD, active profile, delete-active-clears, profile save/reload, sorted list, alias CRUD, alias save/reload, unknown key empty, empty value allowed
+- **Learnings for future iterations:**
+  - `Config` interface is narrow (Get/Set/Delete/List/Save) — profile and alias methods are on `*fileConfig` concrete type
+  - `LoadFromPath(path)` is the test constructor; `Load()` uses XDG. Same pattern as `iostreams.Test()` vs `iostreams.New()`
+  - `go-toml/v2` unmarshal leaves nil maps — must initialize `Aliases` and `Profiles` maps after unmarshal
+  - TOML section names use `[defaults]` and `[output]` (not `[default]` — matches the dot-notation keys `default.project`)
+  - `validateValue()` allows empty string (clearing a value) — only rejects non-empty invalid values
+  - `SetActiveProfile()` fails if profile doesn't exist; `DeleteProfile()` clears active if deleting the active one
 ---
