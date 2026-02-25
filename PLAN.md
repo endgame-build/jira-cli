@@ -39,7 +39,7 @@ require (
     github.com/fatih/color
     github.com/mattn/go-isatty
     github.com/adrg/xdg
-    github.com/pkg/browser          # cross-platform browser opening for --web
+    github.com/cli/browser           # cross-platform browser opening for --web (used by gh CLI)
     github.com/itchyny/gojq         # pure Go jq implementation for --jq flag
 )
 ```
@@ -98,7 +98,7 @@ Split on first `=` only (values may contain `=`). Values are always sent as stri
 Single owner: `main.go` owns all error rendering. Commands return errors (including `CLIError`). They never write errors to stderr themselves. `main.go` checks if `--json` is active, renders structured JSON or text accordingly, then calls `os.Exit()`. This prevents double-rendering.
 
 ### 8. `--web` browser opening
-Use `github.com/pkg/browser` — 3-method library that handles macOS (`open`), Linux (`xdg-open`), and Windows (`start`). For `issue view --web`, construct `https://{instance}/browse/{key}` and open it. Exit 0 immediately — no API call needed beyond auth validation.
+Use `github.com/cli/browser` (the browser package from the gh CLI) — handles macOS (`open`), Linux (`xdg-open`), and Windows (`start`). For `issue view --web`, construct `https://{instance}/browse/{key}` and open it. Exit 0 immediately — no API call needed beyond auth validation.
 
 ### 9. Keyring testing
 `zalando/go-keyring` provides `keyring.MockInit()` for tests. Call it in test setup to redirect all keyring operations to an in-memory map. No OS keyring interaction in tests.
