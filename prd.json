@@ -301,7 +301,7 @@
         "Tests pass"
       ],
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "notes": "Swagger notes: (1) subtasks field name is standard Jira convention but not in OpenAPI spec (dynamic fields) — verify at runtime, (2) CreatedIssue returns {id,key,self} not {id,key,url} — browse URL must be constructed"
     },
     {

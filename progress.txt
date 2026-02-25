@@ -26,6 +26,9 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - API: `mapHTTPError()` converts HTTP response → CLIError; `mapNetworkError()` converts Go net errors → CLIError(NETWORK_ERROR)
 - API: `ErrorCollection{ErrorMessages, Errors}` mirrors Jira's error response shape; `Summary()` joins both into one string
 - API: retryablehttp `PassthroughErrorHandler` is required to let failed responses reach `Do()` for proper CLIError mapping
+- API: `IssueFields` custom UnmarshalJSON uses `type Alias` trick + two-pass decode; CustomFields captures anything not in `knownFieldKeys`
+- API: LinkedIssue uses `LinkedIssueFields` (subset), not `IssueFields` (full) — linked issue responses are trimmed
+- API: Input types use `map[string]interface{}` for Fields (dynamic shape) and `map[string]json.RawMessage` for Update (operation arrays)
 
 ---
 
@@ -130,4 +133,21 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - Transport chain order: retryable(auth(http.DefaultTransport)) — auth headers set first, then retry wraps the whole thing
   - 5xx retry tests with real backoff are slow (~7s for 3 retries). Consider `retryWaitMin=0` in test helpers for faster suites
   - `errors.As(err, &cliErr)` works through the `CLIError.Unwrap()` chain — always use this for type assertion in tests
+---
+
+## 2026-02-26 - US-008
+- Implemented all Jira v3 API data model structs in internal/api/types.go
+- Response types: User, Issue, IssueFields, Status, StatusCategory, IssueType, Priority, Project, IssueParent, ParentFields, Resolution, IssueLink, IssueLinkType, LinkedIssue, LinkedIssueFields, Transition, Comment, CommentPage, CreatedIssue, SearchResults, CreateMetaIssueTypes, IssueTypeCreateMeta
+- Input types: DoTransitionInput, TransitionRef, CreateIssueInput, EditIssueInput
+- Option types: PaginationOptions, GetIssueOptions, SearchOptions
+- Custom UnmarshalJSON on IssueFields: known fields decoded to typed members, unknown fields captured in CustomFields map[string]json.RawMessage
+- Files changed: internal/api/types.go (new), internal/api/types_test.go (new)
+- 16 tests (all passing): User (full, null email, missing email), Issue (full payload, minimal), CreatedIssue, SearchResults (with token, last page), Transition array, CreateMetaIssueTypes, DoTransitionInput marshal, CreateIssueInput marshal, EditIssueInput marshal, IssueFields (custom-only, empty), CommentPage, IssueLink nested fields, User array
+- **Learnings for future iterations:**
+  - `type Alias IssueFields` trick prevents infinite recursion in custom UnmarshalJSON — alias has no methods, so json.Unmarshal uses default decoder
+  - Two-pass decode (alias + raw map) is O(2n) but fine for Jira responses (a few KB per issue)
+  - gofmt auto-aligns struct tag columns — don't manually align them, let the pre-commit hook fix it
+  - `json:"-"` on CustomFields prevents double-marshaling — it's populated only via custom UnmarshalJSON
+  - LinkedIssue.Fields uses a separate LinkedIssueFields type (not IssueFields) because linked issues return a subset of fields
+  - SearchResults uses NextPageToken/IsLast (token-based), not startAt/total (legacy) — matches Jira v3 POST /search/jql
 ---
