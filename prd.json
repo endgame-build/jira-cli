@@ -361,7 +361,7 @@
         "Tests pass"
       ],
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "notes": "--no-pager is per-command, NOT registered here. --text exists to override config-level JSON back to text."
     },
     {
@@ -382,7 +382,7 @@
         "Tests pass"
       ],
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

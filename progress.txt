@@ -38,6 +38,9 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - Factory: global flags (Profile, OutputJSON, Quiet, DryRun, JQExpr, Text, etc.) are public fields set by PersistentPreRunE
 - Factory: `profileConfigAdapter` + `profileConfigBridge` adapts config→auth without import cycle; test configs use disk TOML
 - Factory: `api.WithBaseURL()` (exported) for cross-package httptest; `withBaseURL()` (unexported) for api-internal tests
+- Root command: stub group commands (auth, issue, config, alias, search) need `RunE` returning `cmd.Help()` so Cobra `IsAvailableCommand()` returns true (enables typo suggestions)
+- Root command: `preRun()` must nil-check config from `f.Config()` — `NewTestFactory(nil)` returns `(nil, nil)` which panics on `.Get()`
+- Root command: gofmt auto-aligns struct field tags — when adding `RunE` to Cobra commands, keep `Long:` tag aligned with `Short:` / `Use:`
 
 ---
 
@@ -197,4 +200,20 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `sync.Once` pre-trigger trick: `f.configOnce.Do(func() { f.configVal = cfg })` in NewTestFactory prevents lazy init
   - Test configs: write TOML to disk then `config.LoadFromPath()` — avoids needing exported fileConfig type
   - `api.WithBaseURL()` (exported) needed for cross-package httptest patterns; `withBaseURL()` (unexported) remains for api-internal tests
+---
+
+## 2026-02-26 - US-011a/011b
+- Implemented root command (internal/cmd/root/root.go) with all 11 global persistent flags and PersistentPreRunE
+- Implemented flag validation: --json+--text, --jq+--text, --quiet+--json/--jq conflicts → CLIError(VALIDATION_ERROR)
+- --jq implies --json; config output.format=json resolved; --text overrides config-level JSON
+- Cobra SuggestionsMinimumDistance=2 for typo suggestions; Version var for ldflags
+- Stub command groups (auth, issue, search, config, alias) with RunE→Help for Cobra availability
+- Files changed: internal/cmd/root/root.go (new), internal/cmd/root/root_test.go (new), internal/cmd/auth/auth.go (new), internal/cmd/issue/issue.go (new), internal/cmd/search/search.go (new), internal/cmd/config/config.go (new), internal/cmd/alias/alias.go (new)
+- 19 tests (all passing): subcommand registration, typo suggestion, version flag, help no-auth, global flags propagation, -q short flag, --text flag, --jq implies json, JSON from config, --text overrides config JSON, --no-color disables color, IsJSON synced to IOStreams, --json overrides config, --verbose no-op, --json+--text conflict, --jq+--text conflict, --quiet+--json conflict, --quiet+--jq conflict, --quiet+--dry-run no conflict
+- **Learnings for future iterations:**
+  - Stub Cobra commands need `RunE` (returning `cmd.Help()`) so `IsAvailableCommand()` returns true — without it, SuggestionsFor skips them
+  - `f.Config()` returns `(nil, nil)` with `NewTestFactory(nil)` — always nil-check the config value before calling `.Get()`
+  - Flag conflict validation runs before --jq implication, so `--jq + --text` catches the raw flag state correctly
+  - gofmt auto-aligns struct tags in Cobra command literals — the pre-commit hook will fix it, but it means the commit fails once
+  - `SilenceErrors: true, SilenceUsage: true` on root prevents Cobra from printing usage on error — we want errors rendered by main.go
 ---
