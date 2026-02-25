@@ -1,0 +1,779 @@
+{
+  "project": "jira-cli",
+  "branchName": "ralph/jira-cli-foundation",
+  "description": "Jira CLI Foundation (Phases 0-2) — Go CLI wrapping Jira Cloud REST API v3 with auth, config, issue CRUD, and search",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Project bootstrap with Go modules, Makefile, and directory structure",
+      "description": "As a developer, I want the Go project initialized with all dependencies, build tooling, and directory structure so that development can begin immediately.",
+      "acceptanceCriteria": [
+        "go.mod created with module path github.com/endgameio/jira-cli, Go 1.23, all 11 dependencies (cobra, go-retryablehttp, toml, go-keyring, goldmark, go-pretty/v6, color, go-isatty, xdg, cli/browser, gojq)",
+        "go.sum generated via go mod tidy",
+        "Makefile with targets: build (outputs bin/jira), test (go test ./...), lint (go vet ./...), install (go install ./cmd/jira), clean (rm -rf bin/)",
+        ".gitignore covers: bin/, *.exe, .DS_Store, vendor/, *.test, *.out, dist/",
+        "cmd/jira/main.go compiles and exits 0 (stub entrypoint)",
+        "Directory structure: internal/errors/, internal/iostreams/, internal/config/, internal/auth/, internal/api/, internal/output/, internal/adf/, internal/factory/, internal/cmd/ (with subdirs root, auth, issue, search, config, alias, shared)",
+        "go build ./... succeeds",
+        "go vet ./... clean",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "CLI error system with CLIError type and constructors",
+      "description": "As a CLI consumer, I want all errors to include a machine-readable code, message, context, and suggestion so I can self-correct.",
+      "acceptanceCriteria": [
+        "internal/errors/errors.go defines CLIError struct with Code (ErrorCode), Message, Context (map[string]interface{}), Suggestion, ExitCode, Err (wrapped error)",
+        "CLIError implements error interface and supports errors.Is/errors.As unwrapping",
+        "Error codes defined as constants: GENERAL_ERROR, AUTH_ERROR, VALIDATION_ERROR, NOT_FOUND, PERMISSION_DENIED, RATE_LIMITED, INVALID_TRANSITION, MISSING_FIELD, UNKNOWN_TYPE, AMBIGUOUS_USER, NETWORK_ERROR, CONFLICT_ERROR",
+        "Exit codes: 0=success, 1=general, 2=auth, 3=validation, 4=not-found, 5=permission, 6=rate-limited, 7=network-error, 8=conflict",
+        "Constructor functions: NewAuthError, NewValidationError, NewNotFoundError, NewPermissionError, NewRateLimitError, NewTransitionError, NewMissingFieldError, NewUnknownTypeError, NewAmbiguousUserError, NewNetworkError, NewConflictError",
+        "JSON marshaling produces: {\"error\": {\"code\": \"...\", \"message\": \"...\", \"context\": {...}, \"suggestion\": \"...\"}}",
+        "Tests: each constructor produces correct code, exit code, and JSON shape (table-driven)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "IOStreams abstraction with TTY detection and color control",
+      "description": "As a developer building commands, I need centralized IO with TTY detection, color control, and pager support.",
+      "acceptanceCriteria": [
+        "internal/iostreams/iostreams.go defines IOStreams struct with In (io.Reader), Out (io.Writer), Err (io.Writer), IsStdoutTTY() bool, IsStderrTTY() bool",
+        "New() constructor detects real TTY via mattn/go-isatty, respects NO_COLOR env var",
+        "Test() constructor returns IOStreams backed by bytes.Buffer with isTTY: false",
+        "ColorEnabled() returns false when not TTY, --no-color set, or NO_COLOR env present",
+        "Color scheme methods using fatih/color: Green(), Yellow(), Red(), Bold(), Cyan() — all no-op when color disabled",
+        "StartPager() and StopPager() methods. Pager via JIRA_PAGER > PAGER > system default. No pager when not TTY, --json active, or --no-pager set",
+        "NoPager bool field on IOStreams (set by root command PersistentPreRunE)",
+        "Tests: TTY detection mocking, color disable via env, pipe-safety",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Configuration system with TOML and profiles",
+      "description": "As a developer, I want persistent TOML configuration at XDG path with profiles for multiple instances.",
+      "acceptanceCriteria": [
+        "internal/config/paths.go resolves config dir via adrg/xdg: $XDG_CONFIG_HOME/jira-cli/",
+        "internal/config/config.go defines Config interface with Get(key), Set(key, value), Delete(key), List(), Save()",
+        "TOML implementation reads/writes config.toml with sections: [defaults], [output], [aliases]",
+        "Supported keys: default.project, default.assignee, output.format (text|json), output.color (auto|always|never)",
+        "internal/config/profile.go manages named profiles: ActiveProfile(), SetActiveProfile(name), ListProfiles(), DeleteProfile(name)",
+        "Profile metadata stored in config.toml under [profiles] section; tokens stored separately in keyring",
+        "Config writes use write-to-temp-then-rename pattern for atomicity",
+        "Tests: TOML round-trip with t.TempDir(), profile CRUD, missing config creates default",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Credential storage with keyring and plaintext fallback",
+      "description": "As a developer, I want my API token stored securely in OS keyring with fallback to file when keyring unavailable.",
+      "acceptanceCriteria": [
+        "internal/auth/keyring.go wraps zalando/go-keyring with service name jira-cli and key format {profile}-token",
+        "Methods: StoreToken(profile, token), RetrieveToken(profile), DeleteToken(profile)",
+        "internal/auth/keyring_fallback.go stores token in tokens.json when keyring fails, prints warning to stderr",
+        "Keyring failure detection: attempt keyring store, if error, fall back transparently",
+        "Tests: keyring.MockInit() for in-memory keyring, no OS keyring interaction",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Auth resolver chain (flags > env > profile)",
+      "description": "As a developer or CI pipeline, I want credentials resolved from flags first, then env vars, then stored profile.",
+      "acceptanceCriteria": [
+        "internal/auth/credentials.go defines Credentials struct: Instance, User, Token",
+        "internal/auth/resolver.go implements Resolve(flagInstance, flagUser, flagToken, profileName, config) (*Credentials, error)",
+        "Resolution order: (1) all three flags, (2) JIRA_INSTANCE + JIRA_USER + JIRA_TOKEN env vars, (3) active/named profile from config + keyring",
+        "Partial credentials at any level produce CLIError(VALIDATION_ERROR)",
+        "Instance URL normalization: strip https://, http://, trailing slashes, /rest/... suffix",
+        "No credentials at any level produces CLIError(AUTH_ERROR) with suggestion to run jira auth login",
+        "Tests: all 3 sources, partial creds error, no creds error, flag override env, URL normalization (t.Setenv)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007a",
+      "title": "API client core with auth transport and base URL construction",
+      "description": "As a developer, I need the HTTP client core with auth injection via RoundTripper and base URL construction.",
+      "acceptanceCriteria": [
+        "internal/api/client.go defines Client struct with Do(ctx, method, path, body, out) error core method",
+        "Constructor: NewClient(credentials, opts ...ClientOption) *Client",
+        "internal/api/transport.go implements http.RoundTripper injecting Authorization: Basic base64(user:token) and Content-Type: application/json",
+        "Base URL construction: https://{instance}/rest/api/3/{path}",
+        "Success status handling: accepts 200, 201, 204. Skip body decode on 204",
+        "Request timeout: 30-second default, configurable via ClientOption",
+        "All response bodies closed properly",
+        "Tests: httptest.NewServer for auth header injection, 200/201/204 handling, base URL",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007b",
+      "title": "API client retry logic and error mapping",
+      "description": "As a developer, I need HTTP retry with backoff and Jira error response parsing on the API client.",
+      "acceptanceCriteria": [
+        "internal/api/retry.go wraps hashicorp/go-retryablehttp: retries on 429 and 5xx only, respects Retry-After for 429, max 3 retries, exponential backoff for 5xx",
+        "Never retry: 401 (abort with AUTH_ERROR), request timeouts, 4xx other than 429",
+        "internal/api/errors.go parses Jira ErrorCollection response (errorMessages array + errors map) into CLIError",
+        "HTTP error mapping: 400→VALIDATION_ERROR, 401→AUTH_ERROR, 403→PERMISSION_DENIED, 404→NOT_FOUND, 409→CONFLICT_ERROR, 429→RATE_LIMITED",
+        "Network error handling: connection refused, DNS failure, TLS errors, timeouts → CLIError(NETWORK_ERROR) with exit 7",
+        "Tests: httptest for each status code, retry on 429 with Retry-After, no-retry on 401/timeouts, error parsing, network errors",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "API types (Jira data model structs)",
+      "description": "As a developer, I need Go structs matching Jira v3 API response shapes for type-safe unmarshaling.",
+      "acceptanceCriteria": [
+        "internal/api/types.go defines all structs: User, Issue, IssueFields, Status, StatusCategory, IssueType, Priority, Project, IssueParent, IssueLink, LinkedIssue, LinkedIssueFields, Transition, Comment, CommentPage, CreatedIssue, SearchResults, CreateMetaIssueTypes, ErrorCollection, IssueTypeCreateMeta",
+        "Input types: DoTransitionInput, PaginationOptions, GetIssueOptions, CreateIssueInput, EditIssueInput (with Fields map and Update operations), SearchOptions",
+        "User.EmailAddress is *string (nullable for Jira privacy)",
+        "SearchResults uses NextPageToken and IsLast (not legacy total/startAt/maxResults)",
+        "All structs have json tags matching Swagger spec field names exactly",
+        "IssueFields uses typed sub-structs for known fields plus CustomFields map[string]json.RawMessage",
+        "Tests: JSON unmarshal round-trip against representative Jira API response payloads",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Output formatter with JSON envelopes, table, and jq support",
+      "description": "As a CLI consumer, I want consistent output: tables by default, structured JSON with --json, errors to stderr.",
+      "acceptanceCriteria": [
+        "internal/output/formatter.go defines Formatter with IOStreams and asJSON bool",
+        "OutputData(data, tableFunc) for single objects — bare JSON object or table",
+        "OutputList(items, pagination, tableFunc) for lists — JSON with pagination envelope or table",
+        "OutputMutation(result, tableFunc) for mutations — JSON with ok:true or human text",
+        "OutputDryRun(action, payload, validation) for dry-run previews",
+        "internal/output/jq.go — ApplyJQ(data, expr) using itchyny/gojq; raw text output matching gh --jq behavior",
+        "internal/output/json.go — three envelope shapes: bare object (data), {data:[], pagination:{}} (list), {ok:true, ...} (mutation)",
+        "internal/output/table.go — go-pretty table utilities with no-border style",
+        "internal/output/errors.go — OutputError(err, asJSON, writer) renders to stderr",
+        "Tests: valid JSON output, no ANSI when isTTY:false, pagination envelope, jq filtering",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Factory dependency injection hub with lazy auth resolution",
+      "description": "As a developer building commands, I need a factory that lazily initializes IOStreams, Config, Auth, and APIClient.",
+      "acceptanceCriteria": [
+        "internal/factory/factory.go defines Factory with lazy accessors: IOStreams (eager), Config() (lazy, cached), AuthResolver() (lazy), APIClient() (lazy)",
+        "Global flag storage: Profile, FlagInstance, FlagUser, FlagToken, OutputJSON, NoColor, Verbose, DryRun, Quiet, JQExpr",
+        "Auth-free commands never call AuthResolver() or APIClient() — verified by test",
+        "NewTestFactory(ios, cfg, client) for tests — pre-wired, no lazy resolution",
+        "Tests: lazy init verified (APIClient not called until accessed), test factory wiring",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011a",
+      "title": "Root command with global flags and PersistentPreRunE",
+      "description": "As a CLI user, I want global flags available on every command with proper propagation to Factory.",
+      "acceptanceCriteria": [
+        "internal/cmd/root/root.go defines NewCmdRoot(f *factory.Factory) *cobra.Command",
+        "Persistent flags: --profile, --json, --no-color, --verbose, --dry-run, --quiet/-q, --jq, --instance, --user, --token, --text",
+        "PersistentPreRunE reads flags into Factory fields, configures IOStreams color — does NOT resolve auth",
+        "Enable Cobra SuggestionsMinimumDistance = 2",
+        "Subcommand groups registered: auth, issue, search, config, alias (stubs only for now)",
+        "--help and --version work without credentials",
+        "Tests: global flags propagate to Factory, --help exits 0, typo suggestion",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011b",
+      "title": "Global flag validation and interaction rules",
+      "description": "As a CLI user, I want flag conflicts detected early: --json+--text, --jq+--text, --quiet+--json.",
+      "acceptanceCriteria": [
+        "JSON output resolution: --json flag > output.format config > default (text). --text overrides config-level JSON",
+        "--json + --text: CLIError(VALIDATION_ERROR, 'Cannot use --json and --text together')",
+        "--jq implies --json: auto-enable JSON when --jq set without --json",
+        "--jq + --text: CLIError(VALIDATION_ERROR, 'Cannot use --jq and --text together')",
+        "--quiet + --json or --jq: CLIError(VALIDATION_ERROR, 'Cannot use --quiet with --json or --jq')",
+        "--quiet + --dry-run: dry-run output NOT suppressed (quiet silently ignored)",
+        "--verbose registered as no-op (stored but no consumer)",
+        "--quiet and --dry-run silently ignored on read commands",
+        "Tests: --json overrides config, --text overrides config, all conflict errors, --jq implies --json, --quiet+--dry-run outputs dry-run",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Main entrypoint with error rendering and exit codes",
+      "description": "As a CLI consumer, I want main.go to be the sole error renderer with correct exit codes.",
+      "acceptanceCriteria": [
+        "cmd/jira/main.go constructs Factory, builds root command, calls Execute()",
+        "On error: checks CLIError via errors.As, renders via output.OutputError to stderr, exits with CLIError.ExitCode",
+        "On non-CLIError: wraps in generic CLIError(GENERAL_ERROR), exits 1",
+        "No command ever writes errors to stderr directly — they return errors",
+        "Version info injected via ldflags: -X version.Version, -X version.Commit, -X version.Date",
+        "Tests: build binary, bad flags → exit 3, --version → exit 0",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Auth login command with credential validation",
+      "description": "As a developer, I want jira auth login to validate credentials against Jira API and store them securely.",
+      "acceptanceCriteria": [
+        "jira auth login requires --instance, --user, --token (all three)",
+        "Validates via GET /rest/api/3/myself — success prints 'Logged in as {displayName} on {instance}'",
+        "Null emailAddress handled gracefully (omit email from text, null in JSON)",
+        "--json: {ok:true, profile, instance, email, display_name}",
+        "401 from /myself: CLIError(AUTH_ERROR, 'Authentication failed: invalid credentials'), exit 2",
+        "Instance URL normalized before storage",
+        "Credentials stored: instance + user in config TOML, token in keyring (or fallback)",
+        "--profile stores under named profile (default: 'default')",
+        "Existing profile overwritten silently (re-login)",
+        "Tests: successful login, 401, URL normalization, profile storage, null email",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Auth status command with live token validity check",
+      "description": "As a developer, I want jira auth status to show authentication state with a live token check.",
+      "acceptanceCriteria": [
+        "Displays: profile name, instance URL, user email (or '(email hidden)' if null), token validity via GET /myself",
+        "Token valid: 'Token: valid' with green indicator (when TTY)",
+        "Token invalid (401): 'Token: invalid' with red indicator, still exits 0",
+        "No stored credentials: CLIError(AUTH_ERROR, 'No credentials found'), exit 2",
+        "--json: {profile, instance, user, token_valid: true/false}",
+        "Tests: valid token, invalid token, no credentials, JSON shape",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Auth logout command with --yes confirmation",
+      "description": "As a developer, I want jira auth logout --yes to remove stored credentials.",
+      "acceptanceCriteria": [
+        "Requires --yes/-y flag (without: CLIError(VALIDATION_ERROR, 'Use --yes to confirm logout'), exit 3)",
+        "Removes token from keyring and profile from config",
+        "--profile targets specific profile (default: active profile)",
+        "If deleting active profile, clears active profile setting",
+        "Success: 'Logged out from profile {name}'",
+        "--json: {ok:true, profile, action: 'logout'}",
+        "Profile not found: CLIError(NOT_FOUND, 'Profile not found'), exit 4",
+        "Tests: successful logout, missing --yes, unknown profile, JSON shape",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Auth switch command for profile switching",
+      "description": "As a developer with multiple instances, I want jira auth switch <profile> to change active profile.",
+      "acceptanceCriteria": [
+        "Positional arg: profile name (required)",
+        "Sets active profile in config",
+        "Success: 'Switched to profile {name} ({instance})'",
+        "--json: {ok:true, profile, instance}",
+        "Profile not found: CLIError(NOT_FOUND, 'Profile not found. Available: ...'), exit 4",
+        "Tests: successful switch, unknown profile with available list, JSON shape",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Config set/get/list commands",
+      "description": "As a developer, I want jira config set/get/list to manage persistent defaults without auth.",
+      "acceptanceCriteria": [
+        "jira config set <key> <value> sets config; valid keys: default.project, default.assignee, output.format, output.color",
+        "--json on set: {ok:true, key, value}",
+        "Invalid key: CLIError(VALIDATION_ERROR, 'Unknown config key'), exit 3",
+        "Invalid value for output.format: CLIError(VALIDATION_ERROR, 'Invalid value'), exit 3",
+        "jira config get <key> prints value; unset key prints empty string",
+        "jira config list prints key=value table; --json outputs JSON object",
+        "All commands work WITHOUT authentication",
+        "Tests: set/get round-trip, invalid key, invalid value, list format, no auth required",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Alias set/list commands",
+      "description": "As a developer, I want jira alias set/list to define shortcuts for frequent command patterns.",
+      "acceptanceCriteria": [
+        "jira alias set <name> <command> stores alias in config [aliases] section",
+        "--json on set: {ok:true, name, command}",
+        "jira alias list displays aliases as table; --json outputs JSON",
+        "Alias name validation: alphanumeric + hyphens only, cannot shadow existing command names",
+        "Shadow error: CLIError(VALIDATION_ERROR, 'Cannot alias: conflicts with built-in command'), exit 3",
+        "Works WITHOUT authentication",
+        "Tests: set/list round-trip, name validation, shadow detection",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Markdown to ADF converter",
+      "description": "As a CLI user, I want Markdown descriptions auto-converted to Atlassian Document Format.",
+      "acceptanceCriteria": [
+        "internal/adf/nodes.go defines ADF node types: Document (type:doc, version:1), Paragraph, Heading, BulletList, OrderedList, ListItem, CodeBlock, Blockquote, Rule, Text (with marks), HardBreak",
+        "Mark types: strong, em, code, link (href attr), strike",
+        "internal/adf/converter.go uses yuin/goldmark to parse CommonMark then walks AST emitting ADF nodes",
+        "Mappings: paragraph, heading(level), *italic*→em, **bold**→strong, `code`→code, fenced→codeBlock(language), [text](url)→link, bullet/ordered lists, blockquote, ---→rule, ~~strike~~→strike",
+        "Plain text passes through as single paragraph with text node",
+        "Nested structures: bold inside italic, links inside lists, code inside bold",
+        "Convert(markdown string) (*Document, error) public entry point",
+        "Tests: table-driven with markdown→ADF JSON for each node type, nested marks, plain text, empty input",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "Pagination helpers for token-based and offset-based APIs",
+      "description": "As a developer, I need pagination utilities for both Jira's token-based search and offset-based endpoints.",
+      "acceptanceCriteria": [
+        "internal/api/pagination.go defines PaginationMeta: Offset, Limit, Total (*int), HasNextPage",
+        "Token-based paginator for POST /search/jql: uses nextPageToken, stops when isLast, offset implemented as skip-N-results",
+        "Offset-based paginator: passes startAt and maxResults query params, reads total from response",
+        "Raw-array paginator: for endpoints returning plain []T — infer has_next_page from len(results)==maxResults, total is nil",
+        "All return ([]T, *PaginationMeta, error) pattern",
+        "JSON envelope: {data:[], pagination:{offset, limit, total, has_next_page}}",
+        "Tests: token-based multi-page, offset-based, raw-array, offset skip, single page, empty results",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-030a",
+      "title": "Issue API methods (CRUD operations)",
+      "description": "As a developer building commands, I need typed API methods for all issue operations.",
+      "acceptanceCriteria": [
+        "internal/api/issues.go implements on Client: GetIssue, CreateIssue (expects 201), EditIssue (expects 204), DeleteIssue (204, deleteSubtasks=true string param), AssignIssue (204, nil=unassign), GetTransitions, GetCreateMeta, DoTransition, SearchIssues",
+        "All methods use Client.Do() internally",
+        "Proper error wrapping: API errors → CLIError with context",
+        "Tests: each method with httptest mock returning realistic Jira response shapes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-030b",
+      "title": "User API methods (myself and search)",
+      "description": "As a developer, I need typed API methods for user resolution: GetMyself and SearchUsers.",
+      "acceptanceCriteria": [
+        "internal/api/users.go implements on Client: GetMyself(ctx) (*User, error), SearchUsers(ctx, query, opts PaginationOptions) ([]User, error)",
+        "All methods use Client.Do() internally",
+        "Proper error wrapping: API errors → CLIError",
+        "Tests: httptest mocks for /myself and /user/search",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "User resolution utility (@me, name search, account ID passthrough)",
+      "description": "As a developer using --assignee, I want names auto-resolved to Jira account IDs.",
+      "acceptanceCriteria": [
+        "internal/api/users.go: ResolveUser(ctx, client, input) returns accountId",
+        "@me calls GET /myself, returns accountId",
+        "Input looks like account ID (24+ hex chars) → use directly (no API call)",
+        "Otherwise → GET /user/search?query={input}: exactly 1 → return; 0 → CLIError(NOT_FOUND); 2+ → CLIError(AMBIGUOUS_USER) with matches",
+        "Tests: @me, direct account ID, single match, no match, ambiguous match",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-032",
+      "title": "Issue key and ID validation utility",
+      "description": "As a developer, I want client-side validation of issue keys and IDs before making API calls.",
+      "acceptanceCriteria": [
+        "internal/cmd/issue/validate.go: ValidateIssueKeyOrID(input) (string, error)",
+        "Accepts issue keys: 1+ uppercase ASCII letters, hyphen, 1+ digits (PROJ-123). Lowercase auto-uppercased",
+        "Accepts numeric IDs: all digits (10001) passed through as-is",
+        "Rejects anything else: CLIError(VALIDATION_ERROR, 'Invalid issue key or ID'), exit 3",
+        "Tests: valid keys, lowercase normalization, numeric IDs, invalid formats",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021a",
+      "title": "Issue view command (basic view with table output)",
+      "description": "As a developer, I want jira issue view PROJ-123 to display an issue with key fields.",
+      "acceptanceCriteria": [
+        "Calls GET /rest/api/3/issue/{key} with expand=transitions",
+        "Table output: key, summary, status (color by category), assignee, reporter, priority, type, labels, created, updated",
+        "Description truncated to first 5 lines with '... (truncated)' indicator",
+        "--fields f1,f2 shows only specified fields",
+        "--json: full issue JSON as bare object (no wrapping)",
+        "Issue not found: CLIError(NOT_FOUND), exit 4",
+        "Issue key validated via ValidateIssueKeyOrID before API call",
+        "Tests: successful view with mock, field filtering, 404",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021b",
+      "title": "Issue view: linked issues, subtasks, comments, and --web",
+      "description": "As a developer, I want issue view to show links, subtasks, comments, and open in browser.",
+      "acceptanceCriteria": [
+        "Linked issues section: show each link as 'blocks PROJ-456 (In Progress)' using inward/outward description",
+        "Subtasks section: show each as 'PROJ-125  Fix login CSS  [Done]'",
+        "--comments appends comment list (author, date, body truncated to 3 lines)",
+        "--web opens https://{instance}/browse/{key} in browser; reads instance from config only (no API call). Fails only if no profile: CLIError(AUTH_ERROR)",
+        "--web + --json: outputs {ok:true, url} AND opens browser",
+        "--web + --quiet: opens browser silently (no stdout)",
+        "--web + --fields/--comments: web takes precedence, flags ignored",
+        "Tests: linked issues display, subtasks, --comments, --web (mock browser), --web+--json, --web+--quiet",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022a",
+      "title": "Issue create command (basic create with required fields)",
+      "description": "As a developer, I want jira issue create with project, type, summary to create an issue.",
+      "acceptanceCriteria": [
+        "Required flags: --project (falls back to default.project config), --type, --summary",
+        "Optional flags: --description (Markdown→ADF), --assignee (resolved via ResolveUser), --priority, --labels (comma-separated), --parent (issue key), --field (key=value, repeatable)",
+        "--assignee falls back to default.assignee config; @me and display names valid as config values",
+        "POST /rest/api/3/issue with proper payload structure: project as {key}, issuetype as {name}, etc.",
+        "Success: 'Created PROJ-124: https://{instance}/browse/PROJ-124'",
+        "--json: {ok:true, key, id, url}",
+        "Missing required: CLIError(VALIDATION_ERROR), with hint about config set for --project",
+        "Tests: successful create, custom fields, missing flags, API error",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022b",
+      "title": "Issue create: body-file and dry-run support",
+      "description": "As a developer, I want --body-file and --dry-run on issue create for file input and preview.",
+      "acceptanceCriteria": [
+        "internal/cmd/shared/bodyfile.go: shared --body-file utility reusable across commands",
+        "--body-file reads description from file; - reads stdin; overrides --description if both given",
+        "--body-file errors: file not found → VALIDATION_ERROR; stdin TTY → VALIDATION_ERROR; stdin >10MB → VALIDATION_ERROR",
+        "--description content also capped at 10MB",
+        "--dry-run: calls GET /issue/createmeta/{project}/issuetypes to validate, resolves --assignee, outputs preview without calling create",
+        "--dry-run JSON: {dry_run:true, payload:{...}, validation:'passed (validated against live API)'}",
+        "--field key=value sends values as JSON strings (no client-side type coercion)",
+        "Tests: body-file from stdin, dry-run output, body-file errors",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023a",
+      "title": "Issue edit command (basic field editing)",
+      "description": "As a developer, I want jira issue edit PROJ-123 --summary 'New title' to update fields.",
+      "acceptanceCriteria": [
+        "Positional arg: issue key (required, validated)",
+        "At least one field flag required, otherwise CLIError(VALIDATION_ERROR)",
+        "Field flags: --summary, --description (Markdown→ADF), --assignee (resolved), --priority, --labels (replaces all), --field (repeatable), --body-file",
+        "--assignee '' unassigns (sends null). --summary '' → CLIError(VALIDATION_ERROR, 'Summary cannot be empty')",
+        "PUT /rest/api/3/issue/{key} with fields map",
+        "Success: 'Updated PROJ-123'",
+        "--json: {ok:true, key, updated_fields:[]}",
+        "404/403/409 error handling",
+        "Tests: single field, multiple fields, unassign, 404, 403, 409",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023b",
+      "title": "Issue edit: label operations, field collision, and dry-run",
+      "description": "As a developer, I want add/remove label operations and dry-run diff preview on issue edit.",
+      "acceptanceCriteria": [
+        "--add-labels and --remove-labels use update approach with add/remove operations",
+        "--labels is mutually exclusive with --add-labels/--remove-labels: CLIError(VALIDATION_ERROR) if combined",
+        "fields and update must not overlap in same API call",
+        "--field key collision with named flags: named flag takes precedence, warning to stderr",
+        "--dry-run: fetches current issue, computes before/after diff, shows diff-style preview",
+        "--dry-run JSON: {dry_run:true, changes:[{field, from, to}], validation:'passed'}",
+        "Tests: add/remove labels, labels conflict, field collision warning, dry-run diff",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025a",
+      "title": "Issue move command (basic transition with status matching)",
+      "description": "As a developer, I want jira issue move PROJ-123 'In Progress' to transition an issue.",
+      "acceptanceCriteria": [
+        "Positional args: issue key (required, validated), target status (required)",
+        "Fetches current status via GET /issue/{key}, then transitions via GET /issue/{key}/transitions",
+        "Matching: (1) case-insensitive exact match on transition.to.name, (2) case-insensitive substring (single match only; 2+ = ambiguous)",
+        "POST /rest/api/3/issue/{key}/transitions with {transition:{id:...}}",
+        "Success: 'Moved PROJ-123 to In Progress'",
+        "--json: {ok:true, key, action:'moved', from, to, transition}",
+        "No match: CLIError(INVALID_TRANSITION) with available transitions list",
+        "Ambiguous: CLIError(INVALID_TRANSITION, 'Ambiguous status')",
+        "404/403 error handling",
+        "Tests: exact match, case-insensitive, substring, ambiguous, no match, 404, 403",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025b",
+      "title": "Issue move: resolution, comment, and dry-run",
+      "description": "As a developer, I want --resolution and --comment on issue move for Done workflows and dry-run preview.",
+      "acceptanceCriteria": [
+        "--resolution (string, e.g. 'Fixed') sent in fields.resolution.name in transition payload",
+        "--comment (Markdown→ADF) sent in update.comment[].add.body in transition payload",
+        "fields/update sections omitted when flags not provided",
+        "--json includes resolution field when --resolution provided",
+        "--dry-run: shows transition preview including resolution and comment if provided",
+        "Multiple transitions to same target: use first match",
+        "Tests: --resolution with transition, --comment with transition, dry-run",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-026",
+      "title": "Issue assign command",
+      "description": "As a developer, I want jira issue assign PROJ-123 'Jane Doe' and --unassign to manage assignees.",
+      "acceptanceCriteria": [
+        "Positional args: issue key (required, validated), user (required unless --unassign)",
+        "User resolved via ResolveUser",
+        "PUT /rest/api/3/issue/{key}/assignee with {accountId:...}",
+        "--unassign sends {accountId:null}; --unassign + user arg: CLIError(VALIDATION_ERROR)",
+        "Success: 'Assigned PROJ-123 to Jane Doe' or 'Unassigned PROJ-123'",
+        "--json: {ok:true, key, action:'assigned', assignee:{...}} or {ok:true, key, action:'unassigned'}",
+        "--dry-run: validates issue exists and user resolves, shows preview",
+        "404/403 error handling",
+        "Tests: assign, unassign, --unassign+user conflict, dry-run, user not found, 404, 403",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "Issue delete command with --yes confirmation",
+      "description": "As a developer, I want jira issue delete PROJ-123 --yes to delete an issue safely.",
+      "acceptanceCriteria": [
+        "Positional arg: issue key (required, validated)",
+        "Requires --yes/-y (without: CLIError(VALIDATION_ERROR, 'Use --yes to confirm deletion'), exit 3)",
+        "DELETE /rest/api/3/issue/{key}?deleteSubtasks=true (string param, not boolean)",
+        "Success: 'Deleted PROJ-123'",
+        "--json: {ok:true, key, action:'deleted'}",
+        "--dry-run: validates issue exists and permission, shows preview",
+        "404/403 error handling",
+        "Tests: successful delete, missing --yes, 404, 403, dry-run, JSON shape",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-028a",
+      "title": "Issue list command with JQL composition from flags",
+      "description": "As a developer, I want jira issue list --project PROJ --status 'In Progress' to list issues.",
+      "acceptanceCriteria": [
+        "Filter flags: --project (falls back to default.project), --assignee (resolved, @me supported), --status, --type, --label, --limit (default 50), --offset (default 0)",
+        "JQL composition: join filters with AND. --assignee @me → assignee = currentUser()",
+        "--jql overrides all filter flags; --fields and --limit/--offset are independent of --jql",
+        "--fields controls returned/displayed fields; default: summary,status,assignee,priority,issuetype",
+        "POST /rest/api/3/search/jql",
+        "Table: key + fields (summary truncated, status with color, assignee as display name)",
+        "--json: issue objects with pagination envelope",
+        "No filters and no --jql: defaults to assignee=currentUser() AND resolution=Unresolved",
+        "Empty results: 'No issues found' or {data:[], pagination:{...}}",
+        "Tests: filter composition, JQL override, @me, pagination, empty results, default-to-mine",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-028b",
+      "title": "Issue list: sort/order flags and assignee resolution errors",
+      "description": "As a developer, I want --sort/--order on issue list and proper assignee resolution error handling.",
+      "acceptanceCriteria": [
+        "--sort (field name) and --order (asc/desc, default: desc) append ORDER BY to composed JQL",
+        "--order without --sort: CLIError(VALIDATION_ERROR, '--order requires --sort'), exit 3",
+        "--sort and --order ignored when --jql provided",
+        "Assignee resolution failure (ambiguous, not found) produces appropriate CLIError",
+        "Tests: --sort/--order appends ORDER BY, --order without --sort error, --sort+--jql (ignored), assignee resolution errors",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-029",
+      "title": "Issue transitions command",
+      "description": "As a developer, I want jira issue transitions PROJ-123 to list available transitions.",
+      "acceptanceCriteria": [
+        "Calls GET /rest/api/3/issue/{key}/transitions",
+        "Table output: transition name, target status, transition ID",
+        "--json: {data:[{id, name, to:{name, category}}], pagination:null}",
+        "Empty transitions: 'No transitions available for PROJ-123' or {data:[], pagination:null}",
+        "Issue not found: CLIError(NOT_FOUND), exit 4",
+        "Issue key validated via ValidateIssueKeyOrID",
+        "Tests: successful list, empty transitions (text and JSON), 404",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-031",
+      "title": "Search command with raw JQL and --mine shortcut",
+      "description": "As a developer, I want jira search as a dedicated JQL surface separate from issue list.",
+      "acceptanceCriteria": [
+        "Positional arg: JQL string (optional, required unless --mine)",
+        "--mine: shortcut for assignee=currentUser() AND resolution=Unresolved; --status appends AND status=...",
+        "--status without --mine and without JQL: CLIError(VALIDATION_ERROR, '--status requires --mine or a JQL query'), exit 3",
+        "--fields, --limit, --offset for field selection and pagination",
+        "--json: issue objects with pagination envelope",
+        "If JQL provided, --mine and --status silently ignored",
+        "Neither JQL nor --mine: CLIError(VALIDATION_ERROR, 'Provide a JQL query or use --mine'), exit 3",
+        "POST /rest/api/3/search/jql; table same as issue list",
+        "Empty results: 'No issues found' or {data:[], pagination:{...}}",
+        "Tests: raw JQL, --mine, --mine+--status, JQL overrides --mine, no args error, --status without --mine error, pagination, empty results",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

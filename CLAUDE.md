@@ -1,130 +1,104 @@
-# CLAUDE.md
+# Ralph Agent Instructions
 
-## Project
+You are an autonomous coding agent working on a software project.
 
-Go CLI wrapping Jira Cloud REST API v3. Module: `github.com/endgameio/jira-cli`. Go 1.26+.
+## Your Task
 
-## Git Conventions
+1. Read the PRD at `prd.json` (in the same directory as this file)
+2. Read the progress log at `progress.txt` (check Codebase Patterns section first)
+3. Check you're on the correct branch from PRD `branchName`. If not, check it out or create from main.
+4. Pick the **highest priority** user story where `passes: false`
+5. Implement that single user story
+6. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
+7. Update CLAUDE.md files if you discover reusable patterns (see below)
+8. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
+9. Update the PRD to set `passes: true` for the completed story
+10. Append your progress to `progress.txt`
 
-- Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): description`
-- Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`, `ci`
-- Scope is optional but encouraged (e.g., `feat(auth): add login command`)
-- Don't commit without approval
+## Progress Report Format
 
-## Build & Test
-
-```sh
-make build      # outputs bin/jira
-make test       # go test ./...
-make lint       # go vet ./...
-make install    # go install ./cmd/jira
-make clean      # rm -rf bin/
+APPEND to progress.txt (never replace, always append):
+```
+## [Date/Time] - [Story ID]
+- What was implemented
+- Files changed
+- **Learnings for future iterations:**
+  - Patterns discovered (e.g., "this codebase uses X for Y")
+  - Gotchas encountered (e.g., "don't forget to update Z when changing W")
+  - Useful context (e.g., "the evaluation panel is in component X")
+---
 ```
 
-## Architecture
+The learnings section is critical - it helps future iterations avoid repeating mistakes and understand the codebase better.
 
-gh-CLI blueprint: Cobra command tree, Factory DI, lazy auth resolution.
+## Consolidate Patterns
 
-**Dependency order** (acyclic — build leaf-first):
+If you discover a **reusable pattern** that future iterations should know, add it to the `## Codebase Patterns` section at the TOP of progress.txt (create it if it doesn't exist). This section should consolidate the most important learnings:
+
 ```
-errors → iostreams → config → auth → api → output → factory → commands → main.go
-```
-
-**Key packages:**
-- `internal/errors` — CLIError type (codes, context, suggestions, exit codes 0-8)
-- `internal/iostreams` — IO abstraction (TTY detection, color, pager)
-- `internal/config` — TOML config at XDG path, profiles
-- `internal/auth` — Keyring storage, credential resolver (flags → env → profile)
-- `internal/api` — HTTP client, auth transport, retry, Jira types, typed API methods
-- `internal/output` — Formatter (OutputData/OutputList/OutputMutation/OutputDryRun), table, JSON envelopes, jq
-- `internal/adf` — Markdown → Atlassian Document Format converter
-- `internal/factory` — Lazy DI hub (IOStreams, Config, Auth, APIClient)
-- `internal/cmd/*` — Cobra command implementations
-
-## Command Pattern
-
-Every command follows this structure — no exceptions:
-
-```go
-func NewCmdXxx(f *factory.Factory) *cobra.Command {
-    opts := &XxxOptions{}
-    cmd := &cobra.Command{
-        Use:   "xxx <required-arg>",
-        Short: "One-line description",
-        RunE: func(cmd *cobra.Command, args []string) error {
-            // parse positional args into opts
-            return xxxRun(cmd.Context(), f, opts)
-        },
-    }
-    cmd.Flags().StringVar(&opts.Field, "field", "", "description")
-    return cmd
-}
+## Codebase Patterns
+- Example: Use `sql<number>` template for aggregations
+- Example: Always use `IF NOT EXISTS` for migrations
+- Example: Export types from actions.ts for UI components
 ```
 
-- Constructor returns `*cobra.Command`, takes `*factory.Factory`
-- Options struct holds parsed flags and args
-- Run function takes `(context.Context, *factory.Factory, *XxxOptions)`, returns `error`
-- No `init()`, no global state, no package-level vars
+Only add patterns that are **general and reusable**, not story-specific details.
 
-## Error Handling
+## Update CLAUDE.md Files
 
-- Commands **return** errors — they never write to stderr directly
-- `main.go` is the sole error renderer (prevents double-printing)
-- All errors should be `*CLIError` with code, message, context, suggestion
-- Use constructors: `NewAuthError`, `NewValidationError`, `NewNotFoundError`, etc.
-- Exit codes: 0=success, 1=general, 2=auth, 3=validation, 4=not-found, 5=permission, 6=rate-limited, 7=network-error, 8=conflict
+Before committing, check if any edited files have learnings worth preserving in nearby CLAUDE.md files:
 
-## Output Rules
+1. **Identify directories with edited files** - Look at which directories you modified
+2. **Check for existing CLAUDE.md** - Look for CLAUDE.md in those directories or parent directories
+3. **Add valuable learnings** - If you discovered something future developers/agents should know:
+   - API patterns or conventions specific to that module
+   - Gotchas or non-obvious requirements
+   - Dependencies between files
+   - Testing approaches for that area
+   - Configuration or environment requirements
 
-- Data to stdout, errors/warnings to stderr
-- No ANSI escape codes when stdout is not a TTY
-- JSON envelopes: bare object (single reads), `{"data":[], "pagination":{}}` (lists), `{"ok":true, ...}` (mutations)
-- `OutputError` is a standalone function, not on Formatter
+**Examples of good CLAUDE.md additions:**
+- "When modifying X, also update Y to keep them in sync"
+- "This module uses pattern Z for all API calls"
+- "Tests require the dev server running on PORT 3000"
+- "Field names must match the template exactly"
 
-## API Client Rules
+**Do NOT add:**
+- Story-specific implementation details
+- Temporary debugging notes
+- Information already in progress.txt
 
-- All requests go through `Client.Do()` — never construct raw HTTP requests in commands
-- Auth injected via `http.RoundTripper` (Basic auth: `base64(email:token)`)
-- Accept 200, 201, 204 as success; skip body decode on 204
-- Retry only 429 (with Retry-After) and 5xx; never retry 401 or timeouts
-- Base URL: `https://{instance}/rest/api/3/{path}`
+Only update CLAUDE.md if you have **genuinely reusable knowledge** that would help future work in that directory.
 
-## Testing
+## Quality Requirements
 
-- `httptest.NewServer` for API mocks — no real Jira instance in tests
-- `iostreams.Test()` for output capture (returns buffers, `isTTY: false`)
-- `keyring.MockInit()` for in-memory keyring — no OS keyring in tests
-- `t.TempDir()` for config file isolation
-- `t.Setenv()` for env var tests
-- Table-driven tests preferred
+- ALL commits must pass your project's quality checks (typecheck, lint, test)
+- Do NOT commit broken code
+- Keep changes focused and minimal
+- Follow existing code patterns
 
-## Dependencies (11)
+## Browser Testing (If Available)
 
-| Package | Purpose |
-|---------|---------|
-| `spf13/cobra` | CLI framework |
-| `hashicorp/go-retryablehttp` | HTTP retry with backoff |
-| `BurntSushi/toml` | Config format |
-| `zalando/go-keyring` | Secure credential storage |
-| `yuin/goldmark` | Markdown parsing for ADF conversion |
-| `jedib0t/go-pretty/v6` | Table output |
-| `fatih/color` | Color output |
-| `mattn/go-isatty` | TTY detection |
-| `adrg/xdg` | XDG config paths |
-| `cli/browser` | Cross-platform browser opening |
-| `itchyny/gojq` | Pure Go jq for `--jq` flag |
+For any story that changes UI, verify it works in the browser if you have browser testing tools configured (e.g., via MCP):
 
-## Key Conventions
+1. Navigate to the relevant page
+2. Verify the UI changes work as expected
+3. Take a screenshot if helpful for the progress log
 
-- Jira API v3 only — use new endpoints (`POST /search/jql`, not `GET /search`)
-- `User.EmailAddress` is `*string` (nullable — Jira privacy settings)
-- `deleteSubtasks` is a string query param (`"true"`), not boolean
-- Instance URLs stored as bare hostname (`mycompany.atlassian.net`)
-- Config writes use write-to-temp-then-rename (atomic)
-- Auth-free commands (`config`, `alias`, `--help`, `--version`) must never trigger credential resolution
+If no browser tools are available, note in your progress report that manual browser verification is needed.
 
-## Reference Docs
+## Stop Condition
 
-- `SPEC.md` — functional specification
-- `PLAN.md` — implementation plan with architecture
-- `tasks/prd-jira-cli-foundation.md` — detailed PRD for Phases 0-2 (32 user stories, **supersedes SPEC.md and PLAN.md where they differ**)
+After completing a user story, check if ALL stories have `passes: true`.
+
+If ALL stories are complete and passing, reply with:
+<promise>COMPLETE</promise>
+
+If there are still stories with `passes: false`, end your response normally (another iteration will pick up the next story).
+
+## Important
+
+- Work on ONE story per iteration
+- Commit frequently
+- Keep CI green
+- Read the Codebase Patterns section in progress.txt before starting
