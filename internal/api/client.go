@@ -39,8 +39,9 @@ func withBaseURL(url string) ClientOption {
 }
 
 // NewClient creates a Client authenticated with the given credentials.
+// The transport chain is: retryablehttp → authTransport → http.DefaultTransport.
 func NewClient(creds *auth.Credentials, opts ...ClientOption) *Client {
-	transport := &authTransport{
+	authT := &authTransport{
 		base:  http.DefaultTransport,
 		user:  creds.User,
 		token: creds.Token,
@@ -48,7 +49,7 @@ func NewClient(creds *auth.Credentials, opts ...ClientOption) *Client {
 
 	c := &Client{
 		httpClient: &http.Client{
-			Transport: transport,
+			Transport: newRetryableTransport(authT),
 			Timeout:   defaultTimeout,
 		},
 		baseURL:  fmt.Sprintf("https://%s/rest/api/3", creds.Instance),
@@ -100,7 +101,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body interface{}, 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("send request: %w", err)
+		return mapNetworkError(err, c.instance)
 	}
 	defer resp.Body.Close()
 
@@ -122,8 +123,6 @@ func (c *Client) Do(ctx context.Context, method, path string, body interface{}, 
 		return nil
 	}
 
-	// Non-success: read body for error details and return a generic error.
-	// US-007b will add proper Jira ErrorCollection parsing and CLIError mapping.
-	respBody, _ := io.ReadAll(resp.Body)
-	return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+	// Non-success: parse Jira ErrorCollection and map to CLIError.
+	return mapHTTPError(resp, c.instance)
 }

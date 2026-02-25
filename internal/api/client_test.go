@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/endgameio/jira-cli/internal/auth"
+	cliErrors "github.com/endgameio/jira-cli/internal/errors"
 )
 
 // newTestClient creates a Client whose base URL points at the httptest server.
@@ -156,16 +158,16 @@ func TestDo_Status204_NilOut(t *testing.T) {
 	}
 }
 
-func TestDo_ErrorStatus_ReturnsError(t *testing.T) {
+func TestDo_ErrorStatus_ReturnsCLIError(t *testing.T) {
 	tests := []struct {
-		name   string
-		status int
+		name     string
+		status   int
+		wantCode cliErrors.ErrorCode
 	}{
-		{"400", http.StatusBadRequest},
-		{"401", http.StatusUnauthorized},
-		{"403", http.StatusForbidden},
-		{"404", http.StatusNotFound},
-		{"500", http.StatusInternalServerError},
+		{"400", http.StatusBadRequest, cliErrors.VALIDATION_ERROR},
+		{"401", http.StatusUnauthorized, cliErrors.AUTH_ERROR},
+		{"403", http.StatusForbidden, cliErrors.PERMISSION_DENIED},
+		{"404", http.StatusNotFound, cliErrors.NOT_FOUND},
 	}
 
 	for _, tt := range tests {
@@ -181,8 +183,16 @@ func TestDo_ErrorStatus_ReturnsError(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
-			if !strings.Contains(err.Error(), "unexpected status") {
-				t.Errorf("error = %q, want it to contain 'unexpected status'", err.Error())
+
+			var cliErr *cliErrors.CLIError
+			if !errors.As(err, &cliErr) {
+				t.Fatalf("expected CLIError, got %T: %v", err, err)
+			}
+			if cliErr.Code != tt.wantCode {
+				t.Errorf("code = %q, want %q", cliErr.Code, tt.wantCode)
+			}
+			if !strings.Contains(cliErr.Message, "something went wrong") {
+				t.Errorf("message = %q, want it to contain 'something went wrong'", cliErr.Message)
 			}
 		})
 	}

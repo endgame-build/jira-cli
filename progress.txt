@@ -22,6 +22,10 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - API: `withBaseURL()` (unexported) ClientOption for tests — httptest servers are HTTP, but production base URL is HTTPS; use this to redirect
 - API: `Do()` accepts 200/201/204 as success; skips body decode on 204; non-success returns error with status + body
 - API: `BrowseURL(key)` constructs `https://{instance}/browse/{key}` — Jira API `self` field is the REST URL, not browser URL
+- API: Transport chain order: `retryable(auth(http.DefaultTransport))` — auth headers set before retry wraps
+- API: `mapHTTPError()` converts HTTP response → CLIError; `mapNetworkError()` converts Go net errors → CLIError(NETWORK_ERROR)
+- API: `ErrorCollection{ErrorMessages, Errors}` mirrors Jira's error response shape; `Summary()` joins both into one string
+- API: retryablehttp `PassthroughErrorHandler` is required to let failed responses reach `Do()` for proper CLIError mapping
 
 ---
 
@@ -109,4 +113,21 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `authTransport` clones requests via `req.Clone(req.Context())` to avoid mutating caller's original — important for retry correctness
   - `Do()` returns generic `fmt.Errorf` for non-success status codes; US-007b will replace this with Jira ErrorCollection parsing and CLIError mapping
   - 204 handling: skip decode unconditionally (even if `out != nil`) — prevents "unexpected EOF" decode errors on empty bodies
+---
+
+## 2026-02-26 - US-007b
+- Implemented API client retry logic and Jira error response parsing
+- Files changed: internal/api/errors.go (new), internal/api/retry.go (new), internal/api/net_errors.go (new), internal/api/client.go (updated Do() error path), internal/api/errors_test.go (new), internal/api/retry_test.go (new), internal/api/net_errors_test.go (new), internal/api/test_helpers_test.go (new), internal/api/client_test.go (updated old error test)
+- ErrorCollection parsing: extracts Jira errorMessages array + errors map into single summary string
+- HTTP error mapping: 400→VALIDATION, 401→AUTH, 403→PERMISSION, 404→NOT_FOUND, 409→CONFLICT, 429→RATE_LIMITED, 5xx→GENERAL
+- Retry via go-retryablehttp RoundTripper: max 3 retries on 429 (respects Retry-After) and 5xx; never retries 401, timeouts, or other 4xx
+- Network errors classified: DNS, connection refused, TLS, timeout → NETWORK_ERROR with instance context
+- 46 new+updated tests (all passing): error parsing (10), HTTP mapping (5), retry behavior (8), retry policy direct (11), network classification (7), integration (5)
+- **Learnings for future iterations:**
+  - `retryablehttp.CheckRetry` signature is `func(ctx context.Context, resp *http.Response, err error) (bool, error)` — context param required
+  - `retryablehttp.PassthroughErrorHandler` lets the final failed response pass through to the caller (otherwise retryablehttp wraps/consumes it)
+  - `retryablehttp.RoundTripper{Client: rc}` adapts retryablehttp.Client into an `http.RoundTripper` — layer it as the outermost transport
+  - Transport chain order: retryable(auth(http.DefaultTransport)) — auth headers set first, then retry wraps the whole thing
+  - 5xx retry tests with real backoff are slow (~7s for 3 retries). Consider `retryWaitMin=0` in test helpers for faster suites
+  - `errors.As(err, &cliErr)` works through the `CLIError.Unwrap()` chain — always use this for type assertion in tests
 ---
