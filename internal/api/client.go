@@ -31,11 +31,16 @@ func WithTimeout(d time.Duration) ClientOption {
 	}
 }
 
-// withBaseURL overrides the base URL (used by tests with httptest.NewServer).
+// withBaseURL overrides the base URL (used by tests within api package).
 func withBaseURL(url string) ClientOption {
 	return func(c *Client) {
 		c.baseURL = url
 	}
+}
+
+// WithBaseURL overrides the base URL. Exported for cross-package test helpers.
+func WithBaseURL(url string) ClientOption {
+	return withBaseURL(url)
 }
 
 // NewClient creates a Client authenticated with the given credentials.

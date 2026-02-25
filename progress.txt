@@ -34,6 +34,10 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - Output: `OutputError(w, err, asJSON)` auto-wraps plain errors as GENERAL_ERROR; renders to stderr
 - Output: `PaginationMeta.Total` is `*int` — nil serializes as `null` (use for token-based search)
 - Output: `ApplyJQ` strings are printed unquoted; other types as JSON (matches gh CLI --jq behavior)
+- Factory: `New()` for production (eager IOStreams), `NewTestFactory(ios, cfg, client)` for tests (pre-wired, no lazy resolution)
+- Factory: global flags (Profile, OutputJSON, Quiet, DryRun, JQExpr, Text, etc.) are public fields set by PersistentPreRunE
+- Factory: `profileConfigAdapter` + `profileConfigBridge` adapts config→auth without import cycle; test configs use disk TOML
+- Factory: `api.WithBaseURL()` (exported) for cross-package httptest; `withBaseURL()` (unexported) for api-internal tests
 
 ---
 
@@ -175,4 +179,22 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `formatJQValue()` prints strings unquoted, everything else as JSON — this matches gh CLI's --jq behavior exactly
   - `OutputError` accepts `error` (not just `*CLIError`) — wraps plain errors in GENERAL_ERROR automatically
   - go-pretty `StyleLight` with `DrawBorder=false, SeparateHeader=false` gives clean borderless table output
+---
+
+## 2026-02-26 - US-010
+- Implemented Factory DI hub with lazy IOStreams (eager), Config, TokenStore, AuthCredentials, APIClient (all lazy via sync.Once)
+- Global flag storage: Profile, FlagInstance, FlagUser, FlagToken, OutputJSON, NoColor, Verbose, DryRun, Quiet, JQExpr, Text
+- profileConfigBridge adapts config.*fileConfig profile methods to auth.ProfileConfig interface (avoids import cycle)
+- NewTestFactory pre-fills sync.Once caches so tests never hit real IO/auth
+- Exported config.ConfigDir() (was unexported configDir()) for Factory to construct tokens.json path
+- Exported api.WithBaseURL() for cross-package test helpers (was unexported withBaseURL())
+- Files changed: internal/factory/factory.go (new), internal/factory/testing.go (new), internal/factory/factory_test.go (new), internal/config/paths.go (configDir→ConfigDir), internal/api/client.go (added WithBaseURL)
+- Removed internal/factory/.gitkeep (replaced by real .go files)
+- 16 tests (all passing, race-free): New(), Config lazy/cached/real-load, APIClient not-until-accessed/resolved/flags/env/no-creds, AuthCredentials cached, TokenStore cached, NewTestFactory, NewTestFactory nil, profileConfigBridge, concurrent access, API request end-to-end, global flags zero-value
+- **Learnings for future iterations:**
+  - `profileConfigAdapter` interface (unexported) lets Factory type-assert config.Config to get profile methods without exporting fileConfig
+  - `profileConfigBridge` converts `config.Profile` → `auth.ProfileData` (different packages, same shape) — required to bridge config↔auth without import cycle
+  - `sync.Once` pre-trigger trick: `f.configOnce.Do(func() { f.configVal = cfg })` in NewTestFactory prevents lazy init
+  - Test configs: write TOML to disk then `config.LoadFromPath()` — avoids needing exported fileConfig type
+  - `api.WithBaseURL()` (exported) needed for cross-package httptest patterns; `withBaseURL()` (unexported) remains for api-internal tests
 ---
