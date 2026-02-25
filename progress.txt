@@ -14,6 +14,11 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - Config: `LoadFromPath(path)` for tests; `Load()` for production (uses XDG path)
 - Config: profile/alias methods live on `*fileConfig` (concrete type), not the `Config` interface — type-assert when needed
 - Config: write-to-temp-then-rename pattern in `Save()` — never write directly to config.toml
+- Auth: `keyring.MockInit()` at test start for any test touching `keyringStore`; `keyring.ErrNotFound` is the shared not-found sentinel
+- Auth: `TokenStore` interface (StoreToken/RetrieveToken/DeleteToken) — keyring primary, file fallback, `NewTokenStore()` constructor
+- Auth: `Resolve()` chain: flags > env > profile. Partial credentials at any level = VALIDATION_ERROR. No creds at all = AUTH_ERROR
+- Auth: `ProfileConfig` interface decouples resolver from config package — use `ProfileData` not `config.Profile` to avoid import cycle
+- Auth: `NormalizeInstanceURL()` strips scheme, trailing slashes, and /rest/... suffix — call at resolution time, not storage time
 
 ---
 
@@ -62,4 +67,31 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - TOML section names use `[defaults]` and `[output]` (not `[default]` — matches the dot-notation keys `default.project`)
   - `validateValue()` allows empty string (clearing a value) — only rejects non-empty invalid values
   - `SetActiveProfile()` fails if profile doesn't exist; `DeleteProfile()` clears active if deleting the active one
+---
+
+## 2026-02-26 - US-005
+- Implemented credential storage with OS keyring + plaintext fallback
+- Files changed: internal/auth/keyring.go, internal/auth/keyring_fallback.go, internal/auth/keyring_test.go
+- Removed internal/auth/.gitkeep (replaced by real .go files)
+- 20 tests (all passing): keyring CRUD, file CRUD, multi-profile, overwrite, file permissions (0600), atomic write, fallback on keyring failure (with stderr warning), fallback on keyring success (no file), retrieve from keyring, not-found-in-both, delete-from-both, delete-not-found-in-both, NewTokenStore integration, tokenKey format
+- **Learnings for future iterations:**
+  - `keyring.MockInit()` replaces the global provider — call it at the start of every test that uses `keyringStore` directly
+  - `keyring.ErrNotFound` is the canonical "not found" sentinel — reuse it from file store too for consistent API
+  - `fallbackStore` tries both stores on delete (keyring + file) since tokens may have been stored in either location
+  - `errKeyring` test mock: implement `TokenStore` interface with hardcoded errors to simulate broken OS keyring (e.g., no dbus on Linux)
+  - File fallback uses `0o600` permissions and `0o700` dir — mirrors SSH key security patterns
+  - Pre-commit hook auto-reformats `gofmt` — don't align one-liner methods with extra spaces
+---
+
+## 2026-02-26 - US-006
+- Implemented auth resolver chain: flags > env vars > stored profile
+- Files changed: internal/auth/credentials.go (new), internal/auth/credentials_test.go (new)
+- Credentials struct (Instance/User/Token), Resolve() function, NormalizeInstanceURL() utility
+- ProfileConfig interface decouples resolver from config package (avoids import cycle)
+- 29 tests (all passing): 19 Resolve tests (flags complete, flags partial ×3, env complete, env partial ×2, env normalization, profile active, profile named, profile normalization, profile not found, token not found, nil config, empty config, flags override env, env overrides profile) + 10 NormalizeInstanceURL tests
+- **Learnings for future iterations:**
+  - `ProfileConfig` and `ProfileData` are defined in auth package to avoid config→auth import cycle. Commands that use Resolve() must adapt `config.Profile` → `auth.ProfileData`
+  - `NormalizeInstanceURL` handles edge case `/rest/` (no path after) via `HasSuffix` check in addition to `Index("/rest/")`
+  - Test env vars with `t.Setenv()` — always clear JIRA_INSTANCE/JIRA_USER/JIRA_TOKEN before each test case to avoid cross-contamination
+  - Partial credentials at ANY level are VALIDATION_ERROR (not fallback) — this is a design choice preventing confusing "half-flag, half-env" combos
 ---
