@@ -29,6 +29,11 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - API: `IssueFields` custom UnmarshalJSON uses `type Alias` trick + two-pass decode; CustomFields captures anything not in `knownFieldKeys`
 - API: LinkedIssue uses `LinkedIssueFields` (subset), not `IssueFields` (full) — linked issue responses are trimmed
 - API: Input types use `map[string]interface{}` for Fields (dynamic shape) and `map[string]json.RawMessage` for Update (operation arrays)
+- Output: `NewFormatter(ios, asJSON, jqExpr)` — jqExpr implies JSON mode; use `f.IsJSON()` to check mode
+- Output: JSON envelopes — `OutputData` (bare), `OutputList` ({data, pagination}), `OutputMutation` ({ok:true, ...}), `OutputDryRun` ({dry_run:true, payload, validation})
+- Output: `OutputError(w, err, asJSON)` auto-wraps plain errors as GENERAL_ERROR; renders to stderr
+- Output: `PaginationMeta.Total` is `*int` — nil serializes as `null` (use for token-based search)
+- Output: `ApplyJQ` strings are printed unquoted; other types as JSON (matches gh CLI --jq behavior)
 
 ---
 
@@ -150,4 +155,24 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `json:"-"` on CustomFields prevents double-marshaling — it's populated only via custom UnmarshalJSON
   - LinkedIssue.Fields uses a separate LinkedIssueFields type (not IssueFields) because linked issues return a subset of fields
   - SearchResults uses NextPageToken/IsLast (token-based), not startAt/total (legacy) — matches Jira v3 POST /search/jql
+---
+
+## 2026-02-26 - US-009
+- Implemented output formatter package with 5 files: formatter.go, json.go, jq.go, table.go, errors.go
+- Formatter routes between JSON and text (table) modes; supports jq filtering via gojq
+- JSON envelopes: bare object (OutputData), {data:[], pagination:{}} (OutputList), {ok:true, ...} (OutputMutation), {dry_run:true, payload, validation} (OutputDryRun)
+- JQ: ApplyJQ parses gojq expression, strings printed unquoted (matches gh --jq behavior), numbers/bools/null as JSON literals
+- Table: go-pretty/v6 with StyleLight, no border, column separators enabled
+- Error output: OutputError renders CLIError JSON envelope or "Error: message\nSuggestion: ..." text to stderr
+- Files changed: internal/output/formatter.go, internal/output/json.go, internal/output/jq.go, internal/output/table.go, internal/output/errors.go, internal/output/output_test.go
+- Removed internal/output/.gitkeep (replaced by real .go files)
+- 35 top-level tests (39 with subtests), all passing
+- **Learnings for future iterations:**
+  - `NewFormatter(ios, asJSON, jqExpr)` — jqExpr != "" implies JSON mode (no need to also set asJSON)
+  - `mutationEnvelope.MarshalJSON()` flattens ok + extras into one flat object — no nested "result" key
+  - `writeJSON()` uses `SetEscapeHTML(false)` to avoid escaping `<`, `>`, `&` in URLs (matches gh CLI behavior)
+  - `PaginationMeta.Total` is `*int` (nil for token-based search where total is unknown) — serializes as `null` in JSON
+  - `formatJQValue()` prints strings unquoted, everything else as JSON — this matches gh CLI's --jq behavior exactly
+  - `OutputError` accepts `error` (not just `*CLIError`) — wraps plain errors in GENERAL_ERROR automatically
+  - go-pretty `StyleLight` with `DrawBorder=false, SeparateHeader=false` gives clean borderless table output
 ---
