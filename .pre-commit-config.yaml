@@ -1,0 +1,72 @@
+# See https://pre-commit.com for more information
+# Install: make hooks
+# Run manually: pre-commit run --all-files
+
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  # ── General checks ──────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=500]
+
+  # ── Secret detection ────────────────────────────────────────────
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.22.1
+    hooks:
+      - id: gitleaks
+
+  # ── Conventional commits ────────────────────────────────────────
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.0.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args:
+          - feat
+          - fix
+          - docs
+          - refactor
+          - test
+          - chore
+          - build
+          - ci
+
+  # ── Go checks (system — uses project's Go toolchain) ───────────
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: gofmt
+        entry: bash -c 'gofmt -l -d "$@" && test -z "$(gofmt -l "$@")"'
+        language: system
+        types: [go]
+        pass_filenames: true
+
+      - id: go-vet
+        name: go vet
+        entry: go vet ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: go-build
+        name: go build
+        entry: go build ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: go-test
+        name: go test
+        entry: go test -short -count=1 ./...
+        language: system
+        types: [go]
+        pass_filenames: false
