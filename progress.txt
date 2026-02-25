@@ -1,0 +1,48 @@
+# Ralph Progress Log
+Started: Thu Feb 26 00:47:59 EET 2026
+---
+
+## Codebase Patterns
+- Error constructors return `*CLIError` (pointer), enabling fluent `.WithContext()`, `.WithSuggestion()`, `.WithErr()` chains
+- Exit codes: 1=general, 2=auth, 3=validation (includes transition/field/type/user), 4=not-found, 5=permission, 6=rate-limit, 7=network, 8=conflict
+- JSON error envelope: `{"error": {"code": "...", "message": "...", "context": {...}, "suggestion": "..."}}`
+- Table-driven tests throughout — every constructor should have a row in the test table
+- `.gitkeep` files placeholder empty directories; remove when adding real `.go` files
+- IOStreams: `Test()` returns `*TestIOStreams` with `.OutBuf`/`.ErrBuf`/`.InBuf` buffers for assertions
+- IOStreams: pager tests use `JIRA_PAGER=cat` + `stdoutIsTTY=true` to exercise lifecycle without a real TTY
+- IOStreams: `NoPager` and `IsJSON` are public fields — set them before calling `StartPager()`
+
+---
+
+## 2026-02-26 - US-001
+- Already completed in bootstrap commit (1b5ec52)
+- All 11 Go dependencies, Makefile targets, directory layout, CLAUDE.md conventions present
+- Files: go.mod, go.sum, Makefile, .gitignore, cmd/jira/main.go, internal/*/.gitkeep, CLAUDE.md
+- **Learnings for future iterations:**
+  - `tools.go` with `//go:build tools` keeps unused deps in go.sum without import errors
+  - Go 1.25 pinned in go.mod (system latest)
+---
+
+## 2026-02-26 - US-002
+- Implemented CLIError type with 12 error codes, constructors, JSON marshaling, errors.Is/As support
+- Files changed: internal/errors/errors.go, internal/errors/errors_test.go
+- 17 tests (all passing): constructors, context shapes, JSON envelope, wrapping, fluent methods
+- **Learnings for future iterations:**
+  - CLIError.MarshalJSON wraps in `{"error": {...}}` envelope — callers don't need to wrap
+  - INVALID_TRANSITION, MISSING_FIELD, UNKNOWN_TYPE, AMBIGUOUS_USER all share exit code 3 (validation family)
+  - NewNotFoundError with empty key produces nil Context (no {"key":""} in JSON)
+  - `.WithContext()` replaces — doesn't merge. Use only in constructors or call once
+---
+
+## 2026-02-26 - US-003
+- Implemented IOStreams abstraction with TTY detection, color control, and pager support
+- Files changed: internal/iostreams/iostreams.go, internal/iostreams/testing.go, internal/iostreams/iostreams_test.go
+- Removed internal/iostreams/.gitkeep (replaced by real .go files)
+- 16 top-level tests (21 with subtests), all passing: Test() constructor, color methods (no-color/with-color), pager lifecycle (cat-based), pager guards (NoPager, IsJSON, non-TTY), NO_COLOR env, pagerName chain, pipe safety
+- **Learnings for future iterations:**
+  - `Test()` returns `*TestIOStreams` (wraps `*IOStreams` + exposed buffers) — use `tio.OutBuf.String()` for assertions
+  - Color methods are on IOStreams, not standalone — call `ios.Green("text")` not `color.Green("text")`
+  - Pager test trick: set `JIRA_PAGER=cat` + fake `stdoutIsTTY=true` to exercise full StartPager/StopPager lifecycle without a terminal
+  - `fatih/color` has a global `color.NoColor` — `SetColorEnabled()` syncs it. Tests that enable color should be aware of this global state
+  - `NoPager` and `IsJSON` are public fields set by commands before calling `StartPager()` — not via constructor args
+---

@@ -186,7 +186,7 @@
         "Tests pass"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "--no-pager is per-command, not global. Registered only on commands producing long output. Pager and color are independent controls."
     },
     {
