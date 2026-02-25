@@ -102,3 +102,68 @@ If there are still stories with `passes: false`, end your response normally (ano
 - Commit frequently
 - Keep CI green
 - Read the Codebase Patterns section in progress.txt before starting
+
+---
+
+## Project Conventions
+
+### Module & Build
+- Module path: `github.com/endgameio/jira-cli`
+- Go 1.25 (pinned in go.mod)
+- Entry point: `cmd/jira/main.go`
+- Build: `make build` → `bin/jira`; `make test`; `make lint` (go vet)
+
+### Command Constructor Pattern
+Every command follows the gh-CLI blueprint:
+```go
+func NewCmdXxx(f *factory.Factory) *cobra.Command {
+    opts := &XxxOptions{}
+    cmd := &cobra.Command{
+        Use:   "xxx",
+        Short: "...",
+        RunE: func(cmd *cobra.Command, args []string) error {
+            // resolve lazy deps from f
+            return runXxx(opts)
+        },
+    }
+    // register flags on cmd
+    return cmd
+}
+```
+- `XxxOptions` struct holds all resolved inputs
+- No `init()` functions — ever
+- No global state
+
+### Error Handling
+- Commands return `error` (never `os.Exit`)
+- `main.go` is the sole owner of error rendering and exit codes
+- Use `internal/errors.CLIError` for structured errors
+
+### Test Patterns
+- `httptest.NewServer` for API mocks
+- `iostreams.Test()` for capturing stdout/stderr
+- `keyring.MockInit()` for credential tests
+- `t.TempDir()` for config files, `t.Setenv()` for env vars
+- Table-driven tests throughout
+
+### Directory Layout
+```
+cmd/jira/          — binary entrypoint
+internal/
+  errors/          — CLIError type and codes
+  iostreams/       — I/O abstraction (color, pager, tty)
+  config/          — TOML config read/write
+  auth/            — credential store (keyring)
+  api/             — Jira REST client
+  output/          — text/JSON/table formatters
+  adf/             — ADF → Markdown converter
+  factory/         — Factory DI container
+  cmd/
+    root/          — root command + global flags
+    auth/          — auth login/logout/status
+    issue/         — issue view/create/edit/delete/move/assign/list
+    search/        — search command
+    config/        — config get/set/list
+    alias/         — alias set/delete/list
+    shared/        — shared helpers (field parsing, user resolution)
+```
