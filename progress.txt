@@ -19,6 +19,9 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - Auth: `Resolve()` chain: flags > env > profile. Partial credentials at any level = VALIDATION_ERROR. No creds at all = AUTH_ERROR
 - Auth: `ProfileConfig` interface decouples resolver from config package — use `ProfileData` not `config.Profile` to avoid import cycle
 - Auth: `NormalizeInstanceURL()` strips scheme, trailing slashes, and /rest/... suffix — call at resolution time, not storage time
+- API: `withBaseURL()` (unexported) ClientOption for tests — httptest servers are HTTP, but production base URL is HTTPS; use this to redirect
+- API: `Do()` accepts 200/201/204 as success; skips body decode on 204; non-success returns error with status + body
+- API: `BrowseURL(key)` constructs `https://{instance}/browse/{key}` — Jira API `self` field is the REST URL, not browser URL
 
 ---
 
@@ -94,4 +97,16 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `NormalizeInstanceURL` handles edge case `/rest/` (no path after) via `HasSuffix` check in addition to `Index("/rest/")`
   - Test env vars with `t.Setenv()` — always clear JIRA_INSTANCE/JIRA_USER/JIRA_TOKEN before each test case to avoid cross-contamination
   - Partial credentials at ANY level are VALIDATION_ERROR (not fallback) — this is a design choice preventing confusing "half-flag, half-env" combos
+---
+
+## 2026-02-26 - US-007a
+- Implemented API client core: auth transport (RoundTripper) and Client with Do() method
+- Files changed: internal/api/transport.go (new), internal/api/client.go (new), internal/api/client_test.go (new)
+- Removed internal/api/.gitkeep (replaced by real .go files)
+- 14 top-level tests (18 with subtests), all passing: auth header injection (Basic base64), Content-Type/Accept headers, base URL construction (/rest/api/3/path), 200 decode, 201 decode, 204 skip decode (with and without out pointer), error statuses (400/401/403/404/500), request body marshaling, nil body, nil out on 200, Instance() accessor, BrowseURL() construction, WithTimeout option, context cancellation, HTTP method preservation (GET/POST/PUT/DELETE)
+- **Learnings for future iterations:**
+  - `httptest.NewServer` creates plain HTTP; `NewClient` builds `https://` base URL. Use `withBaseURL()` (unexported) option to redirect tests to httptest server
+  - `authTransport` clones requests via `req.Clone(req.Context())` to avoid mutating caller's original — important for retry correctness
+  - `Do()` returns generic `fmt.Errorf` for non-success status codes; US-007b will replace this with Jira ErrorCollection parsing and CLIError mapping
+  - 204 handling: skip decode unconditionally (even if `out != nil`) — prevents "unexpected EOF" decode errors on empty bodies
 ---
