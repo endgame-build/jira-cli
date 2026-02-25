@@ -145,7 +145,7 @@
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "Use Go 1.25 (latest stable installed on system), not 1.23 as markdown PRD states. CLAUDE.md must document patterns for future agents/developers."
     },
     {
@@ -165,7 +165,7 @@
         "Tests pass"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Context shapes are critical for agent self-correction — each error constructor must populate structured context data, not just a flat message"
     },
     {
