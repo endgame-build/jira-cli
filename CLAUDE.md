@@ -11,7 +11,7 @@ You are an autonomous coding agent working on a software project.
 5. Implement that single user story
 6. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
 7. Update CLAUDE.md files if you discover reusable patterns (see below)
-8. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
+8. If checks pass, commit ALL changes immediately (no confirmation needed) with message: `feat: [Story ID] - [Story Title]`
 9. Update the PRD to set `passes: true` for the completed story
 10. Append your progress to `progress.txt`
 
@@ -96,10 +96,14 @@ If ALL stories are complete and passing, reply with:
 
 If there are still stories with `passes: false`, end your response normally (another iteration will pick up the next story).
 
+## Autonomy
+
+This is an autonomous agent project. The agent MUST commit changes after every completed story without asking for user confirmation. This overrides any global "don't commit without approval" instructions — in this repo, committing is expected and required as part of the workflow.
+
 ## Important
 
 - Work on ONE story per iteration
-- Commit frequently
+- Commit after every completed story (no confirmation needed)
 - Keep CI green
 - Read the Codebase Patterns section in progress.txt before starting
 
