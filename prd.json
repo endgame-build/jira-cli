@@ -557,7 +557,7 @@
         "Tests pass"
       ],
       "priority": 22,
-      "passes": false,
+      "passes": true,
       "notes": "Performance: token-based offset is consume-and-discard \u2014 large offsets cause proportionally large API load. Consider warning when offset > 1000."
     },
     {

@@ -44,6 +44,7 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - Alias commands: `aliasManager` local interface (Aliases/SetAlias/Save) for type-asserting config — same pattern as `profileSetter` and `profileManager`
 - Shadow detection in alias set: `cmd.Root().Commands()` dynamically checks all registered commands — avoids hardcoded lists and circular imports
 - ADF: `Convert(markdown)` returns `(*Node, error)` — the Node is always type `doc` with `version:1`. Empty string returns valid empty doc. goldmark tight lists use `TextBlock` not `Paragraph` for items
+- Pagination: `FetchTokenPage[T]`, `FetchOffsetPage[T]`, `FetchRawArrayPage[T]` — all return `([]T, *output.PaginationMeta, error)`. Use token-based for search, offset-based for paged endpoints, raw-array for plain-array endpoints (e.g., /user/search)
 - `.gitignore`: bare names (e.g., `jira`) match recursively; use `/jira` to anchor to repo root only
 - `main.go`: `run() int` separates logic from `os.Exit()` — testable via `TestRunFunction` without subprocess
 - Auth commands that create their own API client use `clientOpts []api.ClientOption` field for test injection of `api.WithBaseURL()`
@@ -339,4 +340,22 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - ADF `doc` node requires `version: 1` — Jira rejects documents without it
   - Mark accumulation pattern: `copyMarks(marks)` before append prevents mutation of parent's marks slice during recursion
   - `Convert("")` returns empty Document (no content array) — this is a valid ADF document for clearing descriptions
+---
+
+## 2026-02-26 - US-020
+- Implemented pagination helpers for token-based, offset-based, and raw-array APIs
+- Files changed: internal/api/pagination.go (new), internal/api/pagination_test.go (new)
+- Three generic paginator functions using Go type parameters:
+  - `FetchTokenPage[T]`: token-based pagination for POST /search/jql with consume-and-discard offset support and stderr warning when offset > 1000
+  - `FetchOffsetPage[T]`: offset-based pagination with startAt/maxResults/total pattern
+  - `FetchRawArrayPage[T]`: raw-array pagination for endpoints returning plain []T with has_next_page heuristic (len==limit)
+- All return `([]T, *output.PaginationMeta, error)` consistent pattern
+- PaginationMeta reused from output package (already defined in US-009)
+- 22 tests (all passing): token single/multi-page, offset skip, offset exhausted, offset warning (>1000), no warning (<1000), empty results, fetcher errors (including during skip phase), default limit, partial page; offset first/last/empty/error/default; raw-array full/partial/empty/error/default/with-offset
+- **Learnings for future iterations:**
+  - Go generics (`FetchTokenPage[T any]`) enable type-safe pagination without interface{} casts — callers specify their concrete type
+  - Token-based offset is a two-phase process: skip phase (consume pages until offset reached) then real page fetch. Skip phase uses 100-item batches for efficiency
+  - `output.PaginationMeta` already exists — don't redefine it in api package, just import it
+  - `HasNextPage` for partial pages (len < limit) is always false regardless of server's `isLast` — the server may say more exist but if we got fewer than requested, there's nothing left to show
+  - Default limit of 50 is applied when caller passes 0 — matches Jira's default maxResults
 ---
