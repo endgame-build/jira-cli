@@ -21,6 +21,7 @@ func NewCmdIssue(f *factory.Factory) *cobra.Command {
 	cmd.AddCommand(NewCmdView(f))
 	cmd.AddCommand(NewCmdCreate(f))
 	cmd.AddCommand(NewCmdEdit(f))
+	cmd.AddCommand(NewCmdDelete(f))
 	cmd.AddCommand(NewCmdMove(f))
 	cmd.AddCommand(NewCmdAssign(f))
 

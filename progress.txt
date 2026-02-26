@@ -572,3 +572,18 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - Assign is the simplest mutation command — no build-payload step, just resolve user and PUT
   - `assignHandler(issue, user, assignErr)` mock pattern: serves GET /issue, GET /user/search, PUT /assignee — reuse for delete command handler pattern
 ---
+
+## 2026-02-26 - US-027
+- Implemented `jira issue delete PROJ-123 --yes` command with confirmation, dry-run, JSON output, and quiet mode
+- Requires --yes/-y flag (without: CLIError(VALIDATION_ERROR, 'Use --yes to confirm deletion'), exit 3)
+- DELETE /rest/api/3/issue/{key}?deleteSubtasks=true (string param via API client)
+- --dry-run: validates issue exists via GetIssue, shows preview without calling DELETE
+- --json: {ok:true, key, action:'deleted'} via OutputMutation
+- Files changed: internal/cmd/issue/delete.go (new), internal/cmd/issue/delete_test.go (new), internal/cmd/issue/issue.go (register subcommand)
+- 10 tests, all passing: success text, success JSON, missing --yes, 404, 403, dry-run text (verifies no DELETE call), dry-run JSON, quiet mode, deleteSubtasks query param verification, invalid key validation
+- **Learnings for future iterations:**
+  - Delete is the simplest destructive mutation — no user resolution, no payload building, just confirm + DELETE
+  - --yes pattern matches auth logout (same CLIError + suggestion + WithSuggestion chain)
+  - `deleteSubtasks=true` is always sent (hardcoded) — the API client handles string conversion
+  - `deleteHandler(issue, deleteErr)` mock pattern: simpler than assignHandler (no user search), just DELETE + GET
+---
