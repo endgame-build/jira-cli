@@ -1,0 +1,54 @@
+version: 2
+
+project_name: jira
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: jira
+    main: ./cmd/jira
+    binary: jira
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^ci:"
+      - "^test:"
+
+release:
+  github:
+    owner: endgame-build
+    name: jira-cli
+  draft: false
+  prerelease: auto
+  name_template: "{{.Tag}}"
