@@ -57,10 +57,11 @@ All errors are `CLIError` (structured with code, message, context, suggestion). 
 
 ### Output system
 
-`output.Formatter` routes between JSON and text modes. Three output shapes:
+`output.Formatter` routes between JSON and text modes. Four output shapes:
 - `OutputData` — single item (view commands)
 - `OutputList` — list with pagination envelope
 - `OutputMutation` — mutation result with `"ok": true`
+- `OutputDryRun` — dry-run preview with payload and validation
 
 `--jq` expressions applied via `output.ApplyJQ` (itchyny/gojq, pure Go).
 
@@ -88,6 +89,7 @@ All errors are `CLIError` (structured with code, message, context, suggestion). 
 - Config writes use write-to-temp-then-rename for atomicity
 - Credential chain: flags → env vars (`JIRA_INSTANCE`, `JIRA_USER`, `JIRA_TOKEN`) → stored profiles
 - `--no-pager` is per-command (view, list, search), not global
+- `--text` overrides config-level `output.format:json` back to text mode
 - `--web + --json` is dual-action: prints JSON AND opens browser
 - `--field key=value` splits on first `=` only; named flag wins over `--field` collision (warning to stderr)
 - All mutation JSON outputs include `"ok": true`
