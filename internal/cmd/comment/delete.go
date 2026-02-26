@@ -1,0 +1,142 @@
+package comment
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/spf13/cobra"
+
+	"github.com/endgameio/jira-cli/internal/adf"
+	"github.com/endgameio/jira-cli/internal/api"
+	"github.com/endgameio/jira-cli/internal/cmd/issue"
+	clierrors "github.com/endgameio/jira-cli/internal/errors"
+	"github.com/endgameio/jira-cli/internal/factory"
+	"github.com/endgameio/jira-cli/internal/output"
+)
+
+// CommentDeleteOptions holds all resolved inputs for the comment delete command.
+type CommentDeleteOptions struct {
+	Factory *factory.Factory
+
+	IssueKey  string // positional arg 1 (required)
+	CommentID string // positional arg 2 (required)
+	Yes       bool   // --yes/-y
+}
+
+// NewCmdDelete creates the "comment delete" command.
+func NewCmdDelete(f *factory.Factory) *cobra.Command {
+	opts := &CommentDeleteOptions{
+		Factory: f,
+	}
+
+	cmd := &cobra.Command{
+		Use:   "delete <issue-key> <comment-id>",
+		Short: "Delete a comment from a Jira issue",
+		Long:  "Delete a comment from a Jira issue. Requires --yes to confirm deletion.",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			key, err := issue.ValidateIssueKeyOrID(args[0])
+			if err != nil {
+				return err
+			}
+			opts.IssueKey = key
+			opts.CommentID = args[1]
+			return runCommentDelete(opts)
+		},
+	}
+
+	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Confirm deletion")
+
+	return cmd
+}
+
+// runCommentDelete executes the comment delete workflow.
+func runCommentDelete(opts *CommentDeleteOptions) error {
+	f := opts.Factory
+	ctx := context.Background()
+
+	client, err := f.APIClient()
+	if err != nil {
+		return err
+	}
+
+	// Dry-run: validate comment exists, show what would be deleted.
+	if f.DryRun {
+		return runCommentDeleteDryRun(ctx, f, client, opts.IssueKey, opts.CommentID)
+	}
+
+	// Require --yes for destructive action.
+	if !opts.Yes {
+		return clierrors.NewValidationError("Use --yes to confirm deletion").
+			WithSuggestion("Example: jira comment delete PROJ-123 10042 --yes")
+	}
+
+	err = client.DeleteComment(ctx, opts.IssueKey, opts.CommentID)
+	if err != nil {
+		return err
+	}
+
+	formatter := output.NewFormatter(f.IOStreams, f.OutputJSON, f.JQExpr)
+
+	if f.Quiet {
+		return nil
+	}
+
+	if formatter.IsJSON() {
+		extras := map[string]interface{}{
+			"key":        opts.IssueKey,
+			"comment_id": opts.CommentID,
+			"action":     "deleted",
+		}
+		return formatter.OutputMutation(extras, nil)
+	}
+
+	// Text output.
+	return formatter.OutputMutation(nil, func(tw table.Writer) {
+		fmt.Fprintf(f.IOStreams.Out, "Deleted comment %s from %s\n",
+			opts.CommentID, opts.IssueKey)
+	})
+}
+
+// runCommentDeleteDryRun validates the comment exists and previews what would be deleted.
+func runCommentDeleteDryRun(ctx context.Context, f *factory.Factory, client *api.Client, issueKey, commentID string) error {
+	// Validate comment (and implicitly the issue) exists.
+	comment, err := client.GetComment(ctx, issueKey, commentID)
+	if err != nil {
+		return err
+	}
+
+	// Extract first line of body for preview.
+	bodyPreview := ""
+	if comment.Body != nil {
+		bodyPreview = truncateBody(adf.ToPlaintext(json.RawMessage(comment.Body)), 1)
+	}
+
+	extras := map[string]interface{}{
+		"key":        issueKey,
+		"comment_id": commentID,
+	}
+
+	formatter := output.NewFormatter(f.IOStreams, f.OutputJSON, f.JQExpr)
+
+	if formatter.IsJSON() {
+		return formatter.OutputDryRunWithContext(extras, map[string]interface{}{
+			"action": "delete",
+		}, "passed (comment exists)", nil)
+	}
+
+	return formatter.OutputDryRunWithContext(nil, nil, "", func(tw table.Writer) {
+		fmt.Fprintf(f.IOStreams.Out, "DRY RUN — comment delete preview\n\n")
+		tw.AppendRow(table.Row{"Issue", issueKey})
+		tw.AppendRow(table.Row{"Comment ID", commentID})
+		tw.AppendRow(table.Row{"Author", comment.Author.DisplayName})
+		tw.AppendRow(table.Row{"Created", comment.Created})
+		if bodyPreview != "" {
+			tw.AppendRow(table.Row{"Body", bodyPreview})
+		}
+		tw.AppendRow(table.Row{"Action", "delete comment"})
+		fmt.Fprintf(f.IOStreams.Out, "\nValidation: passed (comment exists)\n")
+	})
+}
