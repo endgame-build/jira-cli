@@ -41,6 +41,8 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - Root command: stub group commands (auth, issue, config, alias, search) need `RunE` returning `cmd.Help()` so Cobra `IsAvailableCommand()` returns true (enables typo suggestions)
 - Root command: `preRun()` must nil-check config from `f.Config()` — `NewTestFactory(nil)` returns `(nil, nil)` which panics on `.Get()`
 - Root command: gofmt auto-aligns struct field tags — when adding `RunE` to Cobra commands, keep `Long:` tag aligned with `Short:` / `Use:`
+- Alias commands: `aliasManager` local interface (Aliases/SetAlias/Save) for type-asserting config — same pattern as `profileSetter` and `profileManager`
+- Shadow detection in alias set: `cmd.Root().Commands()` dynamically checks all registered commands — avoids hardcoded lists and circular imports
 - `.gitignore`: bare names (e.g., `jira`) match recursively; use `/jira` to anchor to repo root only
 - `main.go`: `run() int` separates logic from `os.Exit()` — testable via `TestRunFunction` without subprocess
 - Auth commands that create their own API client use `clientOpts []api.ClientOption` field for test injection of `api.WithBaseURL()`
@@ -306,4 +308,19 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `config get` deliberately does NOT error on unknown keys — returns empty string (same as unset), matching git-config behavior
   - `config list` text mode uses `key=value\n` format (not table) — simpler and more grep-friendly
   - `newTestConfigFactory(t)` is the minimal test helper pattern: just IOStreams + disk config, no keyring/httptest
+---
+
+## 2026-02-26 - US-018
+- Implemented alias set and alias list subcommands under `jira alias`
+- `alias set <name> <command>`: validates name (alphanumeric + hyphens), detects shadow of built-in commands, stores in config TOML [aliases] section
+- `alias list`: sorted name=command text output; --json outputs flat object of name→command pairs
+- Shadow detection uses `cmd.Root().Commands()` to dynamically check against all registered subcommands at runtime
+- Files changed: internal/cmd/alias/set.go (new), internal/cmd/alias/list.go (new), internal/cmd/alias/alias.go (register subcommands), internal/cmd/alias/alias_test.go (new)
+- 15 top-level tests (28 with subtests), all passing: set round-trip, overwrite, invalid names ×8, valid names ×6, shadow detection (single + all 5 builtins), JSON, quiet, list, list empty, list JSON, list sorted, no-auth-required, Cobra integration, Cobra shadow detection
+- **Learnings for future iterations:**
+  - `aliasManager` local interface (Aliases/SetAlias/Save) decouples alias commands from concrete config type — same pattern as `profileSetter` in auth commands
+  - Shadow detection via `cmd.Root().Commands()` avoids hardcoded command lists and circular imports — the RunE closure captures `cmd` and walks up to root
+  - `aliasNameRe` allows single chars (e.g., "a") but not leading/trailing hyphens — anchored regex `^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$` handles both
+  - Alias list follows same format as config list: `key=value\n` text, flat JSON object — consistent user experience
+  - `mockRootCmd.asCobraRoot()` test helper builds a Cobra command tree for shadow testing without importing the real root package
 ---
