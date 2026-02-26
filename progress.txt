@@ -62,6 +62,8 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - `main.go`: `run() int` separates logic from `os.Exit()` — testable via `TestRunFunction` without subprocess
 - Auth commands that create their own API client use `clientOpts []api.ClientOption` field for test injection of `api.WithBaseURL()`
 - Config profile type-assert pattern: define a local `profileSetter` interface with the methods you need, then `cfg.(profileSetter)`
+- Transition matching: `matchTransition()` does exact-then-substring; sort transitions by ID first for determinism. `transitionContext()` builds `[]map[string]interface{}` for error context
+- Move test mock: `moveHandler(issue, transitions, transitionErr)` serves GET /issue, GET transitions, POST transitions — reusable for US-025b
 
 ---
 
@@ -528,4 +530,17 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - Dry-run edit uses OutputDryRun from the formatter (same as create dry-run) but wraps it with custom changes payload
   - `editAndGetHandler` test mock serves both GET /issue/{key} (for dry-run fetch) and PUT /issue/{key} (for actual edit)
   - `namedFieldKey()` helper extracted for reuse in both the collision check and dry-run custom field loop
+---
+
+## 2026-02-26 - US-025a
+- Implemented `jira issue move PROJ-123 <status>` command with transition matching
+- Files changed: internal/cmd/issue/move.go, internal/cmd/issue/move_test.go, internal/cmd/issue/issue.go
+- 11 tests: exact match, case-insensitive, substring, ambiguous, no match, 404, 403, JSON, quiet, exact-over-substring precedence, sort determinism
+- **Learnings for future iterations:**
+  - `matchTransition()` is a pure function (no side effects) — easy to unit test separately from runMove
+  - Transitions sorted by ID before matching for determinism when multiple transitions lead to same target
+  - `moveHandler` mock serves GET /issue/{key}, GET /issue/{key}/transitions, and POST /issue/{key}/transitions — reuse for US-025b
+  - Pre-commit hook enforces gofmt: inline interface methods in function signatures must be on separate lines (not single-line)
+  - `renderTransitionsTable()` uses `io.Writer` interface — prepared for reuse by US-029 (transitions command)
+  - `transitionContext()` builds error context for INVALID_TRANSITION errors — same shape used by `NewTransitionError`
 ---
