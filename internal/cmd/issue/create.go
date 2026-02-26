@@ -2,6 +2,7 @@ package issue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -219,12 +220,6 @@ func runCreate(opts *CreateOptions) error {
 // runCreateDryRun validates the create payload against live API (createmeta)
 // and outputs a preview without creating the issue.
 func runCreateDryRun(ctx context.Context, f *factory.Factory, client *api.Client, project string, fields map[string]interface{}) error {
-	// Validate project and issue type via createmeta.
-	meta, err := client.GetCreateMeta(ctx, project)
-	if err != nil {
-		return err
-	}
-
 	// Check that the requested issue type exists.
 	requestedType := ""
 	if it, ok := fields["issuetype"].(map[string]interface{}); ok {
@@ -233,19 +228,36 @@ func runCreateDryRun(ctx context.Context, f *factory.Factory, client *api.Client
 		}
 	}
 
-	typeValid := false
-	var availableTypes []string
-	for _, it := range meta.IssueTypes {
-		availableTypes = append(availableTypes, it.Name)
-		if strings.EqualFold(it.Name, requestedType) {
-			typeValid = true
+	// Validate project and issue type via createmeta.
+	// Only fall back to local-only validation for PERMISSION_DENIED (the known E2E
+	// scenario where the user's token lacks createmeta scope). All other errors
+	// (auth, not found, network, etc.) are propagated so dry-run doesn't give
+	// false confidence.
+	var validation string
+	meta, err := client.GetCreateMeta(ctx, project)
+	if err != nil {
+		var cliErr *clierrors.CLIError
+		if errors.As(err, &cliErr) && cliErr.Code == clierrors.PERMISSION_DENIED {
+			fmt.Fprintf(f.IOStreams.Err, "Warning: cannot validate issue type — permission denied on createmeta API\n")
+			validation = "skipped (permission denied on createmeta API)"
+		} else {
+			return err
 		}
-	}
+	} else {
+		typeValid := false
+		var availableTypes []string
+		for _, it := range meta.IssueTypes {
+			availableTypes = append(availableTypes, it.Name)
+			if strings.EqualFold(it.Name, requestedType) {
+				typeValid = true
+			}
+		}
 
-	validation := "passed (validated against live API)"
-	if !typeValid && requestedType != "" {
-		validation = fmt.Sprintf("warning: issue type %q not found in project %s (available: %s)",
-			requestedType, project, strings.Join(availableTypes, ", "))
+		validation = "passed (validated against live API)"
+		if !typeValid && requestedType != "" {
+			validation = fmt.Sprintf("warning: issue type %q not found in project %s (available: %s)",
+				requestedType, project, strings.Join(availableTypes, ", "))
+		}
 	}
 
 	// Build a sanitized payload for display (replace ADF with readable summary).

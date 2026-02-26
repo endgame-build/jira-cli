@@ -16,6 +16,7 @@ vendor/
 progress.txt
 ralph.sh
 .last-branch
+.env
 
 # Reference files (too large for repo)
 swagger-v3.v3.txt

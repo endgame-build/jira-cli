@@ -168,6 +168,43 @@ func TestDelete403(t *testing.T) {
 	}
 }
 
+func TestDeleteDryRunBypassesYes(t *testing.T) {
+	// --dry-run should work without --yes. The RunE check should allow
+	// the command to proceed when Factory.DryRun is true even without --yes.
+	issue := sampleIssue()
+
+	deleteCalled := false
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deleteCalled = true
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		deleteHandler(issue, 0)(w, r)
+	}
+
+	f, tio, _ := newTestDeleteFactory(t, http.HandlerFunc(handler))
+	f.DryRun = true
+
+	// Exercise the full command path (RunE) without --yes flag.
+	cmd := NewCmdDelete(f)
+	cmd.SetArgs([]string{"PROJ-123"}) // no --yes
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if deleteCalled {
+		t.Error("expected no DELETE call during dry-run")
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "PROJ-123") {
+		t.Errorf("expected issue key in dry-run output, got: %s", out)
+	}
+}
+
 func TestDeleteDryRunText(t *testing.T) {
 	issue := sampleIssue()
 

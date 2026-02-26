@@ -120,6 +120,16 @@ func runSearch(opts *SearchOptions) error {
 		return err
 	}
 
+	// Jira returns HTTP 200 with empty results for unauthenticated search
+	// requests (instead of 401). When the first page is empty, verify
+	// credentials so we can surface auth errors instead of silently showing
+	// "No issues found".
+	if len(items) == 0 {
+		if err := shared.CheckEmptyResultsAuth(ctx, client, f.IOStreams.Err); err != nil {
+			return err
+		}
+	}
+
 	formatter := output.NewFormatter(f.IOStreams, f.OutputJSON, f.JQExpr)
 
 	if f.Quiet {
@@ -127,7 +137,12 @@ func runSearch(opts *SearchOptions) error {
 	}
 
 	// JSON mode: output with pagination envelope.
+	// When --fields is specified, filter the JSON to only include requested fields.
 	if formatter.IsJSON() {
+		wantFields := shared.FieldSet(opts.Fields)
+		if wantFields != nil {
+			return formatter.OutputList(shared.FilterIssueFields(items, wantFields), meta, nil)
+		}
 		return formatter.OutputList(items, meta, nil)
 	}
 

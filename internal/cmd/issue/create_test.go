@@ -891,3 +891,126 @@ func TestCreateBodyFileWithDryRun(t *testing.T) {
 		t.Error("payload should contain description from body-file")
 	}
 }
+
+func TestCreateDryRunCreatemeta403FallsBack(t *testing.T) {
+	// When createmeta returns 403 (PERMISSION_DENIED), dry-run should succeed
+	// with "skipped" validation and a stderr warning.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "createmeta") {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"errorMessages":["Forbidden"]}`))
+			return
+		}
+		// GET /myself for user resolution.
+		if r.Method == http.MethodGet && r.URL.Path == "/myself" {
+			json.NewEncoder(w).Encode(api.User{AccountID: "abc123def456abc123def456"})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	f, tio, _ := newTestCreateFactory(t, handler, nil)
+	f.DryRun = true
+	f.OutputJSON = true
+
+	opts := &CreateOptions{
+		Factory: f,
+		Project: "PROJ",
+		Type:    "Bug",
+		Summary: "Test 403 fallback",
+	}
+
+	if err := runCreate(opts); err != nil {
+		t.Fatalf("expected no error for 403 fallback, got: %v", err)
+	}
+
+	// Validation should say "skipped", not "passed".
+	out := tio.OutBuf.String()
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, out)
+	}
+	validStr := result["validation"].(string)
+	if !strings.Contains(validStr, "skipped") {
+		t.Errorf("validation = %q, want 'skipped'", validStr)
+	}
+	if strings.Contains(validStr, "passed") {
+		t.Errorf("validation should not say 'passed': %q", validStr)
+	}
+
+	// Stderr should contain the permission warning.
+	errOut := tio.ErrBuf.String()
+	if !strings.Contains(errOut, "permission denied") {
+		t.Errorf("stderr should warn about permission denied: %s", errOut)
+	}
+}
+
+func TestCreateDryRunCreatemeta500PropagatesError(t *testing.T) {
+	// When createmeta returns 500 (server error), dry-run should propagate
+	// the error instead of silently falling back.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "createmeta") {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	f, _, _ := newTestCreateFactory(t, handler, nil)
+	f.DryRun = true
+
+	opts := &CreateOptions{
+		Factory: f,
+		Project: "PROJ",
+		Type:    "Bug",
+		Summary: "Test 500 propagation",
+	}
+
+	err := runCreate(opts)
+	if err == nil {
+		t.Fatal("expected error for 500 on createmeta, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != clierrors.GENERAL_ERROR {
+		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.GENERAL_ERROR)
+	}
+}
+
+func TestCreateDryRunCreatemeta401PropagatesAuthError(t *testing.T) {
+	// When createmeta returns 401, dry-run should propagate auth error.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "createmeta") {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"errorMessages":["Client must be authenticated"]}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	f, _, _ := newTestCreateFactory(t, handler, nil)
+	f.DryRun = true
+
+	opts := &CreateOptions{
+		Factory: f,
+		Project: "PROJ",
+		Type:    "Bug",
+		Summary: "Test 401 propagation",
+	}
+
+	err := runCreate(opts)
+	if err == nil {
+		t.Fatal("expected auth error for 401 on createmeta, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != clierrors.AUTH_ERROR {
+		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.AUTH_ERROR)
+	}
+}
