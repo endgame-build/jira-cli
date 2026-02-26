@@ -11,17 +11,30 @@ jira search "project = PROJ AND status = Open" --limit 10
 
 ## Features
 
-- **Non-interactive** — all input via flags, no prompts, no TUI
-- **Pipe-safe** — structured JSON output, correct exit codes, no ANSI when piped
-- **Agent-friendly** — structured errors with codes, context, and suggestions for LLM self-correction
+- **Non-interactive** — flags supply all input; every command runs unattended
+- **Pipe-safe** — structured JSON output, correct exit codes, plain text when piped
+- **Agent-friendly** — errors include codes, context, and fix suggestions so LLMs self-correct
 - **Three credential sources** — flags, environment variables, or stored profiles (keyring-backed)
-- **Markdown input** — descriptions and comments written in Markdown, converted to Atlassian Document Format
+- **Markdown input** — write descriptions and comments in Markdown; the CLI converts them to Atlassian Document Format
 - **JQL support** — raw JQL via `jira search` or flag-based filtering via `jira issue list`
-- **Inline filtering** — `--jq` flag for extracting fields without external tools
+- **Inline filtering** — `--jq` flag extracts fields directly in the CLI
 
 ## Install
 
+**Binary (macOS / Linux):**
+
+```sh
+# Available platforms: darwin_arm64, darwin_amd64, linux_arm64, linux_amd64
+gh release download --repo endgame-build/jira-cli --pattern '*darwin_arm64*'
+tar xzf jira_*_darwin_arm64.tar.gz jira
+sudo mv jira /usr/local/bin/
 ```
+
+Or download from [GitHub Releases](https://github.com/endgame-build/jira-cli/releases/latest).
+
+**From source (requires Go):**
+
+```sh
 go install github.com/endgameio/jira-cli/cmd/jira@latest
 ```
 
@@ -55,7 +68,7 @@ jira issue list --assignee @me
 
 ## Configuration
 
-Config stored at `$XDG_CONFIG_HOME/jira-cli/config.toml` (`~/.config/jira-cli/` on Linux, `~/Library/Application Support/jira-cli/` on macOS). Set defaults to skip repetitive flags:
+The CLI stores config at `$XDG_CONFIG_HOME/jira-cli/config.toml` (`~/.config/jira-cli/` on Linux, `~/Library/Application Support/jira-cli/` on macOS). Set defaults to avoid repeating flags:
 
 ```sh
 jira config set default.project PROJ
@@ -88,7 +101,7 @@ jira issue create --project PROJ --type Bug --summary "Build failed" --json
 
 ## Status
 
-Under active development. Targeting Jira Cloud REST API v3.
+Active development. Covers Jira Cloud REST API v3.
 
 ## License
 
