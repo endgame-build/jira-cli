@@ -157,3 +157,70 @@ Started: Fri Feb 27 01:10:56 EET 2026
   - Permalink URL format: `https://{instance}/browse/{key}?focusedCommentId={id}` — constructed client-side from client.Instance()
   - The 413 HTTP status maps to VALIDATION_ERROR via mapHTTPError (added in US-006) — no special handling needed in the command
 ---
+
+## 2026-02-27 - US-012
+- Implemented `jira comment edit <issue-key> <comment-id>` command in internal/cmd/comment/edit.go
+- Two positional args: issue key (validated) + comment ID
+- Flags: --body (Markdown text), --body-file (file path or "-" for stdin), plus global --dry-run, --json, --quiet
+- Body text converted Markdown → ADF via adf.Convert() before PUT to API (same as comment add)
+- Calls UpdateComment (PUT, expects HTTP 200) — IS idempotent (safe to retry)
+- Success text: 'Updated comment {id} on PROJ-123'
+- --json: {"ok":true, "key":"PROJ-123", "comment_id":"10042", "action":"updated"}
+- --dry-run: validates comment exists via GetComment (proves both issue and comment exist), shows preview with OutputDryRunWithContext
+- --quiet: suppresses all output
+- 9 tests: success, JSON shape, missing body, comment 404, issue 404, body-file, dry-run (text+JSON), invalid key
+- Files changed: internal/cmd/comment/edit.go (new), internal/cmd/comment/edit_test.go (new)
+- **Learnings for future iterations:**
+  - Comment edit is structurally identical to comment add — body resolution, ADF conversion, dry-run are all the same pattern
+  - Dry-run for edit uses GetComment (validates specific comment + issue) vs add's ListComments (validates issue only)
+  - Two positional args: use cobra.ExactArgs(2), access via args[0] and args[1]
+  - Edit has no URL in success output or JSON (unlike add) — there's no "focused comment" action for edits
+---
+
+## 2026-02-27 - US-013
+- Implemented `jira comment delete <issue-key> <comment-id>` command in internal/cmd/comment/delete.go
+- Flags: --yes/-y (required for deletion), plus global --dry-run, --json, --quiet
+- Requires --yes to confirm; without it: VALIDATION_ERROR with suggestion. --dry-run bypasses --yes requirement (non-destructive)
+- Calls DeleteComment (DELETE, expects HTTP 204) — NOT idempotent (deleting already-deleted returns 404)
+- Success text: 'Deleted comment {id} from PROJ-123'
+- --json: {"ok":true, "key":"PROJ-123", "comment_id":"10042", "action":"deleted"}
+- --dry-run: validates comment exists via GetComment, shows preview (ID, author, created, first line of body via ToPlaintext)
+- --quiet: suppresses all output
+- 8 tests: success, JSON shape, missing --yes, comment 404, issue 404, dry-run (text+JSON), invalid key
+- Files changed: internal/cmd/comment/delete.go (new), internal/cmd/comment/delete_test.go (new)
+- **Learnings for future iterations:**
+  - Delete is the only comment command requiring --yes confirmation — destructive commands use BoolVarP with short flag "y"
+  - --dry-run bypasses --yes: check DryRun before Yes in control flow to avoid false VALIDATION_ERROR on dry-run
+  - Dry-run for delete fetches full comment via GetComment to show preview (author, created, body) — richer than edit's dry-run which only validates existence
+  - Body preview in dry-run uses ToPlaintext + truncateBody(text, 1) for single-line preview
+---
+
+## 2026-02-27 - US-014
+- Moved ValidateIssueKeyOrID from internal/cmd/issue/validate.go to internal/cmd/shared/validate.go
+- Issue package validate.go now delegates to shared.ValidateIssueKeyOrID (backward-compatible wrapper)
+- Issue validate_test.go simplified to smoke tests (comprehensive tests now in shared package)
+- Updated all 4 comment commands (list, add, edit, delete) to import shared instead of issue
+- Created internal/cmd/comment/comment.go with parent command registering all 4 subcommands
+- Registered comment group on root command in internal/cmd/root/root.go
+- Files changed: internal/cmd/shared/validate.go (new), internal/cmd/shared/validate_test.go (new), internal/cmd/issue/validate.go, internal/cmd/issue/validate_test.go, internal/cmd/comment/comment.go (new), internal/cmd/comment/list.go, internal/cmd/comment/add.go, internal/cmd/comment/edit.go, internal/cmd/comment/delete.go, internal/cmd/root/root.go
+- **Learnings for future iterations:**
+  - Moving shared utilities: keep a thin delegation wrapper in the original package to avoid touching every in-package caller
+  - Comment parent command follows exact same pattern as issue parent: NewCmdXxx, RunE→cmd.Help(), AddCommand for each subcommand
+  - Root command subcommand registration order: auth, issue, comment, search, config, alias (alphabetical within groups)
+  - Pre-commit hook runs full test suite — no need to run tests manually before commit if you trust the hook
+---
+
+## 2026-02-27 - US-015
+- Implemented `jira project list` command in internal/cmd/project/list.go
+- Table output: KEY, NAME, LEAD (display name), TYPE (projectTypeKey)
+- JSON output: offset-paginated list envelope with total
+- Empty results: text prints "No projects found"; JSON returns empty data array with pagination
+- Auth check: calls shared.CheckEmptyResultsAuth on empty results (Jira returns 200 with empty for unauthenticated)
+- Pager enabled when stdout is TTY and --json not active
+- 6 tests: success, pagination, empty (text+JSON), empty with auth check (401), JSON output shape
+- Files changed: internal/cmd/project/list.go (new), internal/cmd/project/list_test.go (new), prd.json
+- **Learnings for future iterations:**
+  - Project list follows the exact same FetchOffsetPage pattern as comment list — map page.Values to Items (not page.Comments)
+  - CheckEmptyResultsAuth is needed for any list endpoint that returns 200 with empty results for unauthenticated (project search, issue search) but NOT for endpoints that properly return 404 (comment list)
+  - No validation on positional args needed for project list (no issue key) — simplest list command so far
+---

@@ -226,7 +226,7 @@
         "Tests pass"
       ],
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-035. IS idempotent — setting the same body again is safe."
     },
     {
@@ -248,7 +248,7 @@
         "Tests pass"
       ],
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-036. NOT idempotent — deleting already-deleted returns 404. Agents should handle 404 on retry."
     },
     {
@@ -265,7 +265,7 @@
         "Tests pass"
       ],
       "priority": 14,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-052 (partial). Comment commands require authentication. ValidateIssueKeyOrID is moved to shared to avoid lateral dependency between command packages."
     },
     {
@@ -284,7 +284,7 @@
         "Tests pass"
       ],
       "priority": 15,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-039. Response uses 'values' array from PageBeanProject shape."
     },
     {
