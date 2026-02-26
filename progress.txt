@@ -41,6 +41,8 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - Root command: stub group commands (auth, issue, config, alias, search) need `RunE` returning `cmd.Help()` so Cobra `IsAvailableCommand()` returns true (enables typo suggestions)
 - Root command: `preRun()` must nil-check config from `f.Config()` — `NewTestFactory(nil)` returns `(nil, nil)` which panics on `.Get()`
 - Root command: gofmt auto-aligns struct field tags — when adding `RunE` to Cobra commands, keep `Long:` tag aligned with `Short:` / `Use:`
+- `.gitignore`: bare names (e.g., `jira`) match recursively; use `/jira` to anchor to repo root only
+- `main.go`: `run() int` separates logic from `os.Exit()` — testable via `TestRunFunction` without subprocess
 
 ---
 
@@ -216,4 +218,21 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - Flag conflict validation runs before --jq implication, so `--jq + --text` catches the raw flag state correctly
   - gofmt auto-aligns struct tags in Cobra command literals — the pre-commit hook will fix it, but it means the commit fails once
   - `SilenceErrors: true, SilenceUsage: true` on root prevents Cobra from printing usage on error — we want errors rendered by main.go
+---
+
+## 2026-02-26 - US-012
+- Implemented main.go entrypoint: Factory → root cmd → Execute() → error rendering with exit codes
+- `run()` function returns exit code; `main()` calls `os.Exit(run())`
+- CLIError detected via `errors.As`, rendered via `output.OutputError` to stderr, exits with `CLIError.ExitCode`
+- Non-CLIError wrapped in GENERAL_ERROR (exit 1)
+- Version vars (`version`, `commit`, `date`) injected via ldflags: `-X main.version=...`
+- Makefile updated with LDFLAGS using `git rev-parse --short HEAD` and `date -u`
+- Fixed `.gitignore`: bare `jira` pattern matched `cmd/jira/` directory — changed to `/jira` (root-anchored)
+- Files changed: cmd/jira/main.go (rewritten from stub), cmd/jira/main_test.go (new), Makefile (ldflags), .gitignore (fix)
+- 5 tests: TestBuildBinary, TestVersionFlag, TestBadFlagsExitCode (exit 3), TestHelpNoError, TestRunFunction
+- **Learnings for future iterations:**
+  - `.gitignore` bare names like `jira` match recursively — use `/jira` to anchor to repo root
+  - `run() int` pattern separates exit-code logic from `os.Exit` — enables `TestRunFunction` without subprocess
+  - Binary tests use `go build -o tempdir/jira .` from `cmd/jira` dir — `testProjectRoot()` walks up to find go.mod
+  - `root.Version` is a package var set by main before `NewCmdRoot()` — no ldflags needed inside internal packages
 ---
