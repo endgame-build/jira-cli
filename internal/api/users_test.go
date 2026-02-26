@@ -270,3 +270,259 @@ func TestSearchUsers_PathAndQuery(t *testing.T) {
 		t.Errorf("path = %q, want suffix /user/search", gotPath)
 	}
 }
+
+// --- ResolveUser tests ---
+
+func TestResolveUser_AtMe(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/myself") {
+			t.Errorf("expected /myself path, got %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"accountId":   "5b10ac8d82e05b22cc7d4ef5",
+			"displayName": "Current User",
+			"active":      true,
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv.URL)
+	accountID, err := ResolveUser(context.Background(), client, "@me")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if accountID != "5b10ac8d82e05b22cc7d4ef5" {
+		t.Errorf("accountID = %q, want %q", accountID, "5b10ac8d82e05b22cc7d4ef5")
+	}
+}
+
+func TestResolveUser_DirectAccountID(t *testing.T) {
+	// No server needed — account IDs are returned as-is without API call
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("no API call expected for direct account ID")
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv.URL)
+	accountID, err := ResolveUser(context.Background(), client, "5b10ac8d82e05b22cc7d4ef5")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if accountID != "5b10ac8d82e05b22cc7d4ef5" {
+		t.Errorf("accountID = %q, want %q", accountID, "5b10ac8d82e05b22cc7d4ef5")
+	}
+}
+
+func TestResolveUser_SingleMatch(t *testing.T) {
+	email := "alice@example.com"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/user/search") {
+			t.Errorf("expected /user/search path, got %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("query"); got != "Alice" {
+			t.Errorf("query = %q, want %q", got, "Alice")
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode([]map[string]interface{}{
+			{
+				"accountId":    "user-alice-123",
+				"displayName":  "Alice Smith",
+				"emailAddress": email,
+				"active":       true,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv.URL)
+	accountID, err := ResolveUser(context.Background(), client, "Alice")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if accountID != "user-alice-123" {
+		t.Errorf("accountID = %q, want %q", accountID, "user-alice-123")
+	}
+}
+
+func TestResolveUser_NoMatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv.URL)
+	_, err := ResolveUser(context.Background(), client, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var cliErr *cliErrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != cliErrors.NOT_FOUND {
+		t.Errorf("code = %q, want %q", cliErr.Code, cliErrors.NOT_FOUND)
+	}
+	if cliErr.Context["resource"] != "user" {
+		t.Errorf("context.resource = %v, want %q", cliErr.Context["resource"], "user")
+	}
+	if cliErr.Context["query"] != "nonexistent" {
+		t.Errorf("context.query = %v, want %q", cliErr.Context["query"], "nonexistent")
+	}
+	if cliErr.Suggestion == "" {
+		t.Error("expected a non-empty suggestion")
+	}
+}
+
+func TestResolveUser_AmbiguousMatch(t *testing.T) {
+	email := "alice@example.com"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode([]map[string]interface{}{
+			{
+				"accountId":    "user1",
+				"displayName":  "Alice Smith",
+				"emailAddress": email,
+				"active":       true,
+			},
+			{
+				"accountId":   "user2",
+				"displayName": "Alice Jones",
+				"active":      true,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv.URL)
+	_, err := ResolveUser(context.Background(), client, "Alice")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var cliErr *cliErrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != cliErrors.AMBIGUOUS_USER {
+		t.Errorf("code = %q, want %q", cliErr.Code, cliErrors.AMBIGUOUS_USER)
+	}
+
+	// Check matches context
+	matches, ok := cliErr.Context["matches"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("context.matches type = %T, want []map[string]interface{}", cliErr.Context["matches"])
+	}
+	if len(matches) != 2 {
+		t.Fatalf("len(matches) = %d, want 2", len(matches))
+	}
+	// First match has email
+	if matches[0]["accountId"] != "user1" {
+		t.Errorf("matches[0].accountId = %v, want %q", matches[0]["accountId"], "user1")
+	}
+	if matches[0]["displayName"] != "Alice Smith" {
+		t.Errorf("matches[0].displayName = %v, want %q", matches[0]["displayName"], "Alice Smith")
+	}
+	if matches[0]["email"] != email {
+		t.Errorf("matches[0].email = %v, want %q", matches[0]["email"], email)
+	}
+	// Second match has no email (privacy)
+	if matches[1]["accountId"] != "user2" {
+		t.Errorf("matches[1].accountId = %v, want %q", matches[1]["accountId"], "user2")
+	}
+	if _, hasEmail := matches[1]["email"]; hasEmail {
+		t.Errorf("matches[1] should not have email key, got %v", matches[1]["email"])
+	}
+
+	if cliErr.Suggestion == "" {
+		t.Error("expected a non-empty suggestion")
+	}
+}
+
+func TestResolveUser_AccountIDNotHex(t *testing.T) {
+	// Input that looks like an account ID but has uppercase letters or is wrong length
+	// should go through search, not passthrough
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"uppercase hex", "5B10AC8D82E05B22CC7D4EF5"},
+		{"too short", "5b10ac8d82e05b22"},
+		{"too long", "5b10ac8d82e05b22cc7d4ef5aabb"},
+		{"non-hex chars", "5b10ac8d82e05b22cc7d4egz"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			searchCalled := false
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/user/search") {
+					searchCalled = true
+				}
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode([]map[string]interface{}{
+					{"accountId": "found-user", "displayName": "Found", "active": true},
+				})
+			}))
+			defer srv.Close()
+
+			client := newTestClient(t, srv.URL)
+			accountID, err := ResolveUser(context.Background(), client, tt.input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !searchCalled {
+				t.Error("expected search API to be called for non-matching account ID pattern")
+			}
+			if accountID != "found-user" {
+				t.Errorf("accountID = %q, want %q", accountID, "found-user")
+			}
+		})
+	}
+}
+
+func TestResolveUser_AtMeAPIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"errorMessages": []string{"Not authenticated"},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv.URL)
+	_, err := ResolveUser(context.Background(), client, "@me")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var cliErr *cliErrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != cliErrors.AUTH_ERROR {
+		t.Errorf("code = %q, want %q", cliErr.Code, cliErrors.AUTH_ERROR)
+	}
+}
+
+func TestResolveUser_SearchAPIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"errorMessages": []string{"No browse users permission"},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv.URL)
+	_, err := ResolveUser(context.Background(), client, "some user")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var cliErr *cliErrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != cliErrors.PERMISSION_DENIED {
+		t.Errorf("code = %q, want %q", cliErr.Code, cliErrors.PERMISSION_DENIED)
+	}
+}

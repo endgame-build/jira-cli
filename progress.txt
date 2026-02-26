@@ -45,6 +45,7 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - Shadow detection in alias set: `cmd.Root().Commands()` dynamically checks all registered commands — avoids hardcoded lists and circular imports
 - ADF: `Convert(markdown)` returns `(*Node, error)` — the Node is always type `doc` with `version:1`. Empty string returns valid empty doc. goldmark tight lists use `TextBlock` not `Paragraph` for items
 - Pagination: `FetchTokenPage[T]`, `FetchOffsetPage[T]`, `FetchRawArrayPage[T]` — all return `([]T, *output.PaginationMeta, error)`. Use token-based for search, offset-based for paged endpoints, raw-array for plain-array endpoints (e.g., /user/search)
+- API: `ResolveUser(ctx, client, input)` is a package-level function (not on *Client) — it composes GetMyself+SearchUsers. Use for any --assignee/--reporter flag resolution
 - `.gitignore`: bare names (e.g., `jira`) match recursively; use `/jira` to anchor to repo root only
 - `main.go`: `run() int` separates logic from `os.Exit()` — testable via `TestRunFunction` without subprocess
 - Auth commands that create their own API client use `clientOpts []api.ClientOption` field for test injection of `api.WithBaseURL()`
@@ -389,4 +390,17 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - Error code for 403 is `PERMISSION_DENIED` (not `PERMISSION_ERROR`) — always check errors package constants
   - `url.Values` preferred over string concatenation when query values may contain special chars (e.g., user search queries with spaces)
   - `Do()` handles `[]User` decode correctly when passed as `*[]User` — no envelope wrapper needed for raw-array endpoints
+---
+
+## 2026-02-26 - US-024
+- Implemented ResolveUser utility function in internal/api/users.go
+- Resolution chain: @me → GET /myself; ^[0-9a-f]{24}$ → passthrough (no API call); else → GET /user/search
+- 0 matches → CLIError(NOT_FOUND) with {resource, query} context; 2+ → CLIError(AMBIGUOUS_USER) with {matches} array including accountId, displayName, optional email
+- Files changed: internal/api/users.go (added ResolveUser + accountIDPattern), internal/api/users_test.go (8 new top-level tests, 12 with subtests)
+- **Learnings for future iterations:**
+  - `ResolveUser` is a package-level function (not a method on *Client) because it composes multiple client methods — keeps it at utility level rather than API-wrapper level
+  - `accountIDPattern` is `regexp.MustCompile` at package scope — compiled once, safe for concurrent use
+  - NOT_FOUND for user search uses `{resource: "user", query: input}` context (not `{key: ...}`) since it's a search miss
+  - AMBIGUOUS_USER match maps omit `email` key entirely when `EmailAddress` is nil (privacy) — callers should check for key existence
+  - Non-matching account ID patterns (uppercase, wrong length, non-hex) correctly fall through to search instead of being rejected
 ---

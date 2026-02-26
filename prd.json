@@ -609,7 +609,7 @@
         "Tests pass"
       ],
       "priority": 25,
-      "passes": false,
+      "passes": true,
       "notes": "Account ID pattern ^[0-9a-f]{24}$ is empirical (from Swagger example), not spec-guaranteed (maxLength:128). Works today but monitor for Atlassian format changes."
     },
     {
