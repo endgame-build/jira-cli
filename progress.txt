@@ -640,3 +640,25 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `sampleTransitions()` from move_test.go is available to all tests in the issue package — reuse shared fixtures
   - Empty transitions in text mode should be a human-friendly message (not an empty table), while JSON uses `{data:[], pagination:null}` for machine consumption
 ---
+
+## 2026-02-26 - US-031
+- Implemented `jira search` command with raw JQL and `--mine` shortcut
+- Positional arg: JQL string (optional, required unless --mine)
+- `--mine` generates `assignee=currentUser() AND resolution=Unresolved`; `--status` appends `AND status=...`
+- `--status` without `--mine` and without JQL: VALIDATION_ERROR
+- Neither JQL nor `--mine`: VALIDATION_ERROR
+- JQL positional arg overrides `--mine` and `--status` silently
+- `--fields`, `--limit`, `--offset` for field selection and pagination
+- `--no-pager` registered per-command
+- POST /search/jql with explicit `fields` parameter (never defaults to id-only)
+- JSON output: pagination envelope `{data:[], pagination:{}}`
+- Text output: same table as issue list (key, summary, status, assignee, priority, type)
+- Empty results: "No issues found" (text) or `{data:[], pagination:{...}}` (JSON)
+- Files changed: internal/cmd/search/search.go (rewritten from stub), internal/cmd/search/search_test.go (new), prd.json (updated)
+- 16 tests: raw JQL, --mine, --mine+--status, JQL overrides --mine, no args error, --status without --mine error, empty results (text+JSON), JSON output, pagination, quiet mode, fields param, default fields, Cobra validation, --mine via command, --mine+--status via command, too many args, --no-pager
+- **Learnings for future iterations:**
+  - Search command is a separate package (`internal/cmd/search`) so helpers like `statusWithColor`, `fieldSet`, `showField` must be duplicated from issue package (they're unexported there)
+  - `buildSearchJQL()` is much simpler than issue list's `buildJQL()` — no filter flags, no config fallbacks, no ORDER BY — just direct JQL or --mine shortcut
+  - `cobra.MaximumNArgs(1)` handles too-many-args validation automatically via Cobra
+  - The test mock pattern from list_test.go (`searchHandler`) is duplicated here because packages can't share unexported test helpers
+---

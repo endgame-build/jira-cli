@@ -921,7 +921,7 @@
         "Tests pass"
       ],
       "priority": 40,
-      "passes": false,
+      "passes": true,
       "notes": "CRITICAL: Always send fields param in search request. --no-pager registered here as per-command flag."
     }
   ]
