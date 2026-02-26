@@ -648,6 +648,12 @@ func TestSearchTransientProbeFailureDoesNotMaskEmptyResults(t *testing.T) {
 	if !strings.Contains(out, "No issues found") {
 		t.Errorf("expected 'No issues found', got: %s", out)
 	}
+
+	// Stderr should contain the probe failure warning.
+	errOut := tio.ErrBuf.String()
+	if !strings.Contains(errOut, "Warning: credential check failed") {
+		t.Errorf("expected stderr warning about probe failure, got: %s", errOut)
+	}
 }
 
 func TestSearchNoPagerFlag(t *testing.T) {
@@ -663,5 +669,65 @@ func TestSearchNoPagerFlag(t *testing.T) {
 
 	if !f.IOStreams.NoPager {
 		t.Error("expected NoPager to be set on IOStreams")
+	}
+}
+
+func TestSearchFieldsJSONFiltering(t *testing.T) {
+	// End-to-end: --fields status --json should produce JSON where each
+	// item only has id, key, self, and fields.status.
+	issues := sampleIssues()
+	f, tio, _ := newTestSearchFactory(t, searchHandler(t, issues, nil))
+	f.OutputJSON = true
+
+	opts := &SearchOptions{
+		Factory: f,
+		JQL:     "project = PROJ",
+		Fields:  []string{"status"},
+		Limit:   50,
+	}
+
+	if err := runSearch(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	var envelope struct {
+		Data []map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatalf("failed to parse JSON: %v\noutput: %s", err, out)
+	}
+	if len(envelope.Data) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(envelope.Data))
+	}
+
+	item := envelope.Data[0]
+	// Always-included top-level fields.
+	if item["key"] != "PROJ-1" {
+		t.Errorf("key = %v, want PROJ-1", item["key"])
+	}
+	if item["id"] == nil {
+		t.Error("id should be present")
+	}
+	if item["self"] == nil {
+		t.Error("self should be present")
+	}
+
+	// Fields should only contain status.
+	fields, ok := item["fields"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("fields should be an object, got %T", item["fields"])
+	}
+	if fields["status"] == nil {
+		t.Error("fields.status should be present")
+	}
+	if fields["summary"] != nil {
+		t.Error("fields.summary should NOT be present when not in --fields")
+	}
+	if fields["assignee"] != nil {
+		t.Error("fields.assignee should NOT be present when not in --fields")
+	}
+	if fields["priority"] != nil {
+		t.Error("fields.priority should NOT be present when not in --fields")
 	}
 }

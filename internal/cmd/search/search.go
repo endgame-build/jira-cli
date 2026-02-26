@@ -3,7 +3,6 @@ package search
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -126,13 +125,8 @@ func runSearch(opts *SearchOptions) error {
 	// credentials so we can surface auth errors instead of silently showing
 	// "No issues found".
 	if len(items) == 0 {
-		if authErr := client.VerifyCredentials(ctx); authErr != nil {
-			var cliErr *clierrors.CLIError
-			if errors.As(authErr, &cliErr) && cliErr.Code == clierrors.AUTH_ERROR {
-				return authErr
-			}
-			// Transient probe failure (5xx, rate limit, etc.) — don't mask
-			// a legitimate empty result set.
+		if err := shared.CheckEmptyResultsAuth(ctx, client, f.IOStreams.Err); err != nil {
+			return err
 		}
 	}
 

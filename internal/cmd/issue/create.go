@@ -229,17 +229,21 @@ func runCreateDryRun(ctx context.Context, f *factory.Factory, client *api.Client
 	}
 
 	// Validate project and issue type via createmeta.
-	// If the API call fails (e.g. permission denied), fall back to local-only validation
-	// but warn about permission errors so they're not silently swallowed.
-	validation := "passed (local validation only — could not reach createmeta API)"
+	// Only fall back to local-only validation for PERMISSION_DENIED (the known E2E
+	// scenario where the user's token lacks createmeta scope). All other errors
+	// (auth, not found, network, etc.) are propagated so dry-run doesn't give
+	// false confidence.
+	var validation string
 	meta, err := client.GetCreateMeta(ctx, project)
 	if err != nil {
 		var cliErr *clierrors.CLIError
 		if errors.As(err, &cliErr) && cliErr.Code == clierrors.PERMISSION_DENIED {
 			fmt.Fprintf(f.IOStreams.Err, "Warning: cannot validate issue type — permission denied on createmeta API\n")
+			validation = "skipped (permission denied on createmeta API)"
+		} else {
+			return err
 		}
-	}
-	if err == nil {
+	} else {
 		typeValid := false
 		var availableTypes []string
 		for _, it := range meta.IssueTypes {
