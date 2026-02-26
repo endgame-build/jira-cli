@@ -544,3 +544,20 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `renderTransitionsTable()` uses `io.Writer` interface — prepared for reuse by US-029 (transitions command)
   - `transitionContext()` builds error context for INVALID_TRANSITION errors — same shape used by `NewTransitionError`
 ---
+
+## 2026-02-26 - US-025b
+- Implemented --resolution, --comment flags and --dry-run support for `jira issue move`
+- --resolution: sent in `fields.resolution.name` in DoTransitionInput payload
+- --comment: Markdown→ADF via `adf.Convert()`, sent in `update.comment[].add.body`
+- fields/update sections omitted when respective flags not provided (verified by test)
+- --json includes `resolution` field only when --resolution is provided
+- --dry-run: shows transition preview table (issue, from, to, transition, resolution, comment) without executing POST
+- Dry-run JSON: `{dry_run:true, payload:{key, from, to, transition, resolution?, comment?}, validation:"passed"}`
+- Files changed: internal/cmd/issue/move.go (enhanced), internal/cmd/issue/move_test.go (10 new tests), prd.json
+- 19 move tests total (11 original + 8 new), all passing: resolution in body, comment ADF in body, both together, JSON with resolution, JSON without resolution, dry-run text, dry-run JSON, dry-run no POST, dry-run with resolution+comment, no fields/update when flags absent
+- **Learnings for future iterations:**
+  - Comment in transition payload uses the update operations format: `{"update":{"comment":[{"add":{"body":<ADF>}}]}}` — same `map[string]json.RawMessage` type as `DoTransitionInput.Update`
+  - `moveHandlerWithCapture` pattern: pass `*map[string]interface{}` to capture POST body for assertion — useful for verifying request payloads in tests
+  - Resolution is conditional in JSON output (`if opts.Resolution != "" { extras["resolution"] = ... }`) to avoid polluting JSON with empty strings
+  - Dry-run reuses `OutputDryRun` from the formatter (same pattern as create/edit dry-run) — consistent across all mutation commands
+---

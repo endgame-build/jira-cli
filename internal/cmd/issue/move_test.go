@@ -3,6 +3,7 @@ package issue
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -411,5 +412,413 @@ func TestMatchTransitionSortDeterminism(t *testing.T) {
 	// The sorting happens in runMove, not matchTransition.
 	if matched.ID != "30" {
 		t.Errorf("expected first match (ID=30), got: %s", matched.ID)
+	}
+}
+
+// moveHandlerWithCapture captures the POST /transitions body for verification.
+func moveHandlerWithCapture(issue api.Issue, transitions []api.Transition, capturedBody *map[string]interface{}) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		// GET /issue/{key}/transitions
+		if strings.HasSuffix(path, "/transitions") && r.Method == http.MethodGet {
+			resp := struct {
+				Transitions []api.Transition `json:"transitions"`
+			}{Transitions: transitions}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// POST /issue/{key}/transitions
+		if strings.HasSuffix(path, "/transitions") && r.Method == http.MethodPost {
+			if capturedBody != nil {
+				body, _ := io.ReadAll(r.Body)
+				json.Unmarshal(body, capturedBody)
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// GET /issue/{key} (for fetching current status)
+		if strings.HasPrefix(path, "/issue/") && r.Method == http.MethodGet {
+			json.NewEncoder(w).Encode(issue)
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+func TestMoveWithResolution(t *testing.T) {
+	issue := sampleIssue()
+	transitions := sampleTransitions()
+
+	var captured map[string]interface{}
+	f, tio, _ := newTestMoveFactory(t, moveHandlerWithCapture(issue, transitions, &captured))
+
+	opts := &MoveOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		TargetStatus: "Done",
+		Resolution:   "Fixed",
+	}
+
+	err := runMove(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "Moved PROJ-123 to Done") {
+		t.Errorf("expected success message, got: %s", out)
+	}
+
+	// Verify resolution was sent in the request body.
+	fields, ok := captured["fields"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected fields in request body")
+	}
+	resolution, ok := fields["resolution"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected resolution in fields")
+	}
+	if resolution["name"] != "Fixed" {
+		t.Errorf("expected resolution name 'Fixed', got: %v", resolution["name"])
+	}
+}
+
+func TestMoveWithComment(t *testing.T) {
+	issue := sampleIssue()
+	transitions := sampleTransitions()
+
+	var captured map[string]interface{}
+	f, tio, _ := newTestMoveFactory(t, moveHandlerWithCapture(issue, transitions, &captured))
+
+	opts := &MoveOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		TargetStatus: "Done",
+		Comment:      "Closing this issue",
+	}
+
+	err := runMove(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "Moved PROJ-123 to Done") {
+		t.Errorf("expected success message, got: %s", out)
+	}
+
+	// Verify comment was sent in the update section.
+	update, ok := captured["update"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected update in request body")
+	}
+	commentOps, ok := update["comment"].([]interface{})
+	if !ok {
+		t.Fatal("expected comment array in update")
+	}
+	if len(commentOps) != 1 {
+		t.Fatalf("expected 1 comment operation, got: %d", len(commentOps))
+	}
+	addOp, ok := commentOps[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected comment operation to be a map")
+	}
+	add, ok := addOp["add"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected 'add' key in comment operation")
+	}
+	body, ok := add["body"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected 'body' in add operation")
+	}
+	if body["type"] != "doc" {
+		t.Errorf("expected ADF doc type, got: %v", body["type"])
+	}
+}
+
+func TestMoveWithResolutionAndComment(t *testing.T) {
+	issue := sampleIssue()
+	transitions := sampleTransitions()
+
+	var captured map[string]interface{}
+	f, _, _ := newTestMoveFactory(t, moveHandlerWithCapture(issue, transitions, &captured))
+
+	opts := &MoveOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		TargetStatus: "Done",
+		Resolution:   "Won't Fix",
+		Comment:      "Not a bug",
+	}
+
+	err := runMove(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify both fields and update are present.
+	if _, ok := captured["fields"]; !ok {
+		t.Error("expected fields in request body")
+	}
+	if _, ok := captured["update"]; !ok {
+		t.Error("expected update in request body")
+	}
+}
+
+func TestMoveJSONWithResolution(t *testing.T) {
+	issue := sampleIssue()
+	transitions := sampleTransitions()
+
+	f, tio, _ := newTestMoveFactory(t, moveHandlerWithCapture(issue, transitions, nil))
+	f.OutputJSON = true
+
+	opts := &MoveOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		TargetStatus: "Done",
+		Resolution:   "Fixed",
+	}
+
+	err := runMove(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, out)
+	}
+
+	if result["ok"] != true {
+		t.Errorf("expected ok:true, got: %v", result["ok"])
+	}
+	if result["resolution"] != "Fixed" {
+		t.Errorf("expected resolution:'Fixed', got: %v", result["resolution"])
+	}
+}
+
+func TestMoveJSONWithoutResolution(t *testing.T) {
+	issue := sampleIssue()
+	transitions := sampleTransitions()
+
+	f, tio, _ := newTestMoveFactory(t, moveHandler(issue, transitions, 0))
+	f.OutputJSON = true
+
+	opts := &MoveOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		TargetStatus: "Done",
+	}
+
+	err := runMove(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, out)
+	}
+
+	// Resolution should NOT be present when not provided.
+	if _, exists := result["resolution"]; exists {
+		t.Errorf("expected no resolution field, got: %v", result["resolution"])
+	}
+}
+
+func TestMoveDryRunText(t *testing.T) {
+	issue := sampleIssue()
+	transitions := sampleTransitions()
+
+	f, tio, _ := newTestMoveFactory(t, moveHandler(issue, transitions, 0))
+	f.DryRun = true
+
+	opts := &MoveOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		TargetStatus: "Done",
+	}
+
+	err := runMove(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "PROJ-123") {
+		t.Errorf("expected issue key in dry-run output, got: %s", out)
+	}
+	if !strings.Contains(out, "Done") {
+		t.Errorf("expected target status in dry-run output, got: %s", out)
+	}
+	if !strings.Contains(out, "In Progress") {
+		t.Errorf("expected from status in dry-run output, got: %s", out)
+	}
+}
+
+func TestMoveDryRunJSON(t *testing.T) {
+	issue := sampleIssue()
+	transitions := sampleTransitions()
+
+	f, tio, _ := newTestMoveFactory(t, moveHandler(issue, transitions, 0))
+	f.DryRun = true
+	f.OutputJSON = true
+
+	opts := &MoveOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		TargetStatus: "Done",
+		Resolution:   "Fixed",
+		Comment:      "All done",
+	}
+
+	err := runMove(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, out)
+	}
+
+	if result["dry_run"] != true {
+		t.Errorf("expected dry_run:true, got: %v", result["dry_run"])
+	}
+	if result["validation"] != "passed" {
+		t.Errorf("expected validation:'passed', got: %v", result["validation"])
+	}
+
+	payload, ok := result["payload"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected payload to be a map")
+	}
+	if payload["key"] != "PROJ-123" {
+		t.Errorf("expected payload.key:PROJ-123, got: %v", payload["key"])
+	}
+	if payload["from"] != "In Progress" {
+		t.Errorf("expected payload.from:'In Progress', got: %v", payload["from"])
+	}
+	if payload["to"] != "Done" {
+		t.Errorf("expected payload.to:'Done', got: %v", payload["to"])
+	}
+	if payload["resolution"] != "Fixed" {
+		t.Errorf("expected payload.resolution:'Fixed', got: %v", payload["resolution"])
+	}
+	if payload["comment"] != "All done" {
+		t.Errorf("expected payload.comment:'All done', got: %v", payload["comment"])
+	}
+}
+
+func TestMoveDryRunNoTransition(t *testing.T) {
+	issue := sampleIssue()
+	transitions := sampleTransitions()
+
+	// Verify no POST /transitions is called during dry-run.
+	postCalled := false
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		if strings.HasSuffix(path, "/transitions") && r.Method == http.MethodPost {
+			postCalled = true
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		if strings.HasSuffix(path, "/transitions") && r.Method == http.MethodGet {
+			resp := struct {
+				Transitions []api.Transition `json:"transitions"`
+			}{Transitions: transitions}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		if strings.HasPrefix(path, "/issue/") && r.Method == http.MethodGet {
+			json.NewEncoder(w).Encode(issue)
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}
+
+	f, _, _ := newTestMoveFactory(t, http.HandlerFunc(handler))
+	f.DryRun = true
+
+	opts := &MoveOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		TargetStatus: "Done",
+	}
+
+	err := runMove(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if postCalled {
+		t.Error("expected no POST /transitions call during dry-run")
+	}
+}
+
+func TestMoveDryRunWithResolutionAndComment(t *testing.T) {
+	issue := sampleIssue()
+	transitions := sampleTransitions()
+
+	f, tio, _ := newTestMoveFactory(t, moveHandler(issue, transitions, 0))
+	f.DryRun = true
+
+	opts := &MoveOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		TargetStatus: "Done",
+		Resolution:   "Fixed",
+		Comment:      "Completed",
+	}
+
+	err := runMove(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "Fixed") {
+		t.Errorf("expected resolution in dry-run output, got: %s", out)
+	}
+	if !strings.Contains(out, "Completed") {
+		t.Errorf("expected comment in dry-run output, got: %s", out)
+	}
+}
+
+func TestMoveNoFieldsOrUpdateWithoutFlags(t *testing.T) {
+	issue := sampleIssue()
+	transitions := sampleTransitions()
+
+	var captured map[string]interface{}
+	f, _, _ := newTestMoveFactory(t, moveHandlerWithCapture(issue, transitions, &captured))
+
+	opts := &MoveOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		TargetStatus: "Done",
+	}
+
+	err := runMove(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Fields and update should not be present when neither --resolution nor --comment is used.
+	if _, ok := captured["fields"]; ok {
+		t.Error("expected no fields in request body when --resolution not provided")
+	}
+	if _, ok := captured["update"]; ok {
+		t.Error("expected no update in request body when --comment not provided")
 	}
 }

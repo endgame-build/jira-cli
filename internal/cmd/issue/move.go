@@ -2,6 +2,7 @@ package issue
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 
+	"github.com/endgameio/jira-cli/internal/adf"
 	"github.com/endgameio/jira-cli/internal/api"
 	clierrors "github.com/endgameio/jira-cli/internal/errors"
 	"github.com/endgameio/jira-cli/internal/factory"
@@ -20,6 +22,8 @@ type MoveOptions struct {
 	Factory      *factory.Factory
 	KeyOrID      string // positional arg: issue key
 	TargetStatus string // positional arg: target status name
+	Resolution   string // --resolution (e.g., "Fixed", "Won't Fix")
+	Comment      string // --comment (Markdown → ADF)
 }
 
 // NewCmdMove creates the "issue move" command.
@@ -44,6 +48,9 @@ func NewCmdMove(f *factory.Factory) *cobra.Command {
 			return runMove(opts)
 		},
 	}
+
+	cmd.Flags().StringVar(&opts.Resolution, "resolution", "", "Resolution to set (e.g., Fixed, Won't Fix)")
+	cmd.Flags().StringVar(&opts.Comment, "comment", "", "Comment to add during transition (Markdown)")
 
 	return cmd
 }
@@ -86,23 +93,57 @@ func runMove(opts *MoveOptions) error {
 		return err
 	}
 
-	// Execute transition.
+	toStatus := ""
+	if matched.To != nil {
+		toStatus = matched.To.Name
+	}
+
+	// Build transition input with optional resolution and comment.
 	input := &api.DoTransitionInput{
 		Transition: api.TransitionRef{ID: matched.ID},
 	}
-	if err := client.DoTransition(ctx, opts.KeyOrID, input); err != nil {
-		return err
+
+	if opts.Resolution != "" {
+		input.Fields = map[string]interface{}{
+			"resolution": map[string]string{"name": opts.Resolution},
+		}
+	}
+
+	if opts.Comment != "" {
+		commentADF, err := adf.Convert(opts.Comment)
+		if err != nil {
+			return clierrors.NewValidationError(
+				fmt.Sprintf("Failed to convert comment to ADF: %v", err),
+			)
+		}
+		commentOp := []map[string]interface{}{
+			{"add": map[string]interface{}{"body": commentADF}},
+		}
+		commentJSON, err := json.Marshal(commentOp)
+		if err != nil {
+			return clierrors.NewValidationError(
+				fmt.Sprintf("Failed to marshal comment: %v", err),
+			)
+		}
+		input.Update = map[string]json.RawMessage{
+			"comment": commentJSON,
+		}
 	}
 
 	formatter := output.NewFormatter(f.IOStreams, f.OutputJSON, f.JQExpr)
 
-	if f.Quiet {
-		return nil
+	// Dry-run: show preview without executing transition.
+	if f.DryRun {
+		return renderMoveDryRun(formatter, f, opts, matched, fromStatus, toStatus)
 	}
 
-	toStatus := ""
-	if matched.To != nil {
-		toStatus = matched.To.Name
+	// Execute transition.
+	if err := client.DoTransition(ctx, opts.KeyOrID, input); err != nil {
+		return err
+	}
+
+	if f.Quiet {
+		return nil
 	}
 
 	if formatter.IsJSON() {
@@ -113,11 +154,44 @@ func runMove(opts *MoveOptions) error {
 			"to":         toStatus,
 			"transition": matched.Name,
 		}
+		if opts.Resolution != "" {
+			extras["resolution"] = opts.Resolution
+		}
 		return formatter.OutputMutation(extras, nil)
 	}
 
 	fmt.Fprintf(f.IOStreams.Out, "Moved %s to %s\n", opts.KeyOrID, toStatus)
 	return nil
+}
+
+// renderMoveDryRun outputs a dry-run preview of the move operation.
+func renderMoveDryRun(formatter *output.Formatter, f *factory.Factory, opts *MoveOptions, matched *api.Transition, fromStatus, toStatus string) error {
+	payload := map[string]interface{}{
+		"key":        opts.KeyOrID,
+		"from":       fromStatus,
+		"to":         toStatus,
+		"transition": matched.Name,
+	}
+	if opts.Resolution != "" {
+		payload["resolution"] = opts.Resolution
+	}
+	if opts.Comment != "" {
+		payload["comment"] = opts.Comment
+	}
+
+	return formatter.OutputDryRun(payload, "passed", func(tw table.Writer) {
+		tw.AppendHeader(table.Row{"FIELD", "VALUE"})
+		tw.AppendRow(table.Row{"Issue", opts.KeyOrID})
+		tw.AppendRow(table.Row{"From", fromStatus})
+		tw.AppendRow(table.Row{"To", toStatus})
+		tw.AppendRow(table.Row{"Transition", matched.Name})
+		if opts.Resolution != "" {
+			tw.AppendRow(table.Row{"Resolution", opts.Resolution})
+		}
+		if opts.Comment != "" {
+			tw.AppendRow(table.Row{"Comment", opts.Comment})
+		}
+	})
 }
 
 // matchTransition finds a single transition matching the target status.
