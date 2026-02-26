@@ -67,11 +67,21 @@ func (f *Formatter) OutputMutation(extras map[string]interface{}, tableFn TableF
 // OutputDryRun renders a dry-run preview. JSON includes dry_run:true plus payload
 // and validation. Text renders via the supplied table function.
 func (f *Formatter) OutputDryRun(payload interface{}, validation string, tableFn TableFunc) error {
+	return f.OutputDryRunWithContext(nil, payload, validation, tableFn)
+}
+
+// OutputDryRunWithContext renders a dry-run preview with optional extra context
+// fields merged at the JSON top level (e.g., key, comment_id). Text output is
+// unaffected by extras.
+func (f *Formatter) OutputDryRunWithContext(extras map[string]interface{}, payload interface{}, validation string, tableFn TableFunc) error {
 	if f.asJSON {
 		result := map[string]interface{}{
 			"dry_run":    true,
 			"payload":    payload,
 			"validation": validation,
+		}
+		for k, v := range extras {
+			result[k] = v
 		}
 		return f.outputJSONOrJQ(func(w io.Writer) error {
 			return writeJSON(w, result)
