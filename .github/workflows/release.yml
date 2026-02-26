@@ -2,11 +2,14 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
 
 permissions:
   contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   quality:
@@ -63,7 +66,32 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Compute next version
+        id: version
+        run: |
+          go install github.com/caarlos0/svu@latest
+          CURRENT=$(svu current)
+          NEXT=$(svu next)
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$NEXT" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No version bump needed ($CURRENT)"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Bumping $CURRENT → $NEXT"
+          fi
+
+      - name: Create tag
+        if: steps.version.outputs.skip == 'false'
+        env:
+          NEXT_VERSION: ${{ steps.version.outputs.next }}
+        run: |
+          git tag "$NEXT_VERSION"
+          git push origin "$NEXT_VERSION"
+
       - name: Run GoReleaser
+        if: steps.version.outputs.skip == 'false'
         uses: goreleaser/goreleaser-action@9ed2f89a662bf1735a48bc8557fd212fa902bebf # v6.1.0
         with:
           distribution: goreleaser
