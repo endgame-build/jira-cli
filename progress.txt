@@ -46,6 +46,9 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - ADF: `Convert(markdown)` returns `(*Node, error)` — the Node is always type `doc` with `version:1`. Empty string returns valid empty doc. goldmark tight lists use `TextBlock` not `Paragraph` for items
 - Pagination: `FetchTokenPage[T]`, `FetchOffsetPage[T]`, `FetchRawArrayPage[T]` — all return `([]T, *output.PaginationMeta, error)`. Use token-based for search, offset-based for paged endpoints, raw-array for plain-array endpoints (e.g., /user/search)
 - API: `ResolveUser(ctx, client, input)` is a package-level function (not on *Client) — it composes GetMyself+SearchUsers. Use for any --assignee/--reporter flag resolution
+- ADF: `ExtractText(json.RawMessage)` extracts plain text from ADF documents — use for text-mode display of description/comment fields
+- IOStreams color methods: Green, Yellow, Red, Bold, Cyan (no Blue) — Jira status categories: done→Green, indeterminate→Cyan, new→Yellow
+- Issue view test factory: `newTestViewFactory(t, handler)` → (Factory, TestIOStreams, *httptest.Server) — reuse for all issue commands
 - `.gitignore`: bare names (e.g., `jira`) match recursively; use `/jira` to anchor to repo root only
 - `main.go`: `run() int` separates logic from `os.Exit()` — testable via `TestRunFunction` without subprocess
 - Auth commands that create their own API client use `clientOpts []api.ClientOption` field for test injection of `api.WithBaseURL()`
@@ -414,4 +417,19 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - Import alias needed when using both project `errors` and stdlib `errors` in tests: `stderrors "errors"` + `clierrors "github.com/endgameio/jira-cli/internal/errors"`
   - `WithContext()` takes `map[string]interface{}` (not variadic key-value pairs) — must construct the map inline
   - Issue key regex `^[A-Za-z][A-Za-z]*-[0-9]+$` matches Jira's actual key format; `[A-Za-z]+` would be equivalent but two-part is explicit about "at least one letter"
+---
+
+## 2026-02-26 - US-021a
+- Implemented issue view command with table output, --fields filtering, --json, --no-pager, and description truncation
+- Added ADF → plaintext extractor (`adf.ExtractText`) for rendering descriptions in text mode
+- Files changed: internal/cmd/issue/view.go (new), internal/cmd/issue/view_test.go (new), internal/adf/plaintext.go (new), internal/cmd/issue/issue.go (register subcommand)
+- 8 top-level tests (all passing): successful view, field filtering, 404 not found, JSON bare object, description truncation (>5 lines), unassigned display, --no-pager, key validation
+- **Learnings for future iterations:**
+  - ADF `ExtractText` deserializes `json.RawMessage` → `adf.Node` tree → concatenated text nodes. Returns "" for nil/empty/invalid JSON
+  - IOStreams has Green/Yellow/Red/Bold/Cyan color methods — no Blue. Use Cyan for "indeterminate" status category
+  - Status category keys from Jira: "done" (green), "indeterminate" (in progress, cyan), "new" (to do, yellow)
+  - `formatter.RawJSON(issue)` for JSON mode outputs bare object — OutputData is for text+JSON routing, RawJSON for pass-through
+  - View command test factory pattern: `newTestViewFactory(t, handler)` creates IOStreams + httptest server + api.Client, returns all three
+  - `NewTestFactory` with nil config is fine for commands that only need API client — config is only accessed if command needs it
+  - Pager starts in text mode only (not JSON) — call `ios.StartPager()` after the JSON early-return
 ---
