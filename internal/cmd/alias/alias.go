@@ -7,7 +7,6 @@ import (
 )
 
 // NewCmdAlias creates the "alias" command group.
-// Subcommands (set, delete, list) are registered in their own stories.
 func NewCmdAlias(f *factory.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "alias <command>",
@@ -17,6 +16,9 @@ func NewCmdAlias(f *factory.Factory) *cobra.Command {
 			return cmd.Help()
 		},
 	}
+
+	cmd.AddCommand(NewCmdAliasSet(f))
+	cmd.AddCommand(NewCmdAliasList(f))
 
 	return cmd
 }
