@@ -80,6 +80,10 @@ func mapHTTPError(resp *http.Response, instance string) *cliErrors.CLIError {
 	case http.StatusConflict: // 409
 		return cliErrors.NewConflictError(message)
 
+	case http.StatusRequestEntityTooLarge: // 413
+		return cliErrors.NewValidationError(message).
+			WithSuggestion("The request payload is too large. For comments, check comment size limits for your Jira instance")
+
 	case http.StatusTooManyRequests: // 429
 		return cliErrors.NewRateLimitError(message).
 			WithSuggestion("Wait a moment and try again")
