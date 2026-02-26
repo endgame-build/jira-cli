@@ -12,7 +12,7 @@ func NewCmdIssue(f *factory.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "issue <command>",
 		Short: "Manage Jira issues",
-		Long:  "View, create, edit, delete, move, assign, and list Jira issues.",
+		Long:  "View, create, edit, delete, move, assign, list, and show transitions for Jira issues.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -25,6 +25,7 @@ func NewCmdIssue(f *factory.Factory) *cobra.Command {
 	cmd.AddCommand(NewCmdMove(f))
 	cmd.AddCommand(NewCmdAssign(f))
 	cmd.AddCommand(NewCmdList(f))
+	cmd.AddCommand(NewCmdTransitions(f))
 
 	return cmd
 }

@@ -624,3 +624,19 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - For the --order-without-sort test, must use `NewCmdList` + `cmd.SetArgs` + `cmd.Execute()` because `Flags().Changed()` only works through Cobra execution (not via direct `runList()` call)
   - `ResolveUser` returns NOT_FOUND (0 matches) or AMBIGUOUS_USER (>1 match) — both propagate through `buildJQL()` without wrapping
 ---
+
+## 2026-02-26 - US-029
+- Implemented `jira issue transitions PROJ-123` command to list available workflow transitions
+- Calls `GET /rest/api/3/issue/{key}/transitions` via existing `client.GetTransitions()`
+- Text mode: table with columns NAME, TARGET STATUS, ID; empty results: "No transitions available for {key}"
+- JSON mode: list envelope `{data:[], pagination:null}` — null pagination since transitions aren't paginated
+- Issue key validated via `ValidateIssueKeyOrID` before API call
+- 404 error propagates as CLIError(NOT_FOUND) from API error mapping
+- Registered as subcommand in `NewCmdIssue`
+- Files changed: internal/cmd/issue/transitions.go (new), internal/cmd/issue/transitions_test.go (new), internal/cmd/issue/issue.go (modified), prd.json (updated)
+- 6 tests: text output, JSON envelope shape, empty text, empty JSON, 404, invalid key validation
+- **Learnings for future iterations:**
+  - Read-only list commands are simple: no --quiet, no --dry-run, no --web — just formatter.OutputList for JSON and table for text
+  - `sampleTransitions()` from move_test.go is available to all tests in the issue package — reuse shared fixtures
+  - Empty transitions in text mode should be a human-friendly message (not an empty table), while JSON uses `{data:[], pagination:null}` for machine consumption
+---
