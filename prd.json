@@ -734,7 +734,7 @@
         "Tests pass"
       ],
       "priority": 31,
-      "passes": false,
+      "passes": true,
       "notes": "Added --field split semantics and collision handling (was only in US-023b before)"
     },
     {

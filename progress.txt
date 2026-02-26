@@ -494,3 +494,19 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `createHandler` mock now includes createmeta endpoint — future commands can reuse this handler pattern
   - `--body-file` overrides `--description` when both provided (no error, body-file wins)
 ---
+
+## 2026-02-26 - US-023a
+- Implemented `jira issue edit <key-or-id>` command with basic field editing
+- Flags: --summary, --description, --body-file, --assignee, --priority, --labels, --field
+- Files changed:
+  - internal/cmd/issue/edit.go (new — EditOptions + NewCmdEdit + runEdit)
+  - internal/cmd/issue/edit_test.go (new — 15 tests covering all acceptance criteria)
+  - internal/cmd/issue/issue.go (wired NewCmdEdit into command group)
+- **Learnings for future iterations:**
+  - Edit requires tracking which flags were explicitly set via `cmd.Flags().Changed("flagname")` — unlike create, empty values have meaning (e.g. --assignee '' unassigns, --description '' clears)
+  - Use `summarySet`, `descriptionSet`, `assigneeSet`, `labelsSet` booleans on the Options struct to distinguish "not provided" from "provided as empty"
+  - `parseField()` from create.go is reused directly (same package) — no need to extract to shared
+  - `editHandler` test mock serves PUT /issue/{key} → 204 + user search for assignee resolution
+  - gofmt enforces field alignment in struct literals — `descriptionSet` (longest field) sets the column width for all fields in the struct initializer
+  - `adf.Convert("")` returns an empty ADF Document — this is exactly what Jira expects to clear a description
+---
