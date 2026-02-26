@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 
@@ -83,6 +84,35 @@ func editHandler(captureBody *string) http.HandlerFunc {
 
 		w.WriteHeader(404)
 		w.Write([]byte(`{"errorMessages":["Not found"]}`))
+	}
+}
+
+// editAndGetHandler serves both PUT /issue/{key} (edit) and GET /issue/{key} (view)
+// for tests that need dry-run (which fetches before diffing).
+func editAndGetHandler(captureBody *string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// GET /issue/{key} — return mock issue for dry-run diff.
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/issue/") && !strings.Contains(r.URL.Path, "/user/") {
+			json.NewEncoder(w).Encode(api.Issue{
+				ID:  "10001",
+				Key: "PROJ-123",
+				Fields: api.IssueFields{
+					Summary: "Old title",
+					Labels:  []string{"existing-label", "keep-me"},
+					Priority: &api.Priority{
+						Name: "Medium",
+					},
+					Assignee: &api.User{
+						AccountID:   "old123old456old123old456",
+						DisplayName: "Old Assignee",
+					},
+				},
+			})
+			return
+		}
+
+		// Delegate to the standard edit handler for other paths.
+		editHandler(captureBody)(w, r)
 	}
 }
 
@@ -515,5 +545,415 @@ func TestEditInvalidFieldFormat(t *testing.T) {
 	}
 	if cliErr.Code != clierrors.VALIDATION_ERROR {
 		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+}
+
+// --- US-023b: Label operations, field collision, dry-run ---
+
+func TestEditAddLabels(t *testing.T) {
+	var capturedBody string
+	f, _, _ := newTestEditFactory(t, editHandler(&capturedBody), nil)
+
+	opts := &EditOptions{
+		Factory:   f,
+		KeyOrID:   "PROJ-123",
+		AddLabels: []string{"new-label", "another"},
+	}
+
+	if err := runEdit(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+
+	// Should have update.labels with add operations.
+	updateRaw, ok := reqBody["update"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected update section, got %T", reqBody["update"])
+	}
+	labelsOps, ok := updateRaw["labels"].([]interface{})
+	if !ok {
+		t.Fatalf("expected labels ops array, got %T", updateRaw["labels"])
+	}
+	if len(labelsOps) != 2 {
+		t.Fatalf("expected 2 label ops, got %d", len(labelsOps))
+	}
+
+	op0 := labelsOps[0].(map[string]interface{})
+	if op0["add"] != "new-label" {
+		t.Errorf("op[0] = %v, want add:new-label", op0)
+	}
+	op1 := labelsOps[1].(map[string]interface{})
+	if op1["add"] != "another" {
+		t.Errorf("op[1] = %v, want add:another", op1)
+	}
+
+	// Should NOT have fields.labels (add/remove uses update, not fields).
+	if fieldsRaw, ok := reqBody["fields"].(map[string]interface{}); ok {
+		if _, hasLabels := fieldsRaw["labels"]; hasLabels {
+			t.Error("fields should not contain labels when using --add-labels")
+		}
+	}
+}
+
+func TestEditRemoveLabels(t *testing.T) {
+	var capturedBody string
+	f, _, _ := newTestEditFactory(t, editHandler(&capturedBody), nil)
+
+	opts := &EditOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		RemoveLabels: []string{"old-label"},
+	}
+
+	if err := runEdit(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+
+	updateRaw := reqBody["update"].(map[string]interface{})
+	labelsOps := updateRaw["labels"].([]interface{})
+	if len(labelsOps) != 1 {
+		t.Fatalf("expected 1 label op, got %d", len(labelsOps))
+	}
+
+	op := labelsOps[0].(map[string]interface{})
+	if op["remove"] != "old-label" {
+		t.Errorf("op = %v, want remove:old-label", op)
+	}
+}
+
+func TestEditAddAndRemoveLabels(t *testing.T) {
+	var capturedBody string
+	f, _, _ := newTestEditFactory(t, editHandler(&capturedBody), nil)
+
+	opts := &EditOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		AddLabels:    []string{"added"},
+		RemoveLabels: []string{"removed"},
+	}
+
+	if err := runEdit(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+
+	updateRaw := reqBody["update"].(map[string]interface{})
+	labelsOps := updateRaw["labels"].([]interface{})
+	if len(labelsOps) != 2 {
+		t.Fatalf("expected 2 label ops, got %d", len(labelsOps))
+	}
+
+	// First op should be add, second should be remove.
+	op0 := labelsOps[0].(map[string]interface{})
+	if op0["add"] != "added" {
+		t.Errorf("op[0] = %v, want add:added", op0)
+	}
+	op1 := labelsOps[1].(map[string]interface{})
+	if op1["remove"] != "removed" {
+		t.Errorf("op[1] = %v, want remove:removed", op1)
+	}
+}
+
+func TestEditLabelsConflictWithAddLabels(t *testing.T) {
+	f, _, _ := newTestEditFactory(t, editHandler(nil), nil)
+
+	opts := &EditOptions{
+		Factory:   f,
+		KeyOrID:   "PROJ-123",
+		Labels:    []string{"replace"},
+		labelsSet: true,
+		AddLabels: []string{"add-this"},
+	}
+
+	err := runEdit(opts)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != clierrors.VALIDATION_ERROR {
+		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+	if !strings.Contains(cliErr.Message, "--labels cannot be combined") {
+		t.Errorf("error message = %q, want '--labels cannot be combined...'", cliErr.Message)
+	}
+}
+
+func TestEditLabelsConflictWithRemoveLabels(t *testing.T) {
+	f, _, _ := newTestEditFactory(t, editHandler(nil), nil)
+
+	opts := &EditOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		Labels:       []string{"replace"},
+		labelsSet:    true,
+		RemoveLabels: []string{"remove-this"},
+	}
+
+	err := runEdit(opts)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != clierrors.VALIDATION_ERROR {
+		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+}
+
+func TestEditDryRunText(t *testing.T) {
+	f, tio, _ := newTestEditFactory(t, editAndGetHandler(nil), nil)
+	f.DryRun = true
+
+	opts := &EditOptions{
+		Factory:    f,
+		KeyOrID:    "PROJ-123",
+		Summary:    "New title",
+		summarySet: true,
+	}
+
+	if err := runEdit(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "DRY RUN") {
+		t.Errorf("output should contain 'DRY RUN', got: %s", out)
+	}
+	if !strings.Contains(out, "PROJ-123") {
+		t.Errorf("output should contain issue key, got: %s", out)
+	}
+	if !strings.Contains(out, "Old title") {
+		t.Errorf("output should contain 'Old title' (from value), got: %s", out)
+	}
+	if !strings.Contains(out, "New title") {
+		t.Errorf("output should contain 'New title' (to value), got: %s", out)
+	}
+}
+
+func TestEditDryRunJSON(t *testing.T) {
+	f, tio, _ := newTestEditFactory(t, editAndGetHandler(nil), nil)
+	f.DryRun = true
+	f.OutputJSON = true
+
+	opts := &EditOptions{
+		Factory:    f,
+		KeyOrID:    "PROJ-123",
+		Summary:    "New title",
+		summarySet: true,
+		Priority:   "High",
+	}
+
+	if err := runEdit(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, out)
+	}
+
+	if result["dry_run"] != true {
+		t.Errorf("dry_run = %v, want true", result["dry_run"])
+	}
+	if result["validation"] != "passed" {
+		t.Errorf("validation = %v, want 'passed'", result["validation"])
+	}
+
+	// Dig into the payload to find changes.
+	payload, ok := result["payload"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("payload should be object, got %T", result["payload"])
+	}
+	changes, ok := payload["changes"].([]interface{})
+	if !ok {
+		t.Fatalf("changes should be array, got %T", payload["changes"])
+	}
+	if len(changes) < 2 {
+		t.Fatalf("expected at least 2 changes, got %d", len(changes))
+	}
+}
+
+func TestEditDryRunDoesNotMutate(t *testing.T) {
+	editCalled := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/issue/") {
+			editCalled = true
+			w.WriteHeader(204)
+			return
+		}
+		// GET /issue/{key} for dry-run.
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/issue/") {
+			json.NewEncoder(w).Encode(api.Issue{
+				ID:  "10001",
+				Key: "PROJ-123",
+				Fields: api.IssueFields{
+					Summary: "Old title",
+				},
+			})
+			return
+		}
+		w.WriteHeader(404)
+	})
+
+	f, _, _ := newTestEditFactory(t, handler, nil)
+	f.DryRun = true
+
+	opts := &EditOptions{
+		Factory:    f,
+		KeyOrID:    "PROJ-123",
+		Summary:    "New title",
+		summarySet: true,
+	}
+
+	if err := runEdit(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if editCalled {
+		t.Error("dry-run should NOT call the edit (PUT) endpoint")
+	}
+}
+
+func TestEditDryRunLabels(t *testing.T) {
+	f, tio, _ := newTestEditFactory(t, editAndGetHandler(nil), nil)
+	f.DryRun = true
+	f.OutputJSON = true
+
+	opts := &EditOptions{
+		Factory:      f,
+		KeyOrID:      "PROJ-123",
+		AddLabels:    []string{"new-label"},
+		RemoveLabels: []string{"existing-label"},
+	}
+
+	if err := runEdit(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, out)
+	}
+
+	payload := result["payload"].(map[string]interface{})
+	changes := payload["changes"].([]interface{})
+
+	// Find the labels change.
+	var labelsChange map[string]interface{}
+	for _, c := range changes {
+		change := c.(map[string]interface{})
+		if change["field"] == "labels" {
+			labelsChange = change
+			break
+		}
+	}
+	if labelsChange == nil {
+		t.Fatal("expected a labels change in dry-run output")
+	}
+
+	// "to" should contain resulting labels after add/remove.
+	toLabels := labelsChange["to"].([]interface{})
+	toStrings := make([]string, len(toLabels))
+	for i, l := range toLabels {
+		toStrings[i] = l.(string)
+	}
+	sort.Strings(toStrings)
+
+	// Expected: keep-me + new-label (existing-label removed).
+	expected := []string{"keep-me", "new-label"}
+	sort.Strings(expected)
+	if len(toStrings) != len(expected) {
+		t.Fatalf("to labels = %v, want %v", toStrings, expected)
+	}
+	for i := range expected {
+		if toStrings[i] != expected[i] {
+			t.Errorf("to labels[%d] = %q, want %q", i, toStrings[i], expected[i])
+		}
+	}
+}
+
+func TestComputeLabelDelta(t *testing.T) {
+	tests := []struct {
+		name    string
+		current []string
+		add     []string
+		remove  []string
+		want    []string
+	}{
+		{
+			name:    "add only",
+			current: []string{"a", "b"},
+			add:     []string{"c"},
+			want:    []string{"a", "b", "c"},
+		},
+		{
+			name:    "remove only",
+			current: []string{"a", "b", "c"},
+			remove:  []string{"b"},
+			want:    []string{"a", "c"},
+		},
+		{
+			name:    "add and remove",
+			current: []string{"a", "b"},
+			add:     []string{"c"},
+			remove:  []string{"a"},
+			want:    []string{"b", "c"},
+		},
+		{
+			name:    "add duplicate",
+			current: []string{"a"},
+			add:     []string{"a"},
+			want:    []string{"a"},
+		},
+		{
+			name:    "remove nonexistent",
+			current: []string{"a"},
+			remove:  []string{"b"},
+			want:    []string{"a"},
+		},
+		{
+			name:    "empty current",
+			current: nil,
+			add:     []string{"x"},
+			want:    []string{"x"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := computeLabelDelta(tt.current, tt.add, tt.remove)
+			sort.Strings(got)
+			sort.Strings(tt.want)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Errorf("got[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
 	}
 }

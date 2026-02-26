@@ -56,6 +56,8 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - `configGet(f, key)` safe helper returns "" on nil/error config — use across all commands needing config fallbacks
 - Shared: `shared.ReadBodyFile(path, io.Reader)` for --body-file (file or stdin "-"); `shared.ValidateBodySize(content)` for --description size cap (10MB)
 - Dry-run pattern: validate via live API (e.g., GetCreateMeta), resolve users, build payload, output preview — never call the mutation endpoint
+- Jira update operations: `{"update":{"labels":[{"add":"x"},{"remove":"y"}]}}` for delta changes; `{"fields":{"labels":["x"]}}` for full replacement — never mix both in same request
+- Edit dry-run: fetches current issue, computes field-by-field diff `{field, from, to}`, uses `OutputDryRun` for both JSON and text modes
 - `.gitignore`: bare names (e.g., `jira`) match recursively; use `/jira` to anchor to repo root only
 - `main.go`: `run() int` separates logic from `os.Exit()` — testable via `TestRunFunction` without subprocess
 - Auth commands that create their own API client use `clientOpts []api.ClientOption` field for test injection of `api.WithBaseURL()`
@@ -509,4 +511,21 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `editHandler` test mock serves PUT /issue/{key} → 204 + user search for assignee resolution
   - gofmt enforces field alignment in struct literals — `descriptionSet` (longest field) sets the column width for all fields in the struct initializer
   - `adf.Convert("")` returns an empty ADF Document — this is exactly what Jira expects to clear a description
+---
+
+## 2026-02-26 - US-023b
+- Implemented --add-labels and --remove-labels flags using Jira update operations (add/remove arrays)
+- Added --labels mutual exclusivity validation with --add-labels/--remove-labels (CLIError VALIDATION_ERROR)
+- Implemented --dry-run: fetches current issue via GetIssue, computes field-by-field diff, shows before/after preview
+- Dry-run JSON output: {dry_run:true, changes:[{field, from, to}], validation:'passed'}
+- Dry-run text output: table with Field/From/To columns
+- Added --field collision warning (named flag wins, stderr warning) — already existed from US-023a, preserved
+- Files changed: internal/cmd/issue/edit.go, internal/cmd/issue/edit_test.go
+- **Learnings for future iterations:**
+  - Jira update operations use `{"update":{"labels":[{"add":"x"},{"remove":"y"}]}}` — distinct from `{"fields":{"labels":["x","y"]}}` which replaces all
+  - `EditIssueInput.Update` is `map[string]json.RawMessage` — marshal operation arrays to JSON before assignment
+  - `computeLabelDelta()` simulates add/remove on current labels for dry-run preview — map-based set operations
+  - Dry-run edit uses OutputDryRun from the formatter (same as create dry-run) but wraps it with custom changes payload
+  - `editAndGetHandler` test mock serves both GET /issue/{key} (for dry-run fetch) and PUT /issue/{key} (for actual edit)
+  - `namedFieldKey()` helper extracted for reuse in both the collision check and dry-run custom field loop
 ---
