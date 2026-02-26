@@ -359,3 +359,20 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `HasNextPage` for partial pages (len < limit) is always false regardless of server's `isLast` — the server may say more exist but if we got fewer than requested, there's nothing left to show
   - Default limit of 50 is applied when caller passes 0 — matches Jira's default maxResults
 ---
+
+## 2026-02-26 - US-030a
+- Implemented all issue CRUD API methods on *Client in internal/api/issues.go
+- Methods: GetIssue, CreateIssue, EditIssue, DeleteIssue, AssignIssue, GetTransitions, DoTransition, GetCreateMeta, SearchIssues
+- All methods use Client.Do() internally — thin wrappers composing path, body, and decode target
+- SearchIssues defaults fields to ["*all"] when caller doesn't specify (Jira returns only id otherwise)
+- DeleteIssue passes deleteSubtasks as string query param ("true"/"false") per Jira API spec
+- AssignIssue with nil *string unassigns (Go marshals nil *string as null)
+- Files changed: internal/api/issues.go (new), internal/api/issues_test.go (new)
+- 26 tests (all passing): GetIssue (success, options, 404), CreateIssue (success, 400), EditIssue (success, 404, 409), DeleteIssue (success, no-subtasks, 403), AssignIssue (assign, unassign, 403), GetTransitions (success, 404), DoTransition (success, with-update), GetCreateMeta (success, 404), SearchIssues (success, defaults-to-all, explicit-fields, pagination, 400)
+- **Learnings for future iterations:**
+  - Issue methods are thin wrappers: compose path, call Do(), return typed result. Error mapping is centralized in Do() → mapHTTPError()
+  - `map[string]interface{}{"accountId": accountID}` with `*string` handles both assign (non-nil) and unassign (nil → JSON null) cleanly
+  - gofmt auto-aligns map literal values when keys have different lengths — run `gofmt -w` before staging to avoid pre-commit hook failures
+  - GetIssue query params built via string concatenation (not url.Values) — acceptable for simple cases where values don't need URL encoding
+  - Error code is `CONFLICT_ERROR` (not `CONFLICT`) — check errors package constants before using
+---

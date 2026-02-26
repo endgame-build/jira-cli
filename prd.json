@@ -575,7 +575,7 @@
         "Tests pass"
       ],
       "priority": 23,
-      "passes": false,
+      "passes": true,
       "notes": "Swagger bugs: (1) search returns only id by default \u2014 always send fields param, (2) create returns {id,key,self} \u2014 construct browse URL client-side"
     },
     {
