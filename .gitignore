@@ -1,6 +1,6 @@
 # Build artifacts
 bin/
-jira
+/jira
 *.exe
 *.test
 *.out
