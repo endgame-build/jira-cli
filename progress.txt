@@ -49,6 +49,8 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - ADF: `ExtractText(json.RawMessage)` extracts plain text from ADF documents — use for text-mode display of description/comment fields
 - IOStreams color methods: Green, Yellow, Red, Bold, Cyan (no Blue) — Jira status categories: done→Green, indeterminate→Cyan, new→Yellow
 - Issue view test factory: `newTestViewFactory(t, handler)` → (Factory, TestIOStreams, *httptest.Server) — reuse for all issue commands
+- Browser mock: use `BrowserOpen func(string) error` field on Options struct for test injection; default to `browser.OpenURL`
+- `f.AuthCredentials()` resolves instance without API call — use for --web instead of separate config-only code path
 - `.gitignore`: bare names (e.g., `jira`) match recursively; use `/jira` to anchor to repo root only
 - `main.go`: `run() int` separates logic from `os.Exit()` — testable via `TestRunFunction` without subprocess
 - Auth commands that create their own API client use `clientOpts []api.ClientOption` field for test injection of `api.WithBaseURL()`
@@ -432,4 +434,25 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - View command test factory pattern: `newTestViewFactory(t, handler)` creates IOStreams + httptest server + api.Client, returns all three
   - `NewTestFactory` with nil config is fine for commands that only need API client — config is only accessed if command needs it
   - Pager starts in text mode only (not JSON) — call `ios.StartPager()` after the JSON early-return
+---
+
+## 2026-02-26 - US-021b
+- Implemented issue view enhancements: linked issues, subtasks, comments, and --web browser support
+- Linked issues: renders each link with inward/outward description + target issue key + status
+- Subtasks: renders each subtask with key, summary, and status in `[Status]` brackets
+- --comments flag: shows last 20 comments with author, date, and body truncated to 3 lines
+- --web: opens `https://{instance}/browse/{key}` in browser via `cli/browser` package
+- --web + --json: dual action — prints `{ok:true, url}` AND opens browser
+- --web + --quiet: opens browser silently (no stdout)
+- --web + --fields/--comments: web takes precedence, flags ignored
+- BrowserOpen function field on ViewOptions for test injection (mock browser)
+- Files changed: internal/cmd/issue/view.go (enhanced), internal/cmd/issue/view_test.go (8 new tests)
+- 16 tests (all passing): 8 original + 8 new (linked issues, subtasks, comments, comments-without-flag, web, web+json, web+quiet)
+- **Learnings for future iterations:**
+  - `BrowserOpen func(string) error` field on Options struct allows test injection — pattern reusable for any command that opens a browser
+  - `cli/browser.OpenURL(url)` is the API — simple function, no struct needed
+  - `f.AuthCredentials()` resolves instance without API call (flag > env > profile chain) — use for --web instead of creating a separate config-only path
+  - `newTestViewWebFactory` uses config+keyring pattern (like auth status_test.go) for tests needing AuthCredentials
+  - Comments are embedded in `IssueFields.Comment` (populated by GET /issue/{key}) — no separate API call needed
+  - `renderLink` uses `io.Writer` not `fmt.Stringer` — the former is what `ios.Out` satisfies
 ---

@@ -3,8 +3,10 @@ package issue
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
+	"github.com/cli/browser"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 
@@ -20,11 +22,21 @@ type ViewOptions struct {
 	KeyOrID string
 	Fields  []string // --fields filter
 	NoPager bool     // --no-pager
+
+	Comments bool // --comments
+	Web      bool // --web
+
+	// BrowserOpen is the function used to open a URL in the browser.
+	// Defaults to browser.OpenURL; overridden in tests.
+	BrowserOpen func(string) error
 }
 
 // NewCmdView creates the "issue view" command.
 func NewCmdView(f *factory.Factory) *cobra.Command {
-	opts := &ViewOptions{Factory: f}
+	opts := &ViewOptions{
+		Factory:     f,
+		BrowserOpen: browser.OpenURL,
+	}
 
 	cmd := &cobra.Command{
 		Use:   "view <key-or-id>",
@@ -48,6 +60,8 @@ func NewCmdView(f *factory.Factory) *cobra.Command {
 
 	cmd.Flags().StringSliceVar(&opts.Fields, "fields", nil, "Comma-separated list of fields to display")
 	cmd.Flags().BoolVar(&opts.NoPager, "no-pager", false, "Do not pipe output through a pager")
+	cmd.Flags().BoolVar(&opts.Comments, "comments", false, "Show comments (last 20)")
+	cmd.Flags().BoolVar(&opts.Web, "web", false, "Open issue in browser")
 
 	return cmd
 }
@@ -55,6 +69,12 @@ func NewCmdView(f *factory.Factory) *cobra.Command {
 // runView fetches an issue and renders it.
 func runView(opts *ViewOptions) error {
 	f := opts.Factory
+
+	// --web: open in browser. Uses auth credentials for instance URL (no extra API call).
+	if opts.Web {
+		return runViewWeb(opts)
+	}
+
 	ios := f.IOStreams
 
 	client, err := f.APIClient()
@@ -133,7 +153,117 @@ func runView(opts *ViewOptions) error {
 				fmt.Fprintf(ios.Out, "\n%s\n", strings.Join(lines, "\n"))
 			}
 		}
+
+		// Linked issues section.
+		if showField(wantFields, "links") && len(fields.IssueLinks) > 0 {
+			fmt.Fprintf(ios.Out, "\nLinked Issues:\n")
+			for _, link := range fields.IssueLinks {
+				renderLink(ios.Out, link)
+			}
+		}
+
+		// Subtasks section.
+		if showField(wantFields, "subtasks") && len(fields.SubTasks) > 0 {
+			fmt.Fprintf(ios.Out, "\nSubtasks:\n")
+			for _, sub := range fields.SubTasks {
+				statusName := ""
+				if sub.Fields.Status != nil {
+					statusName = sub.Fields.Status.Name
+				}
+				fmt.Fprintf(ios.Out, "  %s  %s  [%s]\n", sub.Key, sub.Fields.Summary, statusName)
+			}
+		}
+
+		// Comments section (only when --comments flag is set).
+		if opts.Comments && showField(wantFields, "comments") {
+			renderComments(ios.Out, fields.Comment)
+		}
 	})
+}
+
+// runViewWeb handles the --web flag: opens the issue in a browser.
+// Uses AuthCredentials for instance (flag > env > profile chain, no API call).
+// --web + --json: prints {ok:true, url} AND opens browser (dual action).
+// --web + --quiet: opens browser silently (no stdout).
+// --web + --fields/--comments: web takes precedence, flags ignored.
+func runViewWeb(opts *ViewOptions) error {
+	f := opts.Factory
+
+	creds, err := f.AuthCredentials()
+	if err != nil {
+		return err
+	}
+
+	browseURL := fmt.Sprintf("https://%s/browse/%s", creds.Instance, opts.KeyOrID)
+
+	formatter := output.NewFormatter(f.IOStreams, f.OutputJSON, f.JQExpr)
+
+	// --json: print {ok:true, url} AND open browser (dual action).
+	if formatter.IsJSON() {
+		extras := map[string]interface{}{
+			"url": browseURL,
+		}
+		if err := formatter.OutputMutation(extras, nil); err != nil {
+			return err
+		}
+	} else if !f.Quiet {
+		// Text mode (not quiet): print the URL.
+		fmt.Fprintf(f.IOStreams.Out, "Opening %s in browser...\n", browseURL)
+	}
+
+	return opts.BrowserOpen(browseURL)
+}
+
+// renderLink formats a single issue link as text output.
+func renderLink(w io.Writer, link api.IssueLink) {
+	if link.Type == nil {
+		return
+	}
+	if link.OutwardIssue != nil {
+		status := ""
+		if link.OutwardIssue.Fields != nil && link.OutwardIssue.Fields.Status != nil {
+			status = link.OutwardIssue.Fields.Status.Name
+		}
+		fmt.Fprintf(w, "  %s %s (%s)\n", link.Type.Outward, link.OutwardIssue.Key, status)
+	}
+	if link.InwardIssue != nil {
+		status := ""
+		if link.InwardIssue.Fields != nil && link.InwardIssue.Fields.Status != nil {
+			status = link.InwardIssue.Fields.Status.Name
+		}
+		fmt.Fprintf(w, "  %s %s (%s)\n", link.Type.Inward, link.InwardIssue.Key, status)
+	}
+}
+
+// renderComments outputs the last 20 comments. Body is truncated to 3 lines.
+func renderComments(w io.Writer, commentPage *api.CommentPage) {
+	if commentPage == nil || len(commentPage.Comments) == 0 {
+		fmt.Fprintf(w, "\nComments: (none)\n")
+		return
+	}
+
+	comments := commentPage.Comments
+	// Show last 20 only (MVP limit).
+	if len(comments) > 20 {
+		comments = comments[len(comments)-20:]
+	}
+
+	fmt.Fprintf(w, "\nComments (%d):\n", len(comments))
+	for _, c := range comments {
+		author := "Unknown"
+		if c.Author != nil {
+			author = c.Author.DisplayName
+		}
+		body := adf.ExtractText(c.Body)
+		lines := strings.Split(body, "\n")
+		if len(lines) > 3 {
+			lines = append(lines[:3], "... (truncated)")
+		}
+		fmt.Fprintf(w, "  %s — %s\n", author, c.Created)
+		for _, line := range lines {
+			fmt.Fprintf(w, "    %s\n", line)
+		}
+	}
 }
 
 // fieldSet converts a string slice of field names to a set for O(1) lookup.

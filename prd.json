@@ -667,7 +667,7 @@
         "Tests pass"
       ],
       "priority": 28,
-      "passes": false,
+      "passes": true,
       "notes": "Clarified: --web+--json is dual-action (both print AND open). Comments limited to last 20 (MVP). Subtasks field name to be verified at runtime."
     },
     {

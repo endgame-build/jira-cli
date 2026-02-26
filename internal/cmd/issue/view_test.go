@@ -5,11 +5,15 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/zalando/go-keyring"
+
 	"github.com/endgameio/jira-cli/internal/api"
 	"github.com/endgameio/jira-cli/internal/auth"
+	"github.com/endgameio/jira-cli/internal/config"
 	clierrors "github.com/endgameio/jira-cli/internal/errors"
 	"github.com/endgameio/jira-cli/internal/factory"
 	"github.com/endgameio/jira-cli/internal/iostreams"
@@ -89,6 +93,41 @@ func newTestViewFactory(t *testing.T, handler http.Handler) (*factory.Factory, *
 
 	f := factory.NewTestFactory(tio.IOStreams, nil, client)
 	return f, tio, srv
+}
+
+// newTestViewWebFactory creates a Factory wired with a stored profile (for --web).
+// The --web code path needs AuthCredentials() to resolve the instance URL.
+func newTestViewWebFactory(t *testing.T) (*factory.Factory, *iostreams.TestIOStreams) {
+	t.Helper()
+	keyring.MockInit()
+
+	tio := iostreams.Test()
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	cfg, err := config.LoadFromPath(cfgPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	type profileSetter interface {
+		SetProfile(name, instance, user string)
+		SetActiveProfile(name string) error
+		config.Config
+	}
+	pc := cfg.(profileSetter)
+	pc.SetProfile("default", "mysite.atlassian.net", "user@example.com")
+	if err := pc.SetActiveProfile("default"); err != nil {
+		t.Fatalf("set active: %v", err)
+	}
+	if err := pc.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	if err := keyring.Set("jira-cli", "default-token", "tok123"); err != nil {
+		t.Fatalf("set keyring: %v", err)
+	}
+
+	f := factory.NewTestFactory(tio.IOStreams, cfg, nil)
+	return f, tio
 }
 
 func TestViewSuccessful(t *testing.T) {
@@ -328,5 +367,292 @@ func TestViewKeyValidation(t *testing.T) {
 	}
 	if cliErr.Code != clierrors.VALIDATION_ERROR {
 		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+}
+
+// ──────────────────────────────────────────────
+// US-021b: Linked issues, subtasks, comments, --web
+// ──────────────────────────────────────────────
+
+func TestViewLinkedIssues(t *testing.T) {
+	issue := sampleIssue()
+	issue.Fields.IssueLinks = []api.IssueLink{
+		{
+			ID: "1001",
+			Type: &api.IssueLinkType{
+				ID:      "10000",
+				Name:    "Blocks",
+				Inward:  "is blocked by",
+				Outward: "blocks",
+			},
+			OutwardIssue: &api.LinkedIssue{
+				ID:  "10002",
+				Key: "PROJ-456",
+				Fields: &api.LinkedIssueFields{
+					Summary: "Blocked task",
+					Status:  &api.Status{Name: "In Progress"},
+				},
+			},
+		},
+		{
+			ID: "1002",
+			Type: &api.IssueLinkType{
+				ID:      "10001",
+				Name:    "Relates",
+				Inward:  "relates to",
+				Outward: "relates to",
+			},
+			InwardIssue: &api.LinkedIssue{
+				ID:  "10003",
+				Key: "PROJ-789",
+				Fields: &api.LinkedIssueFields{
+					Summary: "Related task",
+					Status:  &api.Status{Name: "Done"},
+				},
+			},
+		},
+	}
+
+	f, tio, _ := newTestViewFactory(t, issueHandler(issue))
+	opts := &ViewOptions{Factory: f, KeyOrID: "PROJ-123"}
+
+	if err := runView(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+
+	for _, want := range []string{
+		"Linked Issues:",
+		"blocks PROJ-456 (In Progress)",
+		"relates to PROJ-789 (Done)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\ngot:\n%s", want, out)
+		}
+	}
+}
+
+func TestViewSubtasks(t *testing.T) {
+	issue := sampleIssue()
+	issue.Fields.SubTasks = []api.Issue{
+		{
+			ID:  "10010",
+			Key: "PROJ-125",
+			Fields: api.IssueFields{
+				Summary: "Fix login CSS",
+				Status:  &api.Status{Name: "Done"},
+			},
+		},
+		{
+			ID:  "10011",
+			Key: "PROJ-126",
+			Fields: api.IssueFields{
+				Summary: "Add error message",
+				Status:  &api.Status{Name: "To Do"},
+			},
+		},
+	}
+
+	f, tio, _ := newTestViewFactory(t, issueHandler(issue))
+	opts := &ViewOptions{Factory: f, KeyOrID: "PROJ-123"}
+
+	if err := runView(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	for _, want := range []string{
+		"Subtasks:",
+		"PROJ-125  Fix login CSS  [Done]",
+		"PROJ-126  Add error message  [To Do]",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\ngot:\n%s", want, out)
+		}
+	}
+}
+
+func TestViewComments(t *testing.T) {
+	issue := sampleIssue()
+	issue.Fields.Comment = &api.CommentPage{
+		Comments: []api.Comment{
+			{
+				ID: "100",
+				Author: &api.User{
+					AccountID:   "abc",
+					DisplayName: "Alice",
+				},
+				Body: json.RawMessage(`{
+					"type": "doc", "version": 1,
+					"content": [{"type": "paragraph", "content": [{"type": "text", "text": "First comment"}]}]
+				}`),
+				Created: "2026-02-20T10:00:00.000+0000",
+			},
+			{
+				ID: "101",
+				Author: &api.User{
+					AccountID:   "def",
+					DisplayName: "Bob",
+				},
+				Body: json.RawMessage(`{
+					"type": "doc", "version": 1,
+					"content": [{"type": "paragraph", "content": [{"type": "text", "text": "Second comment"}]}]
+				}`),
+				Created: "2026-02-21T15:00:00.000+0000",
+			},
+		},
+		Total: 2,
+	}
+
+	f, tio, _ := newTestViewFactory(t, issueHandler(issue))
+	opts := &ViewOptions{Factory: f, KeyOrID: "PROJ-123", Comments: true}
+
+	if err := runView(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	for _, want := range []string{
+		"Comments (2):",
+		"Alice",
+		"First comment",
+		"Bob",
+		"Second comment",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\ngot:\n%s", want, out)
+		}
+	}
+}
+
+func TestViewCommentsNotShownWithoutFlag(t *testing.T) {
+	issue := sampleIssue()
+	issue.Fields.Comment = &api.CommentPage{
+		Comments: []api.Comment{
+			{
+				ID:      "100",
+				Author:  &api.User{DisplayName: "Alice"},
+				Body:    json.RawMessage(`{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"Secret comment"}]}]}`),
+				Created: "2026-02-20T10:00:00.000+0000",
+			},
+		},
+		Total: 1,
+	}
+
+	f, tio, _ := newTestViewFactory(t, issueHandler(issue))
+	opts := &ViewOptions{Factory: f, KeyOrID: "PROJ-123", Comments: false}
+
+	if err := runView(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if strings.Contains(out, "Comments") {
+		t.Errorf("output should not contain comments without --comments flag:\n%s", out)
+	}
+}
+
+func TestViewWeb(t *testing.T) {
+	var openedURL string
+	mockBrowser := func(url string) error {
+		openedURL = url
+		return nil
+	}
+
+	f, tio := newTestViewWebFactory(t)
+	opts := &ViewOptions{
+		Factory:     f,
+		KeyOrID:     "PROJ-123",
+		Web:         true,
+		BrowserOpen: mockBrowser,
+	}
+
+	if err := runView(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify URL was opened.
+	want := "https://mysite.atlassian.net/browse/PROJ-123"
+	if openedURL != want {
+		t.Errorf("browser URL = %q, want %q", openedURL, want)
+	}
+
+	// Text mode: should print "Opening ... in browser..."
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "Opening") || !strings.Contains(out, "PROJ-123") {
+		t.Errorf("output should say opening in browser:\n%s", out)
+	}
+}
+
+func TestViewWebJSON(t *testing.T) {
+	var openedURL string
+	mockBrowser := func(url string) error {
+		openedURL = url
+		return nil
+	}
+
+	f, tio := newTestViewWebFactory(t)
+	f.OutputJSON = true
+	opts := &ViewOptions{
+		Factory:     f,
+		KeyOrID:     "PROJ-123",
+		Web:         true,
+		BrowserOpen: mockBrowser,
+	}
+
+	if err := runView(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Dual action: both print JSON AND open browser.
+	want := "https://mysite.atlassian.net/browse/PROJ-123"
+	if openedURL != want {
+		t.Errorf("browser URL = %q, want %q", openedURL, want)
+	}
+
+	// JSON output: {ok:true, url: ...}
+	out := tio.OutBuf.String()
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, out)
+	}
+	if result["ok"] != true {
+		t.Errorf("ok = %v, want true", result["ok"])
+	}
+	if result["url"] != want {
+		t.Errorf("url = %v, want %q", result["url"], want)
+	}
+}
+
+func TestViewWebQuiet(t *testing.T) {
+	var openedURL string
+	mockBrowser := func(url string) error {
+		openedURL = url
+		return nil
+	}
+
+	f, tio := newTestViewWebFactory(t)
+	f.Quiet = true
+	opts := &ViewOptions{
+		Factory:     f,
+		KeyOrID:     "PROJ-123",
+		Web:         true,
+		BrowserOpen: mockBrowser,
+	}
+
+	if err := runView(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Browser should still open.
+	if openedURL == "" {
+		t.Error("browser should have been opened in quiet mode")
+	}
+
+	// Stdout should be empty.
+	out := tio.OutBuf.String()
+	if out != "" {
+		t.Errorf("output should be empty in quiet mode, got:\n%s", out)
 	}
 }
