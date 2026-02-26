@@ -43,6 +43,8 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - Root command: gofmt auto-aligns struct field tags — when adding `RunE` to Cobra commands, keep `Long:` tag aligned with `Short:` / `Use:`
 - `.gitignore`: bare names (e.g., `jira`) match recursively; use `/jira` to anchor to repo root only
 - `main.go`: `run() int` separates logic from `os.Exit()` — testable via `TestRunFunction` without subprocess
+- Auth commands that create their own API client use `clientOpts []api.ClientOption` field for test injection of `api.WithBaseURL()`
+- Config profile type-assert pattern: define a local `profileSetter` interface with the methods you need, then `cfg.(profileSetter)`
 
 ---
 
@@ -235,4 +237,17 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `run() int` pattern separates exit-code logic from `os.Exit` — enables `TestRunFunction` without subprocess
   - Binary tests use `go build -o tempdir/jira .` from `cmd/jira` dir — `testProjectRoot()` walks up to find go.mod
   - `root.Version` is a package var set by main before `NewCmdRoot()` — no ldflags needed inside internal packages
+---
+
+## 2026-02-26 - US-013
+- Implemented auth login command: validates credentials via GET /myself, stores profile in config TOML + token in keyring
+- Files changed: internal/cmd/auth/login.go (new), internal/cmd/auth/login_test.go (new), internal/cmd/auth/auth.go (register subcommand)
+- 10 tests (all passing): successful login, null email text, 401 invalid credentials, missing flags ×4, JSON output, JSON null email, profile persistence, re-login overwrite, default profile, named profile
+- **Learnings for future iterations:**
+  - Auth login bypasses Factory auth chain — creates a temporary `api.Client` from flag values directly (no `f.APIClient()`)
+  - `LoginOptions.clientOpts` field (unexported) allows test injection of `api.WithBaseURL(srv.URL)` for httptest
+  - `WithBaseURL` replaces the full base URL so httptest handlers receive path as `/myself` not `/rest/api/3/myself`
+  - Config profile methods (SetProfile, SetActiveProfile) live on `*fileConfig` — type-assert via interface in command code
+  - `nilIfEmpty(*string) interface{}` helper returns typed nil for JSON null serialization (Go's `nil *string` serializes as `""` not `null` without this)
+  - Global `--profile` flag from Factory takes precedence; if empty, defaults to "default"
 ---
