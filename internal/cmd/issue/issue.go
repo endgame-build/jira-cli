@@ -19,6 +19,7 @@ func NewCmdIssue(f *factory.Factory) *cobra.Command {
 	}
 
 	cmd.AddCommand(NewCmdView(f))
+	cmd.AddCommand(NewCmdCreate(f))
 
 	return cmd
 }

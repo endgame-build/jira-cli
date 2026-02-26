@@ -51,6 +51,9 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - Issue view test factory: `newTestViewFactory(t, handler)` → (Factory, TestIOStreams, *httptest.Server) — reuse for all issue commands
 - Browser mock: use `BrowserOpen func(string) error` field on Options struct for test injection; default to `browser.OpenURL`
 - `f.AuthCredentials()` resolves instance without API call — use for --web instead of separate config-only code path
+- `parseField(kv)` splits "key=value" on first `=` only — reuse for any --field flag (create, edit)
+- `resolveProject(f, flagProject)` checks flag > default.project config > CLIError — reuse for issue list, create, etc.
+- `configGet(f, key)` safe helper returns "" on nil/error config — use across all commands needing config fallbacks
 - `.gitignore`: bare names (e.g., `jira`) match recursively; use `/jira` to anchor to repo root only
 - `main.go`: `run() int` separates logic from `os.Exit()` — testable via `TestRunFunction` without subprocess
 - Auth commands that create their own API client use `clientOpts []api.ClientOption` field for test injection of `api.WithBaseURL()`
@@ -455,4 +458,23 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `newTestViewWebFactory` uses config+keyring pattern (like auth status_test.go) for tests needing AuthCredentials
   - Comments are embedded in `IssueFields.Comment` (populated by GET /issue/{key}) — no separate API call needed
   - `renderLink` uses `io.Writer` not `fmt.Stringer` — the former is what `ios.Out` satisfies
+---
+
+## 2026-02-26 - US-022a
+- Implemented issue create command with required flags (--project, --type, --summary) and optional flags (--description, --assignee, --priority, --labels, --parent, --field)
+- Description converted Markdown→ADF via `adf.Convert()`; assignee resolved via `api.ResolveUser()`
+- --project falls back to `default.project` config; --assignee falls back to `default.assignee` config
+- --field key=value splits on first `=` only (values may contain `=`); collision with named flags warns to stderr
+- Browse URL constructed client-side via `client.BrowseURL(key)` (API returns only {id, key, self})
+- JSON output: `{ok:true, key, id, url}` via `OutputMutation`; --quiet suppresses output after successful create
+- Files changed: internal/cmd/issue/create.go (new), internal/cmd/issue/create_test.go (new), internal/cmd/issue/issue.go (register subcommand)
+- 15 tests (all passing): successful create, custom fields (description ADF, priority, labels, parent, custom fields), missing project/type/summary/all, JSON shape, quiet mode, API error (400), field split on first =, field collision warning, invalid field format, assignee resolution, project from config, assignee from config
+- **Learnings for future iterations:**
+  - `parseField(kv)` splits on `strings.Index(kv, "=")` — first `=` only. Reuse this for edit command too
+  - `resolveProject(f, flagProject)` checks flag > config > error — reuse for issue list's --project
+  - `configGet(f, key)` is a safe helper that returns "" if config is nil or errored — reuse across commands
+  - `config.Get(key)` returns `string` (not `(string, error)`) — no need to handle error from it
+  - `newTestCreateFactory` accepts optional `cfgSetup func(config.Config)` for config-dependent tests — flexible pattern for any command needing config + API
+  - Named field collision keys map must match all named flags exactly — keep in sync when adding new flags
+  - `StringArrayVar` (not `StringSliceVar`) for --field to prevent comma-splitting within values
 ---

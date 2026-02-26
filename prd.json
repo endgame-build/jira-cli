@@ -690,7 +690,7 @@
         "Tests pass"
       ],
       "priority": 29,
-      "passes": false,
+      "passes": true,
       "notes": "Fixed: (1) --field split on first = only, (2) browse URL constructed client-side, (3) --field collision with named flags added"
     },
     {
