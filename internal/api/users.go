@@ -19,6 +19,15 @@ func (c *Client) GetMyself(ctx context.Context) (*User, error) {
 	return &user, nil
 }
 
+// VerifyCredentials checks that the current credentials are valid by calling
+// GET /myself. Returns nil if credentials are valid, or an auth CLIError if not.
+// This is useful because some Jira endpoints (e.g. POST /search/jql) return
+// HTTP 200 with empty results for unauthenticated requests instead of 401.
+func (c *Client) VerifyCredentials(ctx context.Context) error {
+	_, err := c.GetMyself(ctx)
+	return err
+}
+
 // SearchUsers finds users by display name or email via GET /user/search.
 // The Jira API returns a plain []User array (not an envelope).
 // startAt and maxResults control offset-based pagination.

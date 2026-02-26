@@ -2,6 +2,7 @@ package issue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -132,6 +133,21 @@ func runList(opts *ListOptions) error {
 		return err
 	}
 
+	// Jira returns HTTP 200 with empty results for unauthenticated search
+	// requests (instead of 401). When the first page is empty, verify
+	// credentials so we can surface auth errors instead of silently showing
+	// "No issues found".
+	if len(items) == 0 {
+		if authErr := client.VerifyCredentials(ctx); authErr != nil {
+			var cliErr *clierrors.CLIError
+			if errors.As(authErr, &cliErr) && cliErr.Code == clierrors.AUTH_ERROR {
+				return authErr
+			}
+			// Transient probe failure (5xx, rate limit, etc.) — don't mask
+			// a legitimate empty result set.
+		}
+	}
+
 	formatter := output.NewFormatter(f.IOStreams, f.OutputJSON, f.JQExpr)
 
 	if f.Quiet {
@@ -139,8 +155,10 @@ func runList(opts *ListOptions) error {
 	}
 
 	// JSON mode: output with pagination envelope.
+	// When --fields is specified, filter the JSON to only include requested fields.
 	if formatter.IsJSON() {
-		return formatter.OutputList(items, meta, nil)
+		wantFields := shared.FieldSet(opts.Fields)
+		return formatter.OutputList(shared.FilterIssueFields(items, wantFields), meta, nil)
 	}
 
 	// Text mode: table output.

@@ -49,6 +49,15 @@ func searchHandler(t *testing.T, issues []api.Issue, capturedJQL *string) http.H
 			return
 		}
 
+		// GET /myself (for credential verification on empty results)
+		if r.Method == http.MethodGet && strings.HasSuffix(path, "/myself") {
+			json.NewEncoder(w).Encode(api.User{
+				AccountID:   "test-user-id",
+				DisplayName: "Test User",
+			})
+			return
+		}
+
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
@@ -550,6 +559,94 @@ func TestSearchTooManyArgs(t *testing.T) {
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for too many args")
+	}
+}
+
+func TestSearchBadAuthOnEmptyResults(t *testing.T) {
+	// When search returns empty results and /myself returns 401,
+	// the CLI should surface the auth error instead of "No issues found".
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		// POST /search/jql — return empty (as Jira does for bad auth)
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/search/jql") {
+			json.NewEncoder(w).Encode(api.SearchResults{
+				Issues: []api.Issue{},
+				IsLast: true,
+			})
+			return
+		}
+
+		// GET /myself — return 401 (bad credentials)
+		if r.Method == http.MethodGet && strings.HasSuffix(path, "/myself") {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"errorMessages":["Client must be authenticated"]}`))
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}
+
+	f, _, _ := newTestSearchFactory(t, http.HandlerFunc(handler))
+
+	opts := &SearchOptions{
+		Factory: f,
+		Mine:    true,
+		Limit:   50,
+	}
+
+	err := runSearch(opts)
+	if err == nil {
+		t.Fatal("expected auth error, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got: %T %v", err, err)
+	}
+	if cliErr.Code != clierrors.AUTH_ERROR {
+		t.Errorf("expected AUTH_ERROR, got: %s", cliErr.Code)
+	}
+}
+
+func TestSearchTransientProbeFailureDoesNotMaskEmptyResults(t *testing.T) {
+	// When search returns empty results and /myself returns 500 (transient),
+	// the CLI should NOT propagate the error — it should show "No issues found".
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/search/jql") {
+			json.NewEncoder(w).Encode(api.SearchResults{
+				Issues: []api.Issue{},
+				IsLast: true,
+			})
+			return
+		}
+
+		if r.Method == http.MethodGet && strings.HasSuffix(path, "/myself") {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}
+
+	f, tio, _ := newTestSearchFactory(t, http.HandlerFunc(handler))
+
+	opts := &SearchOptions{
+		Factory: f,
+		Mine:    true,
+		Limit:   50,
+	}
+
+	err := runSearch(opts)
+	if err != nil {
+		t.Fatalf("expected no error for transient probe failure, got: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "No issues found") {
+		t.Errorf("expected 'No issues found', got: %s", out)
 	}
 }
 

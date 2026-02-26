@@ -681,6 +681,92 @@ func TestListAssigneeNotFound(t *testing.T) {
 	}
 }
 
+func TestListBadAuthOnEmptyResults(t *testing.T) {
+	// When search returns empty results and /myself returns 401,
+	// the CLI should surface the auth error instead of "No issues found".
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/search/jql") {
+			json.NewEncoder(w).Encode(api.SearchResults{
+				Issues: []api.Issue{},
+				IsLast: true,
+			})
+			return
+		}
+
+		if r.Method == http.MethodGet && strings.HasSuffix(path, "/myself") {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"errorMessages":["Client must be authenticated"]}`))
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}
+
+	f, _, _ := newTestListFactory(t, http.HandlerFunc(handler))
+
+	opts := &ListOptions{
+		Factory: f,
+		Project: "PROJ",
+		Limit:   50,
+	}
+
+	err := runList(opts)
+	if err == nil {
+		t.Fatal("expected auth error, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got: %T %v", err, err)
+	}
+	if cliErr.Code != clierrors.AUTH_ERROR {
+		t.Errorf("expected AUTH_ERROR, got: %s", cliErr.Code)
+	}
+}
+
+func TestListTransientProbeFailureDoesNotMaskEmptyResults(t *testing.T) {
+	// When search returns empty results and /myself returns 500 (transient),
+	// the CLI should NOT propagate the error — it should show "No issues found".
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/search/jql") {
+			json.NewEncoder(w).Encode(api.SearchResults{
+				Issues: []api.Issue{},
+				IsLast: true,
+			})
+			return
+		}
+
+		if r.Method == http.MethodGet && strings.HasSuffix(path, "/myself") {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}
+
+	f, tio, _ := newTestListFactory(t, http.HandlerFunc(handler))
+
+	opts := &ListOptions{
+		Factory: f,
+		Project: "PROJ",
+		Limit:   50,
+	}
+
+	err := runList(opts)
+	if err != nil {
+		t.Fatalf("expected no error for transient probe failure, got: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "No issues found") {
+		t.Errorf("expected 'No issues found', got: %s", out)
+	}
+}
+
 func TestListAssigneeAmbiguous(t *testing.T) {
 	// Mock that returns multiple user search results.
 	handler := func(w http.ResponseWriter, r *http.Request) {

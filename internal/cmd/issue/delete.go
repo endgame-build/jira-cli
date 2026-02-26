@@ -37,7 +37,8 @@ func NewCmdDelete(f *factory.Factory) *cobra.Command {
 			}
 			opts.KeyOrID = key
 
-			if !opts.Yes {
+			// --dry-run bypasses the --yes confirmation requirement.
+			if !opts.Yes && !opts.Factory.DryRun {
 				return clierrors.NewValidationError(
 					"Use --yes to confirm deletion",
 				).WithSuggestion(fmt.Sprintf("Run 'jira issue delete %s --yes' to confirm", opts.KeyOrID))
