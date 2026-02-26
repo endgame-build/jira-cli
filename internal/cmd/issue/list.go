@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/endgameio/jira-cli/internal/api"
+	"github.com/endgameio/jira-cli/internal/cmd/shared"
 	clierrors "github.com/endgameio/jira-cli/internal/errors"
 	"github.com/endgameio/jira-cli/internal/factory"
 	"github.com/endgameio/jira-cli/internal/output"
@@ -149,7 +150,7 @@ func runList(opts *ListOptions) error {
 	}
 
 	ios := f.IOStreams
-	wantFields := fieldSet(opts.Fields)
+	wantFields := shared.FieldSet(opts.Fields)
 
 	ios.StartPager()
 	defer ios.StopPager()
@@ -157,19 +158,19 @@ func runList(opts *ListOptions) error {
 	return formatter.OutputList(items, meta, func(tw table.Writer) {
 		// Build header row.
 		header := table.Row{"KEY"}
-		if showField(wantFields, "summary") {
+		if shared.ShowField(wantFields, "summary") {
 			header = append(header, "SUMMARY")
 		}
-		if showField(wantFields, "status") {
+		if shared.ShowField(wantFields, "status") {
 			header = append(header, "STATUS")
 		}
-		if showField(wantFields, "assignee") {
+		if shared.ShowField(wantFields, "assignee") {
 			header = append(header, "ASSIGNEE")
 		}
-		if showField(wantFields, "priority") {
+		if shared.ShowField(wantFields, "priority") {
 			header = append(header, "PRIORITY")
 		}
-		if showField(wantFields, "issuetype") {
+		if shared.ShowField(wantFields, "issuetype") {
 			header = append(header, "TYPE")
 		}
 		tw.AppendHeader(header)
@@ -177,31 +178,31 @@ func runList(opts *ListOptions) error {
 		for _, issue := range items {
 			row := table.Row{issue.Key}
 
-			if showField(wantFields, "summary") {
+			if shared.ShowField(wantFields, "summary") {
 				summary := issue.Fields.Summary
 				if len(summary) > 60 {
 					summary = summary[:57] + "..."
 				}
 				row = append(row, summary)
 			}
-			if showField(wantFields, "status") {
-				row = append(row, statusWithColor(ios, issue.Fields.Status))
+			if shared.ShowField(wantFields, "status") {
+				row = append(row, shared.StatusWithColor(ios, issue.Fields.Status))
 			}
-			if showField(wantFields, "assignee") {
+			if shared.ShowField(wantFields, "assignee") {
 				assignee := "Unassigned"
 				if issue.Fields.Assignee != nil {
 					assignee = issue.Fields.Assignee.DisplayName
 				}
 				row = append(row, assignee)
 			}
-			if showField(wantFields, "priority") {
+			if shared.ShowField(wantFields, "priority") {
 				priority := ""
 				if issue.Fields.Priority != nil {
 					priority = issue.Fields.Priority.Name
 				}
 				row = append(row, priority)
 			}
-			if showField(wantFields, "issuetype") {
+			if shared.ShowField(wantFields, "issuetype") {
 				typeName := ""
 				if issue.Fields.IssueType != nil {
 					typeName = issue.Fields.IssueType.Name

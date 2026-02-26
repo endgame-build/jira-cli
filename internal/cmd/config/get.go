@@ -1,9 +1,12 @@
 package config
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/endgameio/jira-cli/internal/factory"
+	"github.com/endgameio/jira-cli/internal/output"
 )
 
 // GetOptions holds all resolved inputs for the config get command.
@@ -39,8 +42,20 @@ func runConfigGet(opts *GetOptions) error {
 
 	value := cfg.Get(opts.Key)
 
-	ios := opts.Factory.IOStreams
-	ios.Out.Write([]byte(value + "\n"))
+	if opts.Factory.Quiet {
+		return nil
+	}
 
+	ios := opts.Factory.IOStreams
+	formatter := output.NewFormatter(ios, opts.Factory.OutputJSON, opts.Factory.JQExpr)
+
+	if formatter.IsJSON() {
+		return formatter.RawJSON(map[string]string{
+			"key":   opts.Key,
+			"value": value,
+		})
+	}
+
+	fmt.Fprintln(ios.Out, value)
 	return nil
 }

@@ -4,12 +4,12 @@ package search
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 
 	"github.com/endgameio/jira-cli/internal/api"
+	"github.com/endgameio/jira-cli/internal/cmd/shared"
 	clierrors "github.com/endgameio/jira-cli/internal/errors"
 	"github.com/endgameio/jira-cli/internal/factory"
 	"github.com/endgameio/jira-cli/internal/output"
@@ -138,7 +138,7 @@ func runSearch(opts *SearchOptions) error {
 	}
 
 	ios := f.IOStreams
-	wantFields := fieldSet(opts.Fields)
+	wantFields := shared.FieldSet(opts.Fields)
 
 	ios.StartPager()
 	defer ios.StopPager()
@@ -146,19 +146,19 @@ func runSearch(opts *SearchOptions) error {
 	return formatter.OutputList(items, meta, func(tw table.Writer) {
 		// Build header row.
 		header := table.Row{"KEY"}
-		if showField(wantFields, "summary") {
+		if shared.ShowField(wantFields, "summary") {
 			header = append(header, "SUMMARY")
 		}
-		if showField(wantFields, "status") {
+		if shared.ShowField(wantFields, "status") {
 			header = append(header, "STATUS")
 		}
-		if showField(wantFields, "assignee") {
+		if shared.ShowField(wantFields, "assignee") {
 			header = append(header, "ASSIGNEE")
 		}
-		if showField(wantFields, "priority") {
+		if shared.ShowField(wantFields, "priority") {
 			header = append(header, "PRIORITY")
 		}
-		if showField(wantFields, "issuetype") {
+		if shared.ShowField(wantFields, "issuetype") {
 			header = append(header, "TYPE")
 		}
 		tw.AppendHeader(header)
@@ -166,31 +166,31 @@ func runSearch(opts *SearchOptions) error {
 		for _, issue := range items {
 			row := table.Row{issue.Key}
 
-			if showField(wantFields, "summary") {
+			if shared.ShowField(wantFields, "summary") {
 				summary := issue.Fields.Summary
 				if len(summary) > 60 {
 					summary = summary[:57] + "..."
 				}
 				row = append(row, summary)
 			}
-			if showField(wantFields, "status") {
-				row = append(row, statusWithColor(ios, issue.Fields.Status))
+			if shared.ShowField(wantFields, "status") {
+				row = append(row, shared.StatusWithColor(ios, issue.Fields.Status))
 			}
-			if showField(wantFields, "assignee") {
+			if shared.ShowField(wantFields, "assignee") {
 				assignee := "Unassigned"
 				if issue.Fields.Assignee != nil {
 					assignee = issue.Fields.Assignee.DisplayName
 				}
 				row = append(row, assignee)
 			}
-			if showField(wantFields, "priority") {
+			if shared.ShowField(wantFields, "priority") {
 				priority := ""
 				if issue.Fields.Priority != nil {
 					priority = issue.Fields.Priority.Name
 				}
 				row = append(row, priority)
 			}
-			if showField(wantFields, "issuetype") {
+			if shared.ShowField(wantFields, "issuetype") {
 				typeName := ""
 				if issue.Fields.IssueType != nil {
 					typeName = issue.Fields.IssueType.Name
@@ -219,51 +219,4 @@ func buildSearchJQL(opts *SearchOptions) string {
 		jql += fmt.Sprintf(" AND status = %q", opts.Status)
 	}
 	return jql
-}
-
-// fieldSet creates a set of requested field names for filtering display columns.
-// Returns nil if no specific fields are requested (show all).
-func fieldSet(fields []string) map[string]bool {
-	if len(fields) == 0 {
-		return nil
-	}
-	set := make(map[string]bool, len(fields))
-	for _, f := range fields {
-		set[strings.ToLower(strings.TrimSpace(f))] = true
-	}
-	return set
-}
-
-// showField returns true if the field should be displayed.
-// If wantFields is nil (no filter), all fields are shown.
-func showField(wantFields map[string]bool, name string) bool {
-	if wantFields == nil {
-		return true
-	}
-	return wantFields[name]
-}
-
-// statusWithColor colorizes a status name based on its category.
-func statusWithColor(ios interface {
-	Green(string) string
-	Yellow(string) string
-	Cyan(string) string
-}, status *api.Status) string {
-	if status == nil {
-		return "Unknown"
-	}
-	name := status.Name
-	if status.StatusCategory == nil {
-		return name
-	}
-	switch status.StatusCategory.Key {
-	case "done":
-		return ios.Green(name)
-	case "indeterminate":
-		return ios.Cyan(name)
-	case "new":
-		return ios.Yellow(name)
-	default:
-		return name
-	}
 }

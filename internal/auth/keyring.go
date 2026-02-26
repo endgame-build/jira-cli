@@ -1,6 +1,7 @@
 // Package auth provides credential storage and resolution for jira-cli.
 // Tokens are stored in the OS keyring when available, with automatic
-// fallback to an encrypted-at-rest JSON file when keyring is unavailable.
+// fallback to a plaintext JSON file with restrictive filesystem permissions
+// when the keyring is unavailable. The fallback is not encrypted-at-rest.
 package auth
 
 import (

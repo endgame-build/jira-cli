@@ -47,8 +47,8 @@ func (c *Client) EditIssue(ctx context.Context, keyOrID string, input *EditIssue
 	return c.Do(ctx, http.MethodPut, "issue/"+keyOrID, input, nil)
 }
 
-// DeleteIssue deletes an issue by key or ID, including subtasks.
-// The deleteSubtasks parameter is a string ("true"/"false") per Jira API spec.
+// DeleteIssue deletes an issue by key or ID.
+// The deleteSubtasks parameter controls whether subtasks should also be deleted (true to delete).
 func (c *Client) DeleteIssue(ctx context.Context, keyOrID string, deleteSubtasks bool) error {
 	subtasks := "false"
 	if deleteSubtasks {

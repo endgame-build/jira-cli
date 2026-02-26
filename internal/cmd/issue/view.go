@@ -12,6 +12,7 @@ import (
 
 	"github.com/endgameio/jira-cli/internal/adf"
 	"github.com/endgameio/jira-cli/internal/api"
+	"github.com/endgameio/jira-cli/internal/cmd/shared"
 	"github.com/endgameio/jira-cli/internal/factory"
 	"github.com/endgameio/jira-cli/internal/output"
 )
@@ -102,48 +103,48 @@ func runView(opts *ViewOptions) error {
 
 	// Text mode: render key-value table.
 	fields := issue.Fields
-	wantFields := fieldSet(opts.Fields)
+	wantFields := shared.FieldSet(opts.Fields)
 
 	ios.StartPager()
 	defer ios.StopPager()
 
 	return formatter.OutputData(issue, func(t table.Writer) {
-		if showField(wantFields, "key") {
+		if shared.ShowField(wantFields, "key") {
 			fmt.Fprintf(ios.Out, "Key:       %s\n", issue.Key)
 		}
-		if showField(wantFields, "summary") {
+		if shared.ShowField(wantFields, "summary") {
 			fmt.Fprintf(ios.Out, "Summary:   %s\n", fields.Summary)
 		}
-		if showField(wantFields, "status") {
-			statusText := statusWithColor(ios, fields.Status)
+		if shared.ShowField(wantFields, "status") {
+			statusText := shared.StatusWithColor(ios, fields.Status)
 			fmt.Fprintf(ios.Out, "Status:    %s\n", statusText)
 		}
-		if showField(wantFields, "type") && fields.IssueType != nil {
+		if shared.ShowField(wantFields, "type") && fields.IssueType != nil {
 			fmt.Fprintf(ios.Out, "Type:      %s\n", fields.IssueType.Name)
 		}
-		if showField(wantFields, "priority") && fields.Priority != nil {
+		if shared.ShowField(wantFields, "priority") && fields.Priority != nil {
 			fmt.Fprintf(ios.Out, "Priority:  %s\n", fields.Priority.Name)
 		}
-		if showField(wantFields, "assignee") {
+		if shared.ShowField(wantFields, "assignee") {
 			assignee := "Unassigned"
 			if fields.Assignee != nil {
 				assignee = fields.Assignee.DisplayName
 			}
 			fmt.Fprintf(ios.Out, "Assignee:  %s\n", assignee)
 		}
-		if showField(wantFields, "reporter") && fields.Reporter != nil {
+		if shared.ShowField(wantFields, "reporter") && fields.Reporter != nil {
 			fmt.Fprintf(ios.Out, "Reporter:  %s\n", fields.Reporter.DisplayName)
 		}
-		if showField(wantFields, "labels") && len(fields.Labels) > 0 {
+		if shared.ShowField(wantFields, "labels") && len(fields.Labels) > 0 {
 			fmt.Fprintf(ios.Out, "Labels:    %s\n", strings.Join(fields.Labels, ", "))
 		}
-		if showField(wantFields, "created") && fields.Created != "" {
+		if shared.ShowField(wantFields, "created") && fields.Created != "" {
 			fmt.Fprintf(ios.Out, "Created:   %s\n", fields.Created)
 		}
-		if showField(wantFields, "updated") && fields.Updated != "" {
+		if shared.ShowField(wantFields, "updated") && fields.Updated != "" {
 			fmt.Fprintf(ios.Out, "Updated:   %s\n", fields.Updated)
 		}
-		if showField(wantFields, "description") {
+		if shared.ShowField(wantFields, "description") {
 			desc := adf.ExtractText(fields.Description)
 			if desc != "" {
 				lines := strings.Split(desc, "\n")
@@ -155,7 +156,7 @@ func runView(opts *ViewOptions) error {
 		}
 
 		// Linked issues section.
-		if showField(wantFields, "links") && len(fields.IssueLinks) > 0 {
+		if shared.ShowField(wantFields, "links") && len(fields.IssueLinks) > 0 {
 			fmt.Fprintf(ios.Out, "\nLinked Issues:\n")
 			for _, link := range fields.IssueLinks {
 				renderLink(ios.Out, link)
@@ -163,7 +164,7 @@ func runView(opts *ViewOptions) error {
 		}
 
 		// Subtasks section.
-		if showField(wantFields, "subtasks") && len(fields.SubTasks) > 0 {
+		if shared.ShowField(wantFields, "subtasks") && len(fields.SubTasks) > 0 {
 			fmt.Fprintf(ios.Out, "\nSubtasks:\n")
 			for _, sub := range fields.SubTasks {
 				statusName := ""
@@ -175,7 +176,7 @@ func runView(opts *ViewOptions) error {
 		}
 
 		// Comments section (only when --comments flag is set).
-		if opts.Comments && showField(wantFields, "comments") {
+		if opts.Comments && shared.ShowField(wantFields, "comments") {
 			renderComments(ios.Out, fields.Comment)
 		}
 	})
@@ -263,52 +264,5 @@ func renderComments(w io.Writer, commentPage *api.CommentPage) {
 		for _, line := range lines {
 			fmt.Fprintf(w, "    %s\n", line)
 		}
-	}
-}
-
-// fieldSet converts a string slice of field names to a set for O(1) lookup.
-// Returns nil if no fields specified (meaning show all).
-func fieldSet(fields []string) map[string]bool {
-	if len(fields) == 0 {
-		return nil
-	}
-	set := make(map[string]bool, len(fields))
-	for _, f := range fields {
-		set[strings.ToLower(strings.TrimSpace(f))] = true
-	}
-	return set
-}
-
-// showField returns true if the field should be displayed.
-// If wantFields is nil (no filter), all fields are shown.
-func showField(wantFields map[string]bool, name string) bool {
-	if wantFields == nil {
-		return true
-	}
-	return wantFields[name]
-}
-
-// statusWithColor colorizes a status name based on its category.
-func statusWithColor(ios interface {
-	Green(string) string
-	Yellow(string) string
-	Cyan(string) string
-}, status *api.Status) string {
-	if status == nil {
-		return "Unknown"
-	}
-	name := status.Name
-	if status.StatusCategory == nil {
-		return name
-	}
-	switch status.StatusCategory.Key {
-	case "done":
-		return ios.Green(name)
-	case "indeterminate":
-		return ios.Cyan(name)
-	case "new":
-		return ios.Yellow(name)
-	default:
-		return name
 	}
 }
