@@ -14,33 +14,14 @@ func TestValidateIssueKeyOrID(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		// Valid issue keys
+		// Valid issue keys — delegates to shared.ValidateIssueKeyOrID
 		{name: "standard key", input: "PROJ-123", want: "PROJ-123"},
-		{name: "single letter project", input: "A-1", want: "A-1"},
-		{name: "long project key", input: "MYPROJECT-99999", want: "MYPROJECT-99999"},
-
-		// Lowercase normalization
 		{name: "lowercase key", input: "proj-123", want: "PROJ-123"},
-		{name: "mixed case key", input: "Proj-456", want: "PROJ-456"},
-		{name: "mixed case long", input: "myProject-7", want: "MYPROJECT-7"},
-
-		// Numeric IDs
 		{name: "numeric ID", input: "10001", want: "10001"},
-		{name: "single digit", input: "1", want: "1"},
-		{name: "large numeric ID", input: "9999999", want: "9999999"},
 
 		// Invalid formats
 		{name: "empty string", input: "", wantErr: true},
 		{name: "just hyphen", input: "-", wantErr: true},
-		{name: "no digits after hyphen", input: "PROJ-", wantErr: true},
-		{name: "no letters before hyphen", input: "-123", wantErr: true},
-		{name: "spaces", input: "PROJ 123", wantErr: true},
-		{name: "special chars", input: "PROJ@123", wantErr: true},
-		{name: "double hyphen", input: "PROJ--123", wantErr: true},
-		{name: "trailing text", input: "PROJ-123abc", wantErr: true},
-		{name: "leading digits in key", input: "123PROJ-1", wantErr: true},
-		{name: "underscore in project", input: "MY_PROJ-1", wantErr: true},
-		{name: "url path", input: "/browse/PROJ-1", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -53,12 +34,6 @@ func TestValidateIssueKeyOrID(t *testing.T) {
 				var cliErr *clierrors.CLIError
 				if !stderrors.As(err, &cliErr) {
 					t.Fatalf("expected CLIError, got %T", err)
-				}
-				if cliErr.Code != clierrors.VALIDATION_ERROR {
-					t.Errorf("expected VALIDATION_ERROR, got %s", cliErr.Code)
-				}
-				if cliErr.ExitCode != 3 {
-					t.Errorf("expected exit code 3, got %d", cliErr.ExitCode)
 				}
 				return
 			}

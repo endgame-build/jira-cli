@@ -10,7 +10,7 @@ import (
 
 	"github.com/endgameio/jira-cli/internal/adf"
 	"github.com/endgameio/jira-cli/internal/api"
-	"github.com/endgameio/jira-cli/internal/cmd/issue"
+	"github.com/endgameio/jira-cli/internal/cmd/shared"
 	"github.com/endgameio/jira-cli/internal/factory"
 	"github.com/endgameio/jira-cli/internal/output"
 )
@@ -37,7 +37,7 @@ func NewCmdList(f *factory.Factory) *cobra.Command {
 		Long:  "List comments on a Jira issue with pagination and relative timestamps.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			key, err := issue.ValidateIssueKeyOrID(args[0])
+			key, err := shared.ValidateIssueKeyOrID(args[0])
 			if err != nil {
 				return err
 			}

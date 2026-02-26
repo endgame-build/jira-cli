@@ -10,7 +10,7 @@ import (
 
 	"github.com/endgameio/jira-cli/internal/adf"
 	"github.com/endgameio/jira-cli/internal/api"
-	"github.com/endgameio/jira-cli/internal/cmd/issue"
+	"github.com/endgameio/jira-cli/internal/cmd/shared"
 	clierrors "github.com/endgameio/jira-cli/internal/errors"
 	"github.com/endgameio/jira-cli/internal/factory"
 	"github.com/endgameio/jira-cli/internal/output"
@@ -37,7 +37,7 @@ func NewCmdDelete(f *factory.Factory) *cobra.Command {
 		Long:  "Delete a comment from a Jira issue. Requires --yes to confirm deletion.",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			key, err := issue.ValidateIssueKeyOrID(args[0])
+			key, err := shared.ValidateIssueKeyOrID(args[0])
 			if err != nil {
 				return err
 			}

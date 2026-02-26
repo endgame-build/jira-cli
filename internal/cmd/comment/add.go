@@ -9,7 +9,6 @@ import (
 
 	"github.com/endgameio/jira-cli/internal/adf"
 	"github.com/endgameio/jira-cli/internal/api"
-	"github.com/endgameio/jira-cli/internal/cmd/issue"
 	"github.com/endgameio/jira-cli/internal/cmd/shared"
 	clierrors "github.com/endgameio/jira-cli/internal/errors"
 	"github.com/endgameio/jira-cli/internal/factory"
@@ -37,7 +36,7 @@ func NewCmdAdd(f *factory.Factory) *cobra.Command {
 		Long:  "Add a comment to a Jira issue. The body is Markdown, converted to ADF before sending.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			key, err := issue.ValidateIssueKeyOrID(args[0])
+			key, err := shared.ValidateIssueKeyOrID(args[0])
 			if err != nil {
 				return err
 			}

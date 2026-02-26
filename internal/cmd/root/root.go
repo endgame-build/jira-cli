@@ -8,6 +8,7 @@ import (
 
 	"github.com/endgameio/jira-cli/internal/cmd/alias"
 	authcmd "github.com/endgameio/jira-cli/internal/cmd/auth"
+	"github.com/endgameio/jira-cli/internal/cmd/comment"
 	configcmd "github.com/endgameio/jira-cli/internal/cmd/config"
 	"github.com/endgameio/jira-cli/internal/cmd/issue"
 	"github.com/endgameio/jira-cli/internal/cmd/search"
@@ -57,6 +58,7 @@ func NewCmdRoot(f *factory.Factory) *cobra.Command {
 	cmd.AddCommand(authcmd.NewCmdAuth(f))
 	cmd.AddCommand(issue.NewCmdIssue(f))
 	cmd.AddCommand(search.NewCmdSearch(f))
+	cmd.AddCommand(comment.NewCmdComment(f))
 	cmd.AddCommand(configcmd.NewCmdConfig(f))
 	cmd.AddCommand(alias.NewCmdAlias(f))
 
