@@ -10,6 +10,7 @@ import (
 
 	"github.com/endgameio/jira-cli/internal/adf"
 	"github.com/endgameio/jira-cli/internal/api"
+	"github.com/endgameio/jira-cli/internal/cmd/shared"
 	clierrors "github.com/endgameio/jira-cli/internal/errors"
 	"github.com/endgameio/jira-cli/internal/factory"
 	"github.com/endgameio/jira-cli/internal/output"
@@ -23,6 +24,7 @@ type CreateOptions struct {
 	Type        string   // --type
 	Summary     string   // --summary
 	Description string   // --description (Markdown)
+	BodyFile    string   // --body-file (file path or "-" for stdin)
 	Assignee    string   // --assignee
 	Priority    string   // --priority
 	Labels      []string // --labels
@@ -49,6 +51,7 @@ func NewCmdCreate(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.Type, "type", "t", "", "Issue type (e.g. Bug, Story, Task)")
 	cmd.Flags().StringVarP(&opts.Summary, "summary", "s", "", "Issue summary/title")
 	cmd.Flags().StringVarP(&opts.Description, "description", "d", "", "Issue description (Markdown)")
+	cmd.Flags().StringVar(&opts.BodyFile, "body-file", "", "Read description from file (use - for stdin)")
 	cmd.Flags().StringVarP(&opts.Assignee, "assignee", "a", "", "Assignee (display name, @me, or account ID)")
 	cmd.Flags().StringVar(&opts.Priority, "priority", "", "Priority (e.g. High, Medium, Low)")
 	cmd.Flags().StringSliceVarP(&opts.Labels, "labels", "l", nil, "Comma-separated labels")
@@ -79,6 +82,20 @@ func runCreate(opts *CreateOptions) error {
 			WithSuggestion("Specify a summary, e.g. --summary 'Fix login bug'")
 	}
 
+	// Resolve description: --body-file overrides --description.
+	description := opts.Description
+	if opts.BodyFile != "" {
+		body, err := shared.ReadBodyFile(opts.BodyFile, f.IOStreams.In)
+		if err != nil {
+			return err
+		}
+		description = body
+	} else if description != "" {
+		if err := shared.ValidateBodySize(description); err != nil {
+			return err
+		}
+	}
+
 	client, err := f.APIClient()
 	if err != nil {
 		return err
@@ -92,8 +109,8 @@ func runCreate(opts *CreateOptions) error {
 	}
 
 	// Description: Markdown → ADF.
-	if opts.Description != "" {
-		adfDoc, err := adf.Convert(opts.Description)
+	if description != "" {
+		adfDoc, err := adf.Convert(description)
 		if err != nil {
 			return clierrors.NewValidationError(
 				fmt.Sprintf("Failed to convert description to ADF: %v", err),
@@ -104,9 +121,7 @@ func runCreate(opts *CreateOptions) error {
 
 	// Assignee resolution.
 	if opts.Assignee != "" {
-		// Check config fallback: default.assignee.
-		assigneeInput := opts.Assignee
-		accountID, err := api.ResolveUser(ctx, client, assigneeInput)
+		accountID, err := api.ResolveUser(ctx, client, opts.Assignee)
 		if err != nil {
 			return err
 		}
@@ -164,11 +179,15 @@ func runCreate(opts *CreateOptions) error {
 		fields[key] = value
 	}
 
+	// Dry-run: validate via createmeta and output preview without creating.
+	if f.DryRun {
+		return runCreateDryRun(ctx, f, client, project, fields)
+	}
+
 	input := &api.CreateIssueInput{
 		Fields: fields,
 	}
 
-	// Quiet early exit: still create, but suppress output.
 	created, err := client.CreateIssue(ctx, input)
 	if err != nil {
 		return err
@@ -194,6 +213,77 @@ func runCreate(opts *CreateOptions) error {
 	// Text output.
 	return formatter.OutputMutation(nil, func(t table.Writer) {
 		fmt.Fprintf(f.IOStreams.Out, "Created %s: %s\n", created.Key, browseURL)
+	})
+}
+
+// runCreateDryRun validates the create payload against live API (createmeta)
+// and outputs a preview without creating the issue.
+func runCreateDryRun(ctx context.Context, f *factory.Factory, client *api.Client, project string, fields map[string]interface{}) error {
+	// Validate project and issue type via createmeta.
+	meta, err := client.GetCreateMeta(ctx, project)
+	if err != nil {
+		return err
+	}
+
+	// Check that the requested issue type exists.
+	requestedType := ""
+	if it, ok := fields["issuetype"].(map[string]interface{}); ok {
+		if name, ok := it["name"].(string); ok {
+			requestedType = name
+		}
+	}
+
+	typeValid := false
+	var availableTypes []string
+	for _, it := range meta.IssueTypes {
+		availableTypes = append(availableTypes, it.Name)
+		if strings.EqualFold(it.Name, requestedType) {
+			typeValid = true
+		}
+	}
+
+	validation := "passed (validated against live API)"
+	if !typeValid && requestedType != "" {
+		validation = fmt.Sprintf("warning: issue type %q not found in project %s (available: %s)",
+			requestedType, project, strings.Join(availableTypes, ", "))
+	}
+
+	// Build a sanitized payload for display (replace ADF with readable summary).
+	payload := make(map[string]interface{})
+	for k, v := range fields {
+		payload[k] = v
+	}
+
+	formatter := output.NewFormatter(f.IOStreams, f.OutputJSON, f.JQExpr)
+
+	if formatter.IsJSON() {
+		return formatter.OutputDryRun(payload, validation, nil)
+	}
+
+	// Text output.
+	return formatter.OutputDryRun(nil, "", func(tw table.Writer) {
+		fmt.Fprintf(f.IOStreams.Out, "DRY RUN — issue create preview\n\n")
+		tw.AppendRow(table.Row{"Project", project})
+		tw.AppendRow(table.Row{"Type", requestedType})
+		if s, ok := fields["summary"].(string); ok {
+			tw.AppendRow(table.Row{"Summary", s})
+		}
+		if _, ok := fields["description"]; ok {
+			tw.AppendRow(table.Row{"Description", "(set)"})
+		}
+		if a, ok := fields["assignee"]; ok {
+			tw.AppendRow(table.Row{"Assignee", fmt.Sprintf("%v", a)})
+		}
+		if p, ok := fields["priority"]; ok {
+			tw.AppendRow(table.Row{"Priority", fmt.Sprintf("%v", p)})
+		}
+		if l, ok := fields["labels"]; ok {
+			tw.AppendRow(table.Row{"Labels", fmt.Sprintf("%v", l)})
+		}
+		if p, ok := fields["parent"]; ok {
+			tw.AppendRow(table.Row{"Parent", fmt.Sprintf("%v", p)})
+		}
+		fmt.Fprintf(f.IOStreams.Out, "\nValidation: %s\n", validation)
 	})
 }
 

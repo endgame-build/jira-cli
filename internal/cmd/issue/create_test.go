@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -47,8 +49,8 @@ func newTestCreateFactory(t *testing.T, handler http.Handler, cfgSetup func(conf
 	return f, tio, srv
 }
 
-// createHandler returns an HTTP handler that serves POST /issue responses.
-// It captures the request body for verification.
+// createHandler returns an HTTP handler that serves POST /issue responses
+// and GET /issue/createmeta responses. It captures the request body for verification.
 func createHandler(captureBody *string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/issue" {
@@ -61,6 +63,18 @@ func createHandler(captureBody *string) http.HandlerFunc {
 				ID:   "10042",
 				Key:  "PROJ-124",
 				Self: "https://test.atlassian.net/rest/api/3/issue/10042",
+			})
+			return
+		}
+
+		// Createmeta endpoint for dry-run validation.
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "createmeta") {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"issueTypes": []map[string]interface{}{
+					{"id": "10001", "name": "Bug", "subtask": false},
+					{"id": "10002", "name": "Story", "subtask": false},
+					{"id": "10003", "name": "Task", "subtask": false},
+				},
 			})
 			return
 		}
@@ -526,5 +540,354 @@ func TestCreateAssigneeFromConfig(t *testing.T) {
 	assignee := fields["assignee"].(map[string]interface{})
 	if assignee["accountId"] != "abc123def456abc123def456" {
 		t.Errorf("assignee accountId = %v, want abc123def456abc123def456", assignee["accountId"])
+	}
+}
+
+// --- body-file tests ---
+
+func TestCreateBodyFileFromFile(t *testing.T) {
+	dir := t.TempDir()
+	descFile := filepath.Join(dir, "desc.md")
+	if err := os.WriteFile(descFile, []byte("# File Description\n\nFrom file."), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var capturedBody string
+	f, _, _ := newTestCreateFactory(t, createHandler(&capturedBody), nil)
+
+	opts := &CreateOptions{
+		Factory:  f,
+		Project:  "PROJ",
+		Type:     "Bug",
+		Summary:  "Test with body-file",
+		BodyFile: descFile,
+	}
+
+	if err := runCreate(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+
+	// Description should be ADF (from file content).
+	desc, ok := fields["description"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("description should be ADF object, got %T", fields["description"])
+	}
+	if desc["type"] != "doc" {
+		t.Errorf("description type = %v, want 'doc'", desc["type"])
+	}
+}
+
+func TestCreateBodyFileOverridesDescription(t *testing.T) {
+	dir := t.TempDir()
+	descFile := filepath.Join(dir, "desc.md")
+	if err := os.WriteFile(descFile, []byte("From file"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var capturedBody string
+	f, _, _ := newTestCreateFactory(t, createHandler(&capturedBody), nil)
+
+	opts := &CreateOptions{
+		Factory:     f,
+		Project:     "PROJ",
+		Type:        "Bug",
+		Summary:     "Test",
+		Description: "From flag (should be overridden)",
+		BodyFile:    descFile,
+	}
+
+	if err := runCreate(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify the ADF was generated (body-file content wins over --description).
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+	if _, ok := fields["description"]; !ok {
+		t.Error("description should be present (from body-file)")
+	}
+}
+
+func TestCreateBodyFileFromStdin(t *testing.T) {
+	var capturedBody string
+	f, tio, _ := newTestCreateFactory(t, createHandler(&capturedBody), nil)
+
+	// Write content to the stdin buffer.
+	tio.InBuf.WriteString("Description from stdin")
+
+	opts := &CreateOptions{
+		Factory:  f,
+		Project:  "PROJ",
+		Type:     "Bug",
+		Summary:  "Test with stdin",
+		BodyFile: "-",
+	}
+
+	if err := runCreate(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+
+	desc, ok := fields["description"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("description should be ADF object, got %T", fields["description"])
+	}
+	if desc["type"] != "doc" {
+		t.Errorf("description type = %v, want 'doc'", desc["type"])
+	}
+}
+
+func TestCreateBodyFileNotFound(t *testing.T) {
+	f, _, _ := newTestCreateFactory(t, createHandler(nil), nil)
+
+	opts := &CreateOptions{
+		Factory:  f,
+		Project:  "PROJ",
+		Type:     "Bug",
+		Summary:  "Test",
+		BodyFile: "/nonexistent/file.md",
+	}
+
+	err := runCreate(opts)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != clierrors.VALIDATION_ERROR {
+		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+	if !strings.Contains(cliErr.Message, "File not found") {
+		t.Errorf("error message = %q, want 'File not found'", cliErr.Message)
+	}
+}
+
+// --- dry-run tests ---
+
+func TestCreateDryRunText(t *testing.T) {
+	f, tio, _ := newTestCreateFactory(t, createHandler(nil), nil)
+	f.DryRun = true
+
+	opts := &CreateOptions{
+		Factory: f,
+		Project: "PROJ",
+		Type:    "Bug",
+		Summary: "Test dry run",
+	}
+
+	if err := runCreate(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "DRY RUN") {
+		t.Errorf("output should contain 'DRY RUN': %s", out)
+	}
+	if !strings.Contains(out, "PROJ") {
+		t.Errorf("output should contain project: %s", out)
+	}
+	if !strings.Contains(out, "Bug") {
+		t.Errorf("output should contain issue type: %s", out)
+	}
+	if !strings.Contains(out, "Test dry run") {
+		t.Errorf("output should contain summary: %s", out)
+	}
+	if !strings.Contains(out, "passed") {
+		t.Errorf("output should contain validation result: %s", out)
+	}
+}
+
+func TestCreateDryRunJSON(t *testing.T) {
+	f, tio, _ := newTestCreateFactory(t, createHandler(nil), nil)
+	f.DryRun = true
+	f.OutputJSON = true
+
+	opts := &CreateOptions{
+		Factory: f,
+		Project: "PROJ",
+		Type:    "Bug",
+		Summary: "Test dry run JSON",
+	}
+
+	if err := runCreate(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, out)
+	}
+
+	if result["dry_run"] != true {
+		t.Errorf("dry_run = %v, want true", result["dry_run"])
+	}
+	if result["validation"] == nil {
+		t.Error("validation should be present")
+	}
+	validStr, ok := result["validation"].(string)
+	if !ok {
+		t.Fatalf("validation should be string, got %T", result["validation"])
+	}
+	if !strings.Contains(validStr, "passed") {
+		t.Errorf("validation = %q, want 'passed'", validStr)
+	}
+
+	payload, ok := result["payload"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("payload should be object, got %T", result["payload"])
+	}
+	if payload["summary"] != "Test dry run JSON" {
+		t.Errorf("payload.summary = %v, want 'Test dry run JSON'", payload["summary"])
+	}
+}
+
+func TestCreateDryRunDoesNotCreate(t *testing.T) {
+	created := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/issue" {
+			created = true
+			w.WriteHeader(201)
+			json.NewEncoder(w).Encode(api.CreatedIssue{
+				ID:  "10042",
+				Key: "PROJ-124",
+			})
+			return
+		}
+		// Createmeta endpoint.
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "createmeta") {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"issueTypes": []map[string]interface{}{
+					{"id": "10001", "name": "Bug", "subtask": false},
+				},
+			})
+			return
+		}
+		w.WriteHeader(404)
+		w.Write([]byte(`{"errorMessages":["Not found"]}`))
+	})
+
+	f, _, _ := newTestCreateFactory(t, handler, nil)
+	f.DryRun = true
+
+	opts := &CreateOptions{
+		Factory: f,
+		Project: "PROJ",
+		Type:    "Bug",
+		Summary: "Test dry run no create",
+	}
+
+	if err := runCreate(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if created {
+		t.Error("dry-run should not call POST /issue")
+	}
+}
+
+func TestCreateDryRunInvalidType(t *testing.T) {
+	f, tio, _ := newTestCreateFactory(t, createHandler(nil), nil)
+	f.DryRun = true
+
+	opts := &CreateOptions{
+		Factory: f,
+		Project: "PROJ",
+		Type:    "NonexistentType",
+		Summary: "Test dry run bad type",
+	}
+
+	if err := runCreate(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "warning") || !strings.Contains(out, "NonexistentType") {
+		t.Errorf("output should warn about invalid type: %s", out)
+	}
+}
+
+func TestCreateDryRunWithAssignee(t *testing.T) {
+	f, tio, _ := newTestCreateFactory(t, createHandler(nil), nil)
+	f.DryRun = true
+	f.OutputJSON = true
+
+	opts := &CreateOptions{
+		Factory:  f,
+		Project:  "PROJ",
+		Type:     "Bug",
+		Summary:  "Test dry run assignee",
+		Assignee: "Jane Doe",
+	}
+
+	if err := runCreate(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, out)
+	}
+
+	payload := result["payload"].(map[string]interface{})
+	if _, ok := payload["assignee"]; !ok {
+		t.Error("payload should contain resolved assignee")
+	}
+}
+
+func TestCreateBodyFileWithDryRun(t *testing.T) {
+	dir := t.TempDir()
+	descFile := filepath.Join(dir, "desc.md")
+	if err := os.WriteFile(descFile, []byte("Dry run body from file"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	f, tio, _ := newTestCreateFactory(t, createHandler(nil), nil)
+	f.DryRun = true
+	f.OutputJSON = true
+
+	opts := &CreateOptions{
+		Factory:  f,
+		Project:  "PROJ",
+		Type:     "Bug",
+		Summary:  "Test body-file + dry-run",
+		BodyFile: descFile,
+	}
+
+	if err := runCreate(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, out)
+	}
+
+	if result["dry_run"] != true {
+		t.Errorf("dry_run = %v, want true", result["dry_run"])
+	}
+
+	payload := result["payload"].(map[string]interface{})
+	if _, ok := payload["description"]; !ok {
+		t.Error("payload should contain description from body-file")
 	}
 }

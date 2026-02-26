@@ -54,6 +54,8 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - `parseField(kv)` splits "key=value" on first `=` only — reuse for any --field flag (create, edit)
 - `resolveProject(f, flagProject)` checks flag > default.project config > CLIError — reuse for issue list, create, etc.
 - `configGet(f, key)` safe helper returns "" on nil/error config — use across all commands needing config fallbacks
+- Shared: `shared.ReadBodyFile(path, io.Reader)` for --body-file (file or stdin "-"); `shared.ValidateBodySize(content)` for --description size cap (10MB)
+- Dry-run pattern: validate via live API (e.g., GetCreateMeta), resolve users, build payload, output preview — never call the mutation endpoint
 - `.gitignore`: bare names (e.g., `jira`) match recursively; use `/jira` to anchor to repo root only
 - `main.go`: `run() int` separates logic from `os.Exit()` — testable via `TestRunFunction` without subprocess
 - Auth commands that create their own API client use `clientOpts []api.ClientOption` field for test injection of `api.WithBaseURL()`
@@ -477,4 +479,18 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `newTestCreateFactory` accepts optional `cfgSetup func(config.Config)` for config-dependent tests — flexible pattern for any command needing config + API
   - Named field collision keys map must match all named flags exactly — keep in sync when adding new flags
   - `StringArrayVar` (not `StringSliceVar`) for --field to prevent comma-splitting within values
+---
+
+## 2026-02-26 - US-022b
+- Implemented shared body-file utility and dry-run support for issue create
+- Files changed: internal/cmd/shared/bodyfile.go (new), internal/cmd/shared/bodyfile_test.go (new), internal/cmd/shared/.gitkeep (removed), internal/cmd/issue/create.go (updated), internal/cmd/issue/create_test.go (updated), prd.json
+- 7 new bodyfile tests + 11 new create tests (body-file from file, stdin, not found, overrides description; dry-run text, JSON, no-create verification, invalid type warning, assignee resolution, body-file+dry-run combo)
+- **Learnings for future iterations:**
+  - `shared.ReadBodyFile(path, stdin)` handles file and stdin ("-") modes — reuse in edit command's --body-file
+  - `shared.ValidateBodySize(content)` validates 10MB cap for --description content — call separately when no body-file
+  - Stdin TTY detection: cast `io.Reader` to `*os.File`, then use `isatty.IsTerminal()`. In tests, `bytes.Buffer` is not `*os.File` so TTY check is skipped (correct: buffers are not TTYs)
+  - `io.LimitReader(stdin, MaxBodySize+1)` + len check after ReadAll = efficient size guard without loading entire content
+  - Dry-run calls `GetCreateMeta` to validate project + issue type, resolves assignee, but never calls `CreateIssue` — this is the pattern for all dry-run mutations
+  - `createHandler` mock now includes createmeta endpoint — future commands can reuse this handler pattern
+  - `--body-file` overrides `--description` when both provided (no error, body-file wins)
 ---
