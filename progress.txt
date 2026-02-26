@@ -291,3 +291,19 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - Test helper `newTestSwitchFactory` uses `map[string][2]string` for multi-profile setup — cleaner than repeated `SetProfile` calls in each test
   - No need for `--yes` on switch — it's non-destructive (unlike logout)
 ---
+
+## 2026-02-26 - US-017
+- Implemented config set/get/list subcommands — all work without authentication
+- `config set <key> <value>`: validates key/value via config.Set(), saves to disk, --json outputs {ok:true, key, value}
+- `config get <key>`: prints value + newline (empty string if unset or unknown key)
+- `config list`: sorted key=value text output; --json outputs flat object of set key-value pairs
+- Invalid key → CLIError(VALIDATION_ERROR); invalid value (e.g. output.format=yaml) → CLIError(VALIDATION_ERROR)
+- Files changed: internal/cmd/config/set.go (new), internal/cmd/config/get.go (new), internal/cmd/config/list.go (new), internal/cmd/config/config.go (register subcommands), internal/cmd/config/config_test.go (new)
+- 14 tests (all passing): set round-trip, invalid key, invalid value, set JSON, set quiet, get set/unset/unknown, list/list empty/list JSON/list sorted, no-auth-required, Cobra integration
+- **Learnings for future iterations:**
+  - Config commands are the simplest command pattern — no auth, no API client, just Factory.Config() + output.Formatter
+  - `config.Set()` returns plain `error` (not CLIError), so command wraps it in `NewValidationError()` for proper exit code
+  - `config get` deliberately does NOT error on unknown keys — returns empty string (same as unset), matching git-config behavior
+  - `config list` text mode uses `key=value\n` format (not table) — simpler and more grep-friendly
+  - `newTestConfigFactory(t)` is the minimal test helper pattern: just IOStreams + disk config, no keyring/httptest
+---
