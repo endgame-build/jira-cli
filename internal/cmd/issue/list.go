@@ -152,7 +152,10 @@ func runList(opts *ListOptions) error {
 	// When --fields is specified, filter the JSON to only include requested fields.
 	if formatter.IsJSON() {
 		wantFields := shared.FieldSet(opts.Fields)
-		return formatter.OutputList(shared.FilterIssueFields(items, wantFields), meta, nil)
+		if wantFields != nil {
+			return formatter.OutputList(shared.FilterIssueFields(items, wantFields), meta, nil)
+		}
+		return formatter.OutputList(items, meta, nil)
 	}
 
 	// Text mode: table output.

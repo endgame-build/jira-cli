@@ -68,12 +68,9 @@ func CheckEmptyResultsAuth(ctx context.Context, client *api.Client, stderr io.Wr
 
 // FilterIssueFields returns a new slice where each issue's fields map contains
 // only the keys in wantFields. Key, ID, and Self are always preserved.
-// If wantFields is nil, the original issues are returned unmodified.
-func FilterIssueFields(issues []api.Issue, wantFields map[string]bool) interface{} {
-	if wantFields == nil {
-		return issues
-	}
-
+// wantFields must not be nil — callers should pass issues directly when no
+// field filtering is needed.
+func FilterIssueFields(issues []api.Issue, wantFields map[string]bool) []map[string]interface{} {
 	result := make([]map[string]interface{}, len(issues))
 	for i, issue := range issues {
 		filtered := map[string]interface{}{

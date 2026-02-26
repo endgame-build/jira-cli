@@ -37,17 +37,20 @@ func sampleIssues() []api.Issue {
 	}
 }
 
-func TestFilterIssueFieldsNilPassthrough(t *testing.T) {
+func TestFilterIssueFieldsEmptyMapReturnsSkeletons(t *testing.T) {
 	issues := sampleIssues()
-	result := FilterIssueFields(issues, nil)
+	// Empty map: every issue is returned with id/key/self but no fields.
+	result := FilterIssueFields(issues, map[string]bool{})
 
-	// nil wantFields returns original slice unmodified.
-	returned, ok := result.([]api.Issue)
-	if !ok {
-		t.Fatalf("expected []api.Issue, got %T", result)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(result))
 	}
-	if len(returned) != 1 || returned[0].Key != "PROJ-1" {
-		t.Errorf("expected original issues, got: %v", returned)
+	if result[0]["key"] != "PROJ-1" {
+		t.Errorf("key = %v, want PROJ-1", result[0]["key"])
+	}
+	fields := result[0]["fields"].(map[string]interface{})
+	if len(fields) != 0 {
+		t.Errorf("expected empty fields map, got %d keys", len(fields))
 	}
 }
 
@@ -56,20 +59,11 @@ func TestFilterIssueFieldsSingleField(t *testing.T) {
 	wantFields := map[string]bool{"summary": true}
 	result := FilterIssueFields(issues, wantFields)
 
-	b, err := json.Marshal(result)
-	if err != nil {
-		t.Fatalf("marshal error: %v", err)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(result))
 	}
 
-	var items []map[string]interface{}
-	if err := json.Unmarshal(b, &items); err != nil {
-		t.Fatalf("unmarshal error: %v", err)
-	}
-	if len(items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(items))
-	}
-
-	item := items[0]
+	item := result[0]
 	// Always-included fields.
 	if item["id"] != "10001" {
 		t.Errorf("id = %v, want 10001", item["id"])
@@ -100,11 +94,7 @@ func TestFilterIssueFieldsTypeAlias(t *testing.T) {
 	wantFields := map[string]bool{"type": true}
 	result := FilterIssueFields(issues, wantFields)
 
-	b, _ := json.Marshal(result)
-	var items []map[string]interface{}
-	json.Unmarshal(b, &items)
-
-	fields := items[0]["fields"].(map[string]interface{})
+	fields := result[0]["fields"].(map[string]interface{})
 	if fields["issuetype"] == nil {
 		t.Error("'type' alias should produce 'issuetype' in output")
 	}
@@ -121,11 +111,7 @@ func TestFilterIssueFieldsAllFields(t *testing.T) {
 	}
 	result := FilterIssueFields(issues, wantFields)
 
-	b, _ := json.Marshal(result)
-	var items []map[string]interface{}
-	json.Unmarshal(b, &items)
-
-	fields := items[0]["fields"].(map[string]interface{})
+	fields := result[0]["fields"].(map[string]interface{})
 	for _, name := range []string{"summary", "status", "issuetype", "priority", "assignee", "labels"} {
 		if fields[name] == nil {
 			t.Errorf("field %q should be present", name)
@@ -133,22 +119,18 @@ func TestFilterIssueFieldsAllFields(t *testing.T) {
 	}
 }
 
-func TestFilterIssueFieldsEmptyMap(t *testing.T) {
+func TestFilterIssueFieldsEmptyMapTopLevel(t *testing.T) {
 	issues := sampleIssues()
 	// Empty map (not nil) — no fields requested, only id/key/self.
 	wantFields := map[string]bool{}
 	result := FilterIssueFields(issues, wantFields)
 
-	b, _ := json.Marshal(result)
-	var items []map[string]interface{}
-	json.Unmarshal(b, &items)
-
-	fields := items[0]["fields"].(map[string]interface{})
+	fields := result[0]["fields"].(map[string]interface{})
 	if len(fields) != 0 {
 		t.Errorf("expected empty fields map, got %d keys: %v", len(fields), fields)
 	}
 	// id/key/self still present at top level.
-	if items[0]["key"] != "PROJ-1" {
+	if result[0]["key"] != "PROJ-1" {
 		t.Error("key should always be present")
 	}
 }
