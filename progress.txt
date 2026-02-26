@@ -64,6 +64,8 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - Config profile type-assert pattern: define a local `profileSetter` interface with the methods you need, then `cfg.(profileSetter)`
 - Transition matching: `matchTransition()` does exact-then-substring; sort transitions by ID first for determinism. `transitionContext()` builds `[]map[string]interface{}` for error context
 - Move test mock: `moveHandler(issue, transitions, transitionErr)` serves GET /issue, GET transitions, POST transitions — reusable for US-025b
+- List command: `buildJQL()` composes filter flags into JQL with AND joins; `@me` → `currentUser()` (no API call); no filters → default "my open issues" query
+- Search test mock: `searchHandler(t, issues, &capturedJQL)` captures JQL + returns canned issues — reuse for US-028b, US-031
 
 ---
 
@@ -586,4 +588,24 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - --yes pattern matches auth logout (same CLIError + suggestion + WithSuggestion chain)
   - `deleteSubtasks=true` is always sent (hardcoded) — the API client handles string conversion
   - `deleteHandler(issue, deleteErr)` mock pattern: simpler than assignHandler (no user search), just DELETE + GET
+---
+
+## 2026-02-26 - US-028a
+- Implemented `jira issue list` command with JQL composition from flags
+- Filter flags: --project (falls back to default.project config), --assignee (@me→currentUser(), name→ResolveUser), --status, --type, --label
+- --jql overrides all filter flags; --fields and --limit/--offset are independent of --jql
+- Default (no filters, no --jql): `assignee = currentUser() AND resolution = Unresolved`
+- Token-based pagination via `FetchTokenPage` with explicit `fields` param in POST /search/jql
+- Table output: KEY, SUMMARY (truncated to 60 chars), STATUS (colorized), ASSIGNEE, PRIORITY, TYPE
+- --json: issues with pagination envelope `{data: [...], pagination: {offset, limit, total: null, has_next_page}}`
+- Empty results: text shows "No issues found"; JSON shows `{data: [], pagination: {...}}`
+- --no-pager registered as per-command flag (not global)
+- Files changed: internal/cmd/issue/list.go (new), internal/cmd/issue/list_test.go (new), internal/cmd/issue/issue.go (register)
+- 13 tests, all passing: default-to-mine JQL, filter composition (project+status+type+label with AND), @me→currentUser(), assignee resolution via mock, JQL override, empty results text, empty results JSON, JSON output with pagination, quiet mode, summary truncation, unassigned display, pagination has_next_page, fields independent of --jql, project-from-config fallback
+- **Learnings for future iterations:**
+  - `buildJQL()` composes clauses with `strings.Join(clauses, " AND ")` — `@me` maps to `currentUser()` JQL function (no API call needed)
+  - For list command, --project is optional (unlike create where it's required) — falls back to config but doesn't error if absent
+  - `FetchTokenPage` callback pattern: wrap `client.SearchIssues()` in a closure that extracts Issues/NextPageToken/IsLast from SearchResults
+  - `defaultAPIFields` sent to Jira even when --fields not specified — CRITICAL because Jira returns only `id` by default
+  - `searchHandler` test mock captures JQL via `*string` pointer for assertion — simpler than the `moveHandlerWithCapture` body capture pattern
 ---

@@ -861,7 +861,7 @@
         "Tests pass"
       ],
       "priority": 37,
-      "passes": false,
+      "passes": true,
       "notes": "CRITICAL: Always send fields param in search request \u2014 Jira returns only id by default. --no-pager registered here as per-command flag."
     },
     {
