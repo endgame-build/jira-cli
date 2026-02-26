@@ -120,3 +120,40 @@ Started: Fri Feb 27 01:10:56 EET 2026
   - The retry transport handles 429 transparently; no per-method 429 handling needed
   - ResolveUser helper also already exists with comprehensive tests (@me, direct ID, single/no/ambiguous match)
 ---
+
+## 2026-02-27 - US-010
+- Implemented `jira comment list <issue-key>` command in internal/cmd/comment/list.go
+- Table output: comment ID, author display name, created date (relative via RelativeTime), body (first 3 lines via ToPlaintext, truncated with '...')
+- JSON output: offset-paginated list envelope with total; timestamps are raw ISO 8601 (not relative)
+- Empty comments: text prints "No comments on PROJ-123"; JSON returns empty data array with pagination
+- Issue not found: CLIError(NOT_FOUND) via mapHTTPError
+- Pager enabled when stdout is TTY and --json not active
+- Key auto-uppercased via issue.ValidateIssueKeyOrID (to be moved to shared in US-014)
+- 10 tests covering: success, JSON, empty (text+JSON), 404, invalid key, pagination, ADF→plaintext, key auto-uppercase, truncateBody unit tests
+- Files changed: internal/cmd/comment/list.go (new), internal/cmd/comment/list_test.go (new)
+- **Learnings for future iterations:**
+  - FetchOffsetPage wraps CommentPage into OffsetPageResult — need to map page.Comments to Items, page.StartAt/Total to the result struct
+  - Comment commands import issue.ValidateIssueKeyOrID currently — US-014 will move to shared to avoid lateral dependency
+  - truncateBody uses SplitN(text, "\n", maxLines+1) for efficient truncation without scanning the whole string
+  - Pager lifecycle: StartPager() before table render, defer StopPager() — same pattern as issue list
+  - Empty comments check: no CheckEmptyResultsAuth needed for comments (Jira properly returns 404 for invalid issues, unlike search which returns 200 with empty)
+---
+
+## 2026-02-27 - US-011
+- Implemented `jira comment add <issue-key>` command in internal/cmd/comment/add.go
+- Flags: --body (Markdown text), --body-file (file path or "-" for stdin), plus global --dry-run, --json, --quiet
+- Body text converted Markdown → ADF via adf.Convert() before POST to API
+- --body-file uses shared.ReadBodyFile (TTY rejection, 10MB cap, nonexistent file error)
+- Validation: --body or --body-file required; neither → VALIDATION_ERROR with suggestion
+- Success text: 'Added comment {id} to PROJ-123: https://{instance}/browse/PROJ-123?focusedCommentId={id}'
+- --json: {"ok":true, "key":"PROJ-123", "comment_id":"10042", "action":"added", "url":"..."}
+- --dry-run: validates issue exists via ListComments(maxResults=1), shows preview; JSON uses OutputDryRunWithContext with key
+- --quiet: suppresses all output
+- 11 tests: success, JSON shape, missing body, 404, 413, body-file, body-file-nonexistent, dry-run (text+JSON), quiet, invalid key
+- Files changed: internal/cmd/comment/add.go (new), internal/cmd/comment/add_test.go (new)
+- **Learnings for future iterations:**
+  - Comment add follows exact same body resolution pattern as issue create: --body-file overrides --body, shared.ReadBodyFile handles stdin/file/TTY
+  - Dry-run validation for comment commands uses ListComments with maxResults=1 — lightweight check that the issue exists without creating anything
+  - Permalink URL format: `https://{instance}/browse/{key}?focusedCommentId={id}` — constructed client-side from client.Instance()
+  - The 413 HTTP status maps to VALIDATION_ERROR via mapHTTPError (added in US-006) — no special handling needed in the command
+---
