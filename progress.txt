@@ -251,3 +251,18 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `nilIfEmpty(*string) interface{}` helper returns typed nil for JSON null serialization (Go's `nil *string` serializes as `""` not `null` without this)
   - Global `--profile` flag from Factory takes precedence; if empty, defaults to "default"
 ---
+
+## 2026-02-26 - US-014
+- Implemented auth status command: resolves stored credentials, checks token validity via GET /myself
+- Displays: profile name, instance URL, user email (or "(email hidden)" if null), token validity with color
+- Token valid: green "valid"; Token invalid (401): red "invalid", still exits 0 (not a command error)
+- No stored credentials: returns CLIError(AUTH_ERROR) from auth resolver, exit 2
+- --json: {profile, instance, user, token_valid: true/false} via OutputData envelope
+- Files changed: internal/cmd/auth/status.go (new), internal/cmd/auth/status_test.go (new), internal/cmd/auth/auth.go (register subcommand)
+- 6 tests (all passing): valid token, invalid token, no credentials, JSON shape (valid), JSON shape (invalid), null email
+- **Learnings for future iterations:**
+  - Status command uses `f.AuthCredentials()` (Factory's lazy chain) unlike login which bypasses it — status needs stored profile resolution
+  - 401 from API client comes as CLIError(AUTH_ERROR) — detect via `errors.As` + code check to distinguish "invalid token" (reportable) from "no creds" (error)
+  - `newTestStatusFactory` pre-populates config profile + keyring mock — essential for any test that needs resolved credentials
+  - OutputData (not OutputMutation) is correct for status — it's a data display, not a mutation with ok:true
+---
