@@ -78,18 +78,23 @@ type StatusCategory struct {
 
 // IssueType represents a Jira issue type (Bug, Story, Task, etc.).
 type IssueType struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Subtask     bool   `json:"subtask"`
-	IconURL     string `json:"iconUrl"`
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description"`
+	Subtask        bool            `json:"subtask"`
+	IconURL        string          `json:"iconUrl"`
+	HierarchyLevel int             `json:"hierarchyLevel,omitempty"`
+	Scope          json.RawMessage `json:"scope,omitempty"`
 }
 
 // Priority represents a Jira issue priority.
 type Priority struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	IconURL string `json:"iconUrl"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	IconURL     string `json:"iconUrl"`
+	Description string `json:"description,omitempty"`
+	StatusColor string `json:"statusColor,omitempty"`
+	IsDefault   bool   `json:"isDefault,omitempty"`
 }
 
 // Project represents a Jira project.
@@ -257,6 +262,12 @@ type EditIssueInput struct {
 type PaginationOptions struct {
 	MaxResults    int
 	NextPageToken string
+}
+
+// OffsetPaginationOptions controls offset-based pagination for comments, projects, and labels.
+type OffsetPaginationOptions struct {
+	StartAt    int
+	MaxResults int
 }
 
 // GetIssueOptions controls which fields/expansions to request for GET /issue/{key}.
