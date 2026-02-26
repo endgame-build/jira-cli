@@ -1,7 +1,7 @@
 {
   "project": "jira-cli",
   "branchName": "ralph/jira-cli-phases-3-4",
-  "description": "Jira CLI Phases 3-4 — Comments, Schema, Meta, Projects, Users. Completes the full CLI functional surface.",
+  "description": "Jira CLI Phases 3-4 \u2014 Comments, Schema, Meta, Projects, Users. Completes the full CLI functional surface.",
   "userStories": [
     {
       "id": "US-001",
@@ -17,26 +17,26 @@
       ],
       "priority": 1,
       "passes": true,
-      "notes": "PRD US-049/FR-58/FR-60. OffsetPaginationOptions is used by comments, projects, and labels. Type extensions are additive — json.Unmarshal ignores missing fields, omitempty prevents serialization of zero values."
+      "notes": "PRD US-049/FR-58/FR-60. OffsetPaginationOptions is used by comments, projects, and labels. Type extensions are additive \u2014 json.Unmarshal ignores missing fields, omitempty prevents serialization of zero values."
     },
     {
       "id": "US-002",
       "title": "Add schema-related types (Field, FieldSchema, StatusDetail, LabelPage, ProjectDetail, ProjectSearchResult)",
       "description": "As a developer, I need new types in internal/api/types.go for schema introspection, project, and label endpoints.",
       "acceptanceCriteria": [
-        "Add Field struct: ID string `json:\"id\"`, Key string `json:\"key\"`, Name string `json:\"name\"`, Schema FieldSchema `json:\"schema\"`, Custom bool `json:\"custom\"` (Swagger confirms Jira sends `custom: boolean` in GET /field response — no need to derive from ID prefix. json.Unmarshal populates it directly.)",
-        "Add FieldSchema struct: Type string `json:\"type\"`, Items string `json:\"items,omitempty\"` (for array fields), Custom string `json:\"custom,omitempty\"` (custom field type URI), System string `json:\"system,omitempty\"` (system field name). Note: Swagger's JsonTypeBean also has customId (int64) and configuration (object) — intentionally omitted for CLI simplicity.",
-        "Add StatusDetail struct as standalone (do NOT embed Status — embedding causes JSON tag ambiguity): ID string `json:\"id\"`, Name string `json:\"name\"`, StatusCategory *StatusCategory `json:\"statusCategory\"`, Description string `json:\"description,omitempty\"`, IconURL string `json:\"iconUrl,omitempty\"`. Note: Swagger's StatusDetails also has `scope` and `self` — intentionally omitted (scope is complex Scope object, self is API URL not useful for CLI output).",
+        "Add Field struct: ID string `json:\"id\"`, Key string `json:\"key\"`, Name string `json:\"name\"`, Schema FieldSchema `json:\"schema\"`, Custom bool `json:\"custom\"` (Swagger confirms Jira sends `custom: boolean` in GET /field response \u2014 no need to derive from ID prefix. json.Unmarshal populates it directly.)",
+        "Add FieldSchema struct: Type string `json:\"type\"`, Items string `json:\"items,omitempty\"` (for array fields), Custom string `json:\"custom,omitempty\"` (custom field type URI), System string `json:\"system,omitempty\"` (system field name). Note: Swagger's JsonTypeBean also has customId (int64) and configuration (object) \u2014 intentionally omitted for CLI simplicity.",
+        "Add StatusDetail struct as standalone (do NOT embed Status \u2014 embedding causes JSON tag ambiguity): ID string `json:\"id\"`, Name string `json:\"name\"`, StatusCategory *StatusCategory `json:\"statusCategory\"`, Description string `json:\"description,omitempty\"`, IconURL string `json:\"iconUrl,omitempty\"`. Note: Swagger's StatusDetails also has `scope` and `self` \u2014 intentionally omitted (scope is complex Scope object, self is API URL not useful for CLI output).",
         "Add LabelPage struct: Values []string, StartAt int, MaxResults int, Total int, IsLast bool",
         "Add ProjectDetail struct: ID string, Key string, Name string, Description string, Lead *User, ProjectTypeKey string, IssueTypes []IssueType, URL string, Simplified bool, Style string",
         "Add ProjectSearchResult struct: Values []ProjectDetail, StartAt int, MaxResults int, Total int, IsLast bool",
-        "Verify CommentPage struct already exists in types.go (added in Phase 2) with shape: Comments []Comment, MaxResults int, Total int, StartAt int — no action needed if present",
+        "Verify CommentPage struct already exists in types.go (added in Phase 2) with shape: Comments []Comment, MaxResults int, Total int, StartAt int \u2014 no action needed if present",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 2,
       "passes": true,
-      "notes": "PRD US-037/US-041/US-049. These types are consumed by API methods and commands in subsequent stories. CommentPage already exists from Phase 2 — verify shape only. StatusDetail uses composition (not embedding) to avoid JSON tag conflicts with the existing Status type."
+      "notes": "PRD US-037/US-041/US-049. These types are consumed by API methods and commands in subsequent stories. CommentPage already exists from Phase 2 \u2014 verify shape only. StatusDetail uses composition (not embedding) to avoid JSON tag conflicts with the existing Status type."
     },
     {
       "id": "US-003",
@@ -46,7 +46,7 @@
         "Create internal/output/time.go with func RelativeTime(iso8601 string) string",
         "Thresholds: <1min='just now', <60min='X minutes ago' (singular '1 minute ago'), <24h='X hours ago', 1 day='yesterday', <30d='X days ago', <12mo='X months ago', >=12mo='X years ago'",
         "Parse failure returns the raw input string unchanged (graceful degradation)",
-        "No external dependencies — uses time.Parse and time.Since",
+        "No external dependencies \u2014 uses time.Parse and time.Since",
         "Table-driven tests in internal/output/time_test.go covering each threshold boundary, singular/plural, and parse failure",
         "Typecheck passes",
         "Tests pass"
@@ -60,12 +60,12 @@
       "title": "Add ADF to plaintext converter",
       "description": "As a developer, I need ToPlaintext() in internal/adf/plaintext.go to convert ADF JSON to structured readable plaintext for terminal display of comment bodies and issue descriptions.",
       "acceptanceCriteria": [
-        "Add func ToPlaintext(doc json.RawMessage) string to existing internal/adf/plaintext.go (file already exists with ExtractText — do NOT recreate it)",
-        "Returns string only (no error) — graceful degradation: empty/null input returns empty string, invalid JSON returns raw string as fallback",
-        "Mapping: paragraph→text+newline, heading→text+newline, bulletList→'- item' per line, orderedList→'1. item' per line, codeBlock→indented 4 spaces, blockquote→'> ' prefix, rule→'---', hardBreak→newline",
-        "Inline marks: bold/italic/strike→stripped (text only), code→backtick-wrapped, link→'text (url)' format",
+        "Add func ToPlaintext(doc json.RawMessage) string to existing internal/adf/plaintext.go (file already exists with ExtractText \u2014 do NOT recreate it)",
+        "Returns string only (no error) \u2014 graceful degradation: empty/null input returns empty string, invalid JSON returns raw string as fallback",
+        "Mapping: paragraph\u2192text+newline, heading\u2192text+newline, bulletList\u2192'- item' per line, orderedList\u2192'1. item' per line, codeBlock\u2192indented 4 spaces, blockquote\u2192'> ' prefix, rule\u2192'---', hardBreak\u2192newline",
+        "Inline marks: bold/italic/strike\u2192stripped (text only), code\u2192backtick-wrapped, link\u2192'text (url)' format",
         "Nested lists handled (indent by 2 spaces per level)",
-        "Existing ExtractText() function is preserved — it serves a different purpose",
+        "Existing ExtractText() function is preserved \u2014 it serves a different purpose",
         "Table-driven tests in internal/adf/plaintext_test.go covering each node type, nested lists, inline marks, empty input, malformed input",
         "Typecheck passes",
         "Tests pass"
@@ -88,7 +88,7 @@
       ],
       "priority": 5,
       "passes": true,
-      "notes": "PRD FR-59. Comment dry-run needs key and comment_id at top level. Option (a) from FR-59 — extras at top level for agent consistency."
+      "notes": "PRD FR-59. Comment dry-run needs key and comment_id at top level. Option (a) from FR-59 \u2014 extras at top level for agent consistency."
     },
     {
       "id": "US-006",
@@ -96,13 +96,13 @@
       "description": "As a developer building comment commands, I need typed API methods on the Client for all comment operations in internal/api/comments.go.",
       "acceptanceCriteria": [
         "Create internal/api/comments.go with methods on Client: ListComments, AddComment, UpdateComment, DeleteComment, GetComment",
-        "ListComments(ctx, issueKey, opts OffsetPaginationOptions) (*CommentPage, error) — sends orderBy=-created, startAt, maxResults",
-        "AddComment(ctx, issueKey string, body interface{}) (*Comment, error) — POST {\"body\": body}, expects 201. body is *adf.Node from adf.Convert()",
-        "UpdateComment(ctx, issueKey, commentID string, body interface{}) (*Comment, error) — PUT {\"body\": body}, expects 200. body is *adf.Node from adf.Convert()",
-        "DeleteComment(ctx, issueKey, commentID) error — DELETE, expects 204",
-        "GetComment(ctx, issueKey, commentID) (*Comment, error) — GET single comment",
-        "Error wrapping: 404→NOT_FOUND with issue key/comment ID in context, 403→PERMISSION_DENIED, 413→VALIDATION_ERROR (parse response body for limit vs oversized)",
-        "Add case http.StatusRequestEntityTooLarge (413) to mapHTTPError in internal/api/errors.go — maps to NewValidationError with suggestion about comment size limits. This is a shared function modification required for comment API support",
+        "ListComments(ctx, issueKey, opts OffsetPaginationOptions) (*CommentPage, error) \u2014 sends orderBy=-created, startAt, maxResults",
+        "AddComment(ctx, issueKey string, body interface{}) (*Comment, error) \u2014 POST {\"body\": body}, expects 201. body is *adf.Node from adf.Convert()",
+        "UpdateComment(ctx, issueKey, commentID string, body interface{}) (*Comment, error) \u2014 PUT {\"body\": body}, expects 200. body is *adf.Node from adf.Convert()",
+        "DeleteComment(ctx, issueKey, commentID) error \u2014 DELETE, expects 204",
+        "GetComment(ctx, issueKey, commentID) (*Comment, error) \u2014 GET single comment",
+        "Error wrapping: 404\u2192NOT_FOUND with issue key/comment ID in context, 403\u2192PERMISSION_DENIED, 413\u2192VALIDATION_ERROR (parse response body for limit vs oversized)",
+        "Add case http.StatusRequestEntityTooLarge (413) to mapHTTPError in internal/api/errors.go \u2014 maps to NewValidationError with suggestion about comment size limits. This is a shared function modification required for comment API support",
         "Tests with httptest mock returning realistic Jira response shapes (201, 200, 204, 404, 403, 413)",
         "Typecheck passes",
         "Tests pass"
@@ -117,15 +117,15 @@
       "description": "As a developer building project commands, I need typed API methods for project operations in internal/api/projects.go.",
       "acceptanceCriteria": [
         "Create internal/api/projects.go with methods on Client: ListProjects, GetProject",
-        "ListProjects(ctx, opts OffsetPaginationOptions) (*ProjectSearchResult, error) — GET /project/search with startAt, maxResults",
-        "GetProject(ctx, keyOrID string) (*ProjectDetail, error) — GET /project/{keyOrId}, accepts both project keys and numeric IDs",
-        "Proper error wrapping: 404→NOT_FOUND with project key in context",
+        "ListProjects(ctx, opts OffsetPaginationOptions) (*ProjectSearchResult, error) \u2014 GET /project/search with startAt, maxResults",
+        "GetProject(ctx, keyOrID string) (*ProjectDetail, error) \u2014 GET /project/{keyOrId}, accepts both project keys and numeric IDs",
+        "Proper error wrapping: 404\u2192NOT_FOUND with project key in context",
         "Tests with httptest mock for both methods",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-041. ProjectSearchResult uses 'values' array (not 'projects') from PageBeanProject shape."
     },
     {
@@ -134,18 +134,18 @@
       "description": "As a developer building schema commands, I need typed API methods for all introspection endpoints in internal/api/schema.go.",
       "acceptanceCriteria": [
         "Create internal/api/schema.go with methods on Client: ListFields, ListIssueTypes, ListIssueTypesForProject, ListStatuses, ListPriorities, ListLabels",
-        "ListFields(ctx) ([]Field, error) — GET /field, plain array",
-        "ListIssueTypes(ctx) ([]IssueType, error) — GET /issuetype, plain array",
-        "ListIssueTypesForProject(ctx, projectID string) ([]IssueType, error) — GET /issuetype/project?projectId={id}, plain array",
-        "ListStatuses(ctx) ([]StatusDetail, error) — GET /status, plain array",
-        "ListPriorities(ctx) ([]Priority, error) — GET /priority, plain array",
-        "ListLabels(ctx, opts OffsetPaginationOptions) (*LabelPage, error) — GET /label, offset-based pagination",
+        "ListFields(ctx) ([]Field, error) \u2014 GET /field, plain array",
+        "ListIssueTypes(ctx) ([]IssueType, error) \u2014 GET /issuetype, plain array",
+        "ListIssueTypesForProject(ctx, projectID string) ([]IssueType, error) \u2014 GET /issuetype/project?projectId={id}, plain array",
+        "ListStatuses(ctx) ([]StatusDetail, error) \u2014 GET /status, plain array",
+        "ListPriorities(ctx) ([]Priority, error) \u2014 GET /priority, plain array",
+        "ListLabels(ctx, opts OffsetPaginationOptions) (*LabelPage, error) \u2014 GET /label, offset-based pagination",
         "Tests with httptest mock for each method",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-049. All plain-array endpoints return the array directly (no envelope from Jira). ListLabels uses PageBeanString response with 'values' array."
     },
     {
@@ -153,59 +153,59 @@
       "title": "Verify user API methods for Phase 3-4 requirements",
       "description": "As a developer, I need to verify the existing GetMyself and SearchUsers API methods meet Phase 3-4 requirements and add any missing tests.",
       "acceptanceCriteria": [
-        "Verify GetMyself(ctx) (*User, error) exists and returns full User struct — GET /myself",
-        "Verify SearchUsers(ctx, query, startAt, maxResults) ([]User, error) exists — GET /user/search",
-        "Verify error wrapping: 401→AUTH_ERROR, 429→handled by retry transport",
+        "Verify GetMyself(ctx) (*User, error) exists and returns full User struct \u2014 GET /myself",
+        "Verify SearchUsers(ctx, query, startAt, maxResults) ([]User, error) exists \u2014 GET /user/search",
+        "Verify error wrapping: 401\u2192AUTH_ERROR, 429\u2192handled by retry transport",
         "Add tests if not present: empty search results, null email in response, GetMyself auth failure",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-054. Both methods already exist from Phase 2. This story verifies and adds missing test coverage."
     },
     {
       "id": "US-010",
       "title": "Implement comment list command",
-      "description": "As a developer, I want jira comment list PROJ-123 to show comments on an issue with pagination, ADF→plaintext rendering, and relative time formatting.",
+      "description": "As a developer, I want jira comment list PROJ-123 to show comments on an issue with pagination, ADF\u2192plaintext rendering, and relative time formatting.",
       "acceptanceCriteria": [
         "Create internal/cmd/comment/list.go following the NewCmdXxx pattern with CommentListOptions struct",
-        "Positional arg: issue key (required, validated via shared.ValidateIssueKeyOrID — see US-014 notes on moving to shared package)",
+        "Positional arg: issue key (required, validated via shared.ValidateIssueKeyOrID \u2014 see US-014 notes on moving to shared package)",
         "Flags: --limit (default 25), --offset (default 0), --json, --no-pager",
         "Table output: comment ID, author display name, created date (relative via RelativeTime), body (first 3 lines via ToPlaintext, truncated with '...')",
         "--json: offset-paginated list envelope with total. JSON timestamps are ISO 8601 (raw), not relative.",
         "Empty comments: text prints 'No comments on PROJ-123'; JSON returns empty data array with pagination",
         "Issue not found: CLIError(NOT_FOUND, \"Issue 'PROJ-999' not found\"), exit 4",
         "Pager enabled when stdout is TTY and --json not active",
-        "Tests: successful list, pagination, empty (text+JSON), 404, relative dates, ADF→plaintext, JSON ISO timestamps",
+        "Tests: successful list, pagination, empty (text+JSON), 404, relative dates, ADF\u2192plaintext, JSON ISO timestamps",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 10,
       "passes": false,
-      "notes": "PRD US-033. Uses ListComments from US-006, RelativeTime from US-003, ToPlaintext from US-004. No --fields flag (intentional — comments have a simple, flat shape unlike issues; --jq covers any filtering needs)."
+      "notes": "PRD US-033. Uses ListComments from US-006, RelativeTime from US-003, ToPlaintext from US-004. No --fields flag (intentional \u2014 comments have a simple, flat shape unlike issues; --jq covers any filtering needs)."
     },
     {
       "id": "US-011",
       "title": "Implement comment add command",
-      "description": "As a developer, I want jira comment add PROJ-123 --body 'text' to post a comment with Markdown→ADF conversion, --body-file, --dry-run support.",
+      "description": "As a developer, I want jira comment add PROJ-123 --body 'text' to post a comment with Markdown\u2192ADF conversion, --body-file, --dry-run support.",
       "acceptanceCriteria": [
         "Create internal/cmd/comment/add.go following the NewCmdXxx pattern",
         "Positional arg: issue key (required, validated). Flags: --body, --body-file, --dry-run, --json, --quiet",
         "One of --body or --body-file required; if neither: CLIError(VALIDATION_ERROR, 'Provide --body or --body-file'), exit 3. --body-file overrides --body if both given",
         "--body-file uses shared internal/cmd/shared/bodyfile.go utility (TTY rejection, 10MB cap)",
-        "Body text (from --body or --body-file) is Markdown — convert to ADF via adf.Convert() before sending to API. The API expects ADF (json.RawMessage) in the comment body field.",
+        "Body text (from --body or --body-file) is Markdown \u2014 convert to ADF via adf.Convert() before sending to API. The API expects ADF (json.RawMessage) in the comment body field.",
         "Success text: 'Added comment {id} to PROJ-123: https://{instance}/browse/PROJ-123?focusedCommentId={id}'",
         "--json: {\"ok\":true, \"key\":\"PROJ-123\", \"comment_id\":\"10042\", \"action\":\"added\", \"url\":\"...\"}",
         "--dry-run: validates issue exists, shows preview; JSON uses OutputDryRunWithContext with key field",
-        "Errors: 404→NOT_FOUND, 403→PERMISSION_DENIED, 413→parse for limit vs oversized",
+        "Errors: 404\u2192NOT_FOUND, 403\u2192PERMISSION_DENIED, 413\u2192parse for limit vs oversized",
         "Tests: successful add, body-file stdin, dry-run, missing body, 404, 413, JSON shape",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 11,
       "passes": false,
-      "notes": "PRD US-034. NOT idempotent — retrying creates duplicates. Permalink URL constructed client-side (known fragility)."
+      "notes": "PRD US-034. NOT idempotent \u2014 retrying creates duplicates. Permalink URL constructed client-side (known fragility)."
     },
     {
       "id": "US-012",
@@ -215,19 +215,19 @@
         "Create internal/cmd/comment/edit.go following the NewCmdXxx pattern",
         "Positional args: issue key (required, validated), comment ID (required). Flags: --body, --body-file, --dry-run, --json, --quiet",
         "One of --body or --body-file required; if neither: CLIError(VALIDATION_ERROR, 'Provide --body or --body-file'), exit 3. --body-file overrides --body if both given (same as comment add)",
-        "Body text (from --body or --body-file) is Markdown — convert to ADF via adf.Convert() before sending to API (same as comment add)",
+        "Body text (from --body or --body-file) is Markdown \u2014 convert to ADF via adf.Convert() before sending to API (same as comment add)",
         "Calls PUT /issue/{key}/comment/{id} via UpdateComment; expects HTTP 200",
         "Success text: 'Updated comment {id} on PROJ-123'",
         "--json: {\"ok\":true, \"key\":\"PROJ-123\", \"comment_id\":\"10042\", \"action\":\"updated\"}",
         "--dry-run: validates issue and comment exist via GetComment, shows preview with OutputDryRunWithContext",
-        "Errors: comment 404, issue 404, 403→PERMISSION_DENIED",
+        "Errors: comment 404, issue 404, 403\u2192PERMISSION_DENIED",
         "Tests: successful edit, body-file, dry-run, missing body, comment 404, issue 404, JSON shape",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 12,
       "passes": false,
-      "notes": "PRD US-035. IS idempotent — setting the same body again is safe."
+      "notes": "PRD US-035. IS idempotent \u2014 setting the same body again is safe."
     },
     {
       "id": "US-013",
@@ -242,21 +242,21 @@
         "Success text: 'Deleted comment {id} from PROJ-123'",
         "--json: {\"ok\":true, \"key\":\"PROJ-123\", \"comment_id\":\"10042\", \"action\":\"deleted\"}",
         "--dry-run: validates comment exists via GetComment, shows what would be deleted (ID, author, created, first line of body)",
-        "Errors: comment 404→NOT_FOUND, issue 404→NOT_FOUND, 403→PERMISSION_DENIED",
+        "Errors: comment 404\u2192NOT_FOUND, issue 404\u2192NOT_FOUND, 403\u2192PERMISSION_DENIED",
         "Tests: successful delete, missing --yes, comment 404, issue 404, dry-run, JSON shape",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 13,
       "passes": false,
-      "notes": "PRD US-036. NOT idempotent — deleting already-deleted returns 404. Agents should handle 404 on retry."
+      "notes": "PRD US-036. NOT idempotent \u2014 deleting already-deleted returns 404. Agents should handle 404 on retry."
     },
     {
       "id": "US-014",
       "title": "Create comment parent command and register on root",
       "description": "As a developer, I need the comment parent command created and registered on the root command so comment subcommands are discoverable.",
       "acceptanceCriteria": [
-        "Move ValidateIssueKeyOrID from internal/cmd/issue/validate.go to internal/cmd/shared/validate.go — comment commands need it without importing the issue package. Update all existing callers in internal/cmd/issue/*.go to use shared.ValidateIssueKeyOrID",
+        "Move ValidateIssueKeyOrID from internal/cmd/issue/validate.go to internal/cmd/shared/validate.go \u2014 comment commands need it without importing the issue package. Update all existing callers in internal/cmd/issue/*.go to use shared.ValidateIssueKeyOrID",
         "Create internal/cmd/comment/comment.go with parent command 'comment' that has Short and Long descriptions",
         "Register list, add, edit, delete subcommands under the comment parent",
         "Register comment group on root command in internal/cmd/root/root.go",
@@ -294,7 +294,7 @@
       "acceptanceCriteria": [
         "Create internal/cmd/project/view.go following the NewCmdXxx pattern",
         "Positional arg: project key or ID (required). Flags: --json",
-        "Table output: key, name, lead, description (truncated to 5 lines — plain string, NOT ADF per Swagger spec), type, issue types (comma-separated), URL",
+        "Table output: key, name, lead, description (truncated to 5 lines \u2014 plain string, NOT ADF per Swagger spec), type, issue types (comma-separated), URL",
         "--json: bare object output (single item, no envelope)",
         "Project not found: CLIError(NOT_FOUND, \"Project 'XYZ' not found\"), exit 4",
         "Tests: successful view, 404, JSON shape, issue types display",
@@ -328,9 +328,9 @@
       "acceptanceCriteria": [
         "Create internal/cmd/user/search.go following the NewCmdXxx pattern",
         "Positional arg: search query (required). Flags: --limit (default 10), --json",
-        "No --offset flag (SPEC deviation — Jira user search startAt is unreliable)",
+        "No --offset flag (SPEC deviation \u2014 Jira user search startAt is unreliable)",
         "Table output: account ID, display name, email (or '(hidden)' when null), active status",
-        "--json: raw-array list envelope — total is null, has_next_page inferred from len(results)==limit",
+        "--json: raw-array list envelope \u2014 total is null, has_next_page inferred from len(results)==limit",
         "Empty results: 'No users matching xyz' text; JSON returns empty data array",
         "Tests: successful search, empty results, null email handling, JSON output shape",
         "Typecheck passes",
@@ -383,7 +383,7 @@
         "Flags: --project (forward-compat no-op), --type (forward-compat no-op), --json",
         "Table output: field ID, name, type (schema.type), custom flag (from API response, not derived)",
         "--json: unpaginated list envelope (pagination: null)",
-        "--project/--type: accepted but do not change data; emit warning to stderr; help text says '(not yet implemented — shows all fields)'",
+        "--project/--type: accepted but do not change data; emit warning to stderr; help text says '(not yet implemented \u2014 shows all fields)'",
         "Tests: successful list, JSON shape, project/type warning emitted to stderr, data identical with and without flags",
         "Typecheck passes",
         "Tests pass"
@@ -410,7 +410,7 @@
       ],
       "priority": 22,
       "passes": false,
-      "notes": "PRD US-045/FR-40. The /issuetype/project endpoint requires numeric projectId — must resolve key first."
+      "notes": "PRD US-045/FR-40. The /issuetype/project endpoint requires numeric projectId \u2014 must resolve key first."
     },
     {
       "id": "US-023",
@@ -457,7 +457,7 @@
         "Calls ListLabels (GET /label with startAt, maxResults). Flags: --project (forward-compat no-op), --limit (default 50), --offset (default 0), --json",
         "Table output: label names, one per line",
         "--json: offset-paginated list envelope with string data array",
-        "--project: accepted but doesn't change data; emit warning to stderr; help text says '(not supported by Jira API — shows all labels)'",
+        "--project: accepted but doesn't change data; emit warning to stderr; help text says '(not supported by Jira API \u2014 shows all labels)'",
         "Tests: successful list, pagination, empty results, JSON shape, project warning to stderr",
         "Typecheck passes",
         "Tests pass"
@@ -493,16 +493,16 @@
         "Hidden commands and flags excluded (Cobra's Hidden field)",
         "JSON each entry includes: 'command' (string), 'description' (string), 'args' (array of {name, required, description}), 'flags' (array of {name, type, required, default, description})",
         "Output is JSON by default (even without --json flag). --json accepted but is no-op. --jq works.",
-        "JSON shape: bare array (NOT list envelope) — see FR-54",
+        "JSON shape: bare array (NOT list envelope) \u2014 see FR-54",
         "--text output: table with COMMAND, DESCRIPTION, FLAGS (comma-separated required flags or '(none)')",
-        "Works WITHOUT authentication — never calls f.APIClient() or f.AuthCredentials() (same pattern as config/alias)",
+        "Works WITHOUT authentication \u2014 never calls f.APIClient() or f.AuthCredentials() (same pattern as config/alias)",
         "Tests: output includes known commands, hidden excluded, valid parseable JSON, --text table format, no auth triggered",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 27,
       "passes": false,
-      "notes": "PRD US-050/FR-43/FR-44/FR-54. Machine-first command — always accurate via Cobra introspection, zero maintenance."
+      "notes": "PRD US-050/FR-43/FR-44/FR-54. Machine-first command \u2014 always accurate via Cobra introspection, zero maintenance."
     },
     {
       "id": "US-028",
@@ -510,18 +510,18 @@
       "description": "As an agent, I want jira meta version to check CLI version and API compatibility.",
       "acceptanceCriteria": [
         "Create internal/cmd/meta/version.go following the NewCmdXxx pattern",
-        "JSON output: {\"version\":\"0.1.0\", \"api\":\"jira-cloud-v3\", \"instance\":\"mycompany.atlassian.net\"} — instance is null when no profile configured",
+        "JSON output: {\"version\":\"0.1.0\", \"api\":\"jira-cloud-v3\", \"instance\":\"mycompany.atlassian.net\"} \u2014 instance is null when no profile configured",
         "JSON by default (machine-first). --text output: 'jira version X (jira-cloud-v3)\\nInstance: X' or 'Instance: (not configured)'",
         "Version injected via ldflags (already set up in main.go)",
-        "Instance resolved WITHOUT triggering auth: (1) f.FlagInstance from --instance flag, (2) JIRA_INSTANCE env var via os.Getenv, (3) config profile. For (3): profileConfigAdapter is unexported in factory package and fileConfig is unexported in config package — the meta command package cannot directly type-assert. SOLUTION: Add an exported ResolveInstance() method on Factory that returns (string, error) using this chain without triggering auth (reads config only). Returns empty string if none configured. No API call, no token resolution.",
-        "Works WITHOUT authentication — never calls f.APIClient() or f.AuthCredentials()",
+        "Instance resolved WITHOUT triggering auth: (1) f.FlagInstance from --instance flag, (2) JIRA_INSTANCE env var via os.Getenv, (3) config profile. For (3): profileConfigAdapter is unexported in factory package and fileConfig is unexported in config package \u2014 the meta command package cannot directly type-assert. SOLUTION: Add an exported ResolveInstance() method on Factory that returns (string, error) using this chain without triggering auth (reads config only). Returns empty string if none configured. No API call, no token resolution.",
+        "Works WITHOUT authentication \u2014 never calls f.APIClient() or f.AuthCredentials()",
         "Tests: JSON shape, version populated, instance null/populated depending on profile",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 28,
       "passes": false,
-      "notes": "PRD US-051/FR-43/FR-47. Requires adding Factory.ResolveInstance() method — a small auth-free addition to internal/factory/factory.go that reads instance from flags, env, or config profile without triggering credential resolution."
+      "notes": "PRD US-051/FR-43/FR-47. Requires adding Factory.ResolveInstance() method \u2014 a small auth-free addition to internal/factory/factory.go that reads instance from flags, env, or config profile without triggering credential resolution."
     },
     {
       "id": "US-029",
@@ -531,7 +531,7 @@
         "Create internal/cmd/meta/meta.go with parent command 'meta' that has Short and Long descriptions",
         "Register commands and version subcommands under the meta parent",
         "Register meta group on root command",
-        "meta commands and meta version are auth-free by design — they never call f.APIClient() or f.AuthCredentials(). No explicit auth-free list exists in Factory; auth-free commands simply avoid calling lazy auth accessors (same pattern as config and alias commands)",
+        "meta commands and meta version are auth-free by design \u2014 they never call f.APIClient() or f.AuthCredentials(). No explicit auth-free list exists in Factory; auth-free commands simply avoid calling lazy auth accessors (same pattern as config and alias commands)",
         "jira meta --help shows all subcommands",
         "Tests: meta commands don't trigger auth resolution",
         "Typecheck passes",
@@ -539,7 +539,7 @@
       ],
       "priority": 29,
       "passes": false,
-      "notes": "PRD US-052 (partial)/FR-47. Auth-free like config and alias — achieved by never calling f.APIClient(), not by an explicit whitelist."
+      "notes": "PRD US-052 (partial)/FR-47. Auth-free like config and alias \u2014 achieved by never calling f.APIClient(), not by an explicit whitelist."
     },
     {
       "id": "US-030",
@@ -555,7 +555,7 @@
       ],
       "priority": 30,
       "passes": false,
-      "notes": "PRD US-038 enhancement. Only affects table output — JSON passes through raw ADF."
+      "notes": "PRD US-038 enhancement. Only affects table output \u2014 JSON passes through raw ADF."
     }
   ]
 }

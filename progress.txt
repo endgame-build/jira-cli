@@ -80,3 +80,43 @@ Started: Fri Feb 27 01:10:56 EET 2026
   - DeleteComment expects HTTP 204 — Client.Do skips body decode automatically
   - HTTP 413 maps to VALIDATION_ERROR (not a distinct error code) since it's a payload size validation failure
 ---
+
+## 2026-02-27 - US-007
+- Created internal/api/projects.go with 2 methods: ListProjects, GetProject
+- ListProjects uses offset-based pagination (startAt, maxResults) to GET /project/search
+- GetProject accepts both project keys and numeric IDs via GET /project/{keyOrId}
+- GetProject intercepts 404 errors and enriches them with project key in context
+- Created internal/api/projects_test.go with 5 tests: success, pagination, by-key, by-numeric-ID, 404 with context
+- Files changed: internal/api/projects.go (new), internal/api/projects_test.go (new)
+- **Learnings for future iterations:**
+  - mapHTTPError creates generic NOT_FOUND without context — call-site methods must intercept and re-wrap with entity-specific context (key/ID)
+  - Project search uses PageBeanProject shape with 'values' array and 'isLast' boolean (unlike CommentPage which uses 'comments')
+  - GET /project/{keyOrId} accepts both string keys ("PROJ") and numeric IDs ("10001") — tests should cover both
+  - Query parameter construction: use sep variable pattern (`sep := "?"` → `sep = "&"`) for clean optional param chaining
+---
+
+## 2026-02-27 - US-008
+- Created internal/api/schema.go with 6 methods: ListFields, ListIssueTypes, ListIssueTypesForProject, ListStatuses, ListPriorities, ListLabels
+- All plain-array endpoints (field, issuetype, status, priority) return bare JSON arrays — decoded directly into slices
+- ListIssueTypesForProject uses query param `projectId={id}` (requires numeric ID, not key)
+- ListLabels is the only paginated schema endpoint — uses OffsetPaginationOptions with sep variable pattern
+- Created internal/api/schema_test.go with 7 tests covering success cases and pagination
+- Files changed: internal/api/schema.go (new), internal/api/schema_test.go (new)
+- **Learnings for future iterations:**
+  - Schema endpoints don't return entity-specific 404s (they return empty arrays) — no error enrichment needed
+  - ListIssueTypesForProject requires numeric project ID — callers must resolve key→ID via GetProject first
+  - Plain-array Jira endpoints decode directly into `[]T` — no wrapper struct needed
+---
+
+## 2026-02-27 - US-009
+- Verified GetMyself(ctx) (*User, error) exists and returns full User struct via GET /myself
+- Verified SearchUsers(ctx, query, startAt, maxResults) ([]User, error) exists via GET /user/search
+- Verified error wrapping: 401→AUTH_ERROR (mapHTTPError), 429→handled by retry transport (retryPolicy)
+- All required test coverage already present from Phase 2: empty search results, null email in response, GetMyself auth failure (401)
+- No code changes needed — Phase 2 implementation fully satisfies Phase 3-4 requirements
+- Files changed: none (verification-only story)
+- **Learnings for future iterations:**
+  - Phase 2 user API methods are complete — no need to add new methods for Phase 3-4
+  - The retry transport handles 429 transparently; no per-method 429 handling needed
+  - ResolveUser helper also already exists with comprehensive tests (@me, direct ID, single/no/ambiguous match)
+---
