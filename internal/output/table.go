@@ -24,7 +24,11 @@ func NewTable(w io.Writer) table.Writer {
 type TableFunc func(t table.Writer)
 
 // renderTable creates a table, applies the callback, and renders it.
+// If fn is nil, renderTable is a no-op (guards against nil panics).
 func renderTable(w io.Writer, fn TableFunc) {
+	if fn == nil {
+		return
+	}
 	t := NewTable(w)
 	fn(t)
 	t.Render()

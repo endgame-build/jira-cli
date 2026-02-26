@@ -6,6 +6,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 
+	"github.com/endgameio/jira-cli/internal/auth"
 	"github.com/endgameio/jira-cli/internal/config"
 	cliErrors "github.com/endgameio/jira-cli/internal/errors"
 	"github.com/endgameio/jira-cli/internal/factory"
@@ -91,9 +92,11 @@ func runLogout(opts *LogoutOptions) error {
 			WithSuggestion("Run 'jira auth login' to create a profile")
 	}
 
-	// Delete token from keyring/fallback.
+	// Delete token from keyring/fallback. Suppress "not found" (token may not exist).
 	tokenStore := f.TokenStore()
-	_ = tokenStore.DeleteToken(opts.Profile) // best-effort; token may not exist
+	if err := tokenStore.DeleteToken(opts.Profile); err != nil && err != auth.ErrTokenNotFound {
+		return fmt.Errorf("removing stored token: %w", err)
+	}
 
 	// Delete profile from config.
 	if err := pm.DeleteProfile(opts.Profile); err != nil {

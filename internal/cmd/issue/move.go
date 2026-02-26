@@ -160,8 +160,9 @@ func runMove(opts *MoveOptions) error {
 		return formatter.OutputMutation(extras, nil)
 	}
 
-	fmt.Fprintf(f.IOStreams.Out, "Moved %s to %s\n", opts.KeyOrID, toStatus)
-	return nil
+	return formatter.OutputMutation(nil, func(t table.Writer) {
+		fmt.Fprintf(f.IOStreams.Out, "Moved %s to %s\n", opts.KeyOrID, toStatus)
+	})
 }
 
 // renderMoveDryRun outputs a dry-run preview of the move operation.
@@ -233,7 +234,7 @@ func matchTransition(transitions []api.Transition, target string) (*api.Transiti
 	return nil, clierrors.NewTransitionError(
 		fmt.Sprintf("No transition found matching '%s'", target),
 		available,
-	).WithSuggestion("Run 'jira issue transitions " + "' to see available transitions")
+	).WithSuggestion("Run 'jira issue transitions <key>' to see available transitions")
 }
 
 // transitionContext builds the context slice for INVALID_TRANSITION errors.

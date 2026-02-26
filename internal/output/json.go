@@ -5,21 +5,19 @@ package output
 import (
 	"encoding/json"
 	"io"
+
+	"github.com/endgameio/jira-cli/internal/api"
 )
 
 // PaginationMeta describes the pagination state returned in list JSON envelopes.
-type PaginationMeta struct {
-	Offset      int  `json:"offset"`
-	Limit       int  `json:"limit"`
-	Total       *int `json:"total"` // nil for token-based pagination (total unknown)
-	HasNextPage bool `json:"has_next_page"`
-}
+// Re-exported from api package to avoid breaking callers.
+type PaginationMeta = api.PaginationMeta
 
 // listEnvelope wraps list data with pagination metadata.
 // JSON shape: {"data": [...], "pagination": {...}}
 type listEnvelope struct {
-	Data       interface{}     `json:"data"`
-	Pagination *PaginationMeta `json:"pagination"`
+	Data       interface{}         `json:"data"`
+	Pagination *api.PaginationMeta `json:"pagination"`
 }
 
 // mutationEnvelope wraps mutation results with ok:true.

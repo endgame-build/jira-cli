@@ -3,6 +3,7 @@
 package iostreams
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -167,10 +168,13 @@ func (s *IOStreams) StartPager() {
 
 	pipe, err := cmd.StdinPipe()
 	if err != nil {
+		fmt.Fprintf(s.Err, "warning: could not start pager: %v\n", err)
 		return
 	}
 
 	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(s.Err, "warning: could not start pager %q: %v\n", parts[0], err)
+		pipe.Close()
 		return
 	}
 

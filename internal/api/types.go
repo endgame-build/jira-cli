@@ -2,6 +2,14 @@ package api
 
 import "encoding/json"
 
+// PaginationMeta describes the pagination state returned in list JSON envelopes.
+type PaginationMeta struct {
+	Offset      int  `json:"offset"`
+	Limit       int  `json:"limit"`
+	Total       *int `json:"total"` // nil for token-based pagination (total unknown)
+	HasNextPage bool `json:"has_next_page"`
+}
+
 // ──────────────────────────────────────────────
 // Read / response types (mirrors Jira v3 JSON)
 // ──────────────────────────────────────────────

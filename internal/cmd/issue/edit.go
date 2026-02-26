@@ -363,12 +363,7 @@ func runEditDryRun(ctx context.Context, f *factory.Factory, client *api.Client, 
 	formatter := output.NewFormatter(f.IOStreams, f.OutputJSON, f.JQExpr)
 
 	if formatter.IsJSON() {
-		payload := map[string]interface{}{
-			"dry_run":    true,
-			"changes":    changes,
-			"validation": "passed",
-		}
-		return formatter.OutputDryRun(payload, "passed", nil)
+		return formatter.OutputDryRun(changes, "passed", nil)
 	}
 
 	// Text output: diff-style preview.

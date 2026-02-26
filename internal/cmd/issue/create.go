@@ -303,10 +303,15 @@ func resolveProject(f *factory.Factory, flagProject string) (string, error) {
 		WithSuggestion("Specify --project or set a default: jira config set default.project PROJ")
 }
 
-// configGet safely retrieves a config value. Returns "" on error or missing.
+// configGet safely retrieves a config value. Returns "" if missing.
+// Warns on stderr if config cannot be loaded.
 func configGet(f *factory.Factory, key string) string {
 	cfg, err := f.Config()
-	if err != nil || cfg == nil {
+	if err != nil {
+		fmt.Fprintf(f.IOStreams.Err, "Warning: could not load config: %v\n", err)
+		return ""
+	}
+	if cfg == nil {
 		return ""
 	}
 	return cfg.Get(key)

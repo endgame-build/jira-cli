@@ -81,8 +81,12 @@ func Resolve(flagInstance, flagUser, flagToken, profileName string, cfg ProfileC
 
 	token, err := tokenStore.RetrieveToken(name)
 	if err != nil {
-		return nil, cliErrors.NewAuthError("No credentials found").
-			WithSuggestion("Run 'jira auth login' to store credentials")
+		if err == ErrTokenNotFound {
+			return nil, cliErrors.NewAuthError("No credentials found for profile " + name).
+				WithSuggestion("Run 'jira auth login' to store credentials")
+		}
+		return nil, cliErrors.NewAuthError("Failed to retrieve stored token: " + err.Error()).
+			WithSuggestion("Check your token storage. Run 'jira auth login' to re-authenticate.")
 	}
 
 	return &Credentials{

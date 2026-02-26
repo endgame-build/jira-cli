@@ -780,14 +780,10 @@ func TestEditDryRunJSON(t *testing.T) {
 		t.Errorf("validation = %v, want 'passed'", result["validation"])
 	}
 
-	// Dig into the payload to find changes.
-	payload, ok := result["payload"].(map[string]interface{})
+	// Payload is the changes array directly (OutputDryRun wraps it).
+	changes, ok := result["payload"].([]interface{})
 	if !ok {
-		t.Fatalf("payload should be object, got %T", result["payload"])
-	}
-	changes, ok := payload["changes"].([]interface{})
-	if !ok {
-		t.Fatalf("changes should be array, got %T", payload["changes"])
+		t.Fatalf("payload should be array of changes, got %T", result["payload"])
 	}
 	if len(changes) < 2 {
 		t.Fatalf("expected at least 2 changes, got %d", len(changes))
@@ -857,8 +853,8 @@ func TestEditDryRunLabels(t *testing.T) {
 		t.Fatalf("invalid JSON: %v\nraw: %s", err, out)
 	}
 
-	payload := result["payload"].(map[string]interface{})
-	changes := payload["changes"].([]interface{})
+	// Payload is the changes array directly.
+	changes := result["payload"].([]interface{})
 
 	// Find the labels change.
 	var labelsChange map[string]interface{}

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-
-	"github.com/endgameio/jira-cli/internal/output"
 )
 
 // ──────────────────────────────────────────────
@@ -32,7 +30,7 @@ func FetchTokenPage[T any](
 	limit int,
 	fetcher TokenPageFetcher[T],
 	warnWriter io.Writer,
-) ([]T, *output.PaginationMeta, error) {
+) ([]T, *PaginationMeta, error) {
 
 	if limit <= 0 {
 		limit = 50 // sensible default
@@ -62,7 +60,7 @@ func FetchTokenPage[T any](
 
 		if isLast {
 			// Exhausted results before reaching offset — return empty.
-			return nil, &output.PaginationMeta{
+			return nil, &PaginationMeta{
 				Offset:      offset,
 				Limit:       limit,
 				Total:       nil,
@@ -88,7 +86,7 @@ func FetchTokenPage[T any](
 		hasNext = true
 	}
 
-	meta := &output.PaginationMeta{
+	meta := &PaginationMeta{
 		Offset:      offset,
 		Limit:       limit,
 		Total:       nil, // token-based: total unknown
@@ -124,7 +122,7 @@ func FetchOffsetPage[T any](
 	offset int,
 	limit int,
 	fetcher OffsetPageFetcher[T],
-) ([]T, *output.PaginationMeta, error) {
+) ([]T, *PaginationMeta, error) {
 
 	if limit <= 0 {
 		limit = 50
@@ -138,7 +136,7 @@ func FetchOffsetPage[T any](
 	total := result.Total
 	hasNext := offset+len(result.Items) < total
 
-	meta := &output.PaginationMeta{
+	meta := &PaginationMeta{
 		Offset:      offset,
 		Limit:       limit,
 		Total:       &total,
@@ -166,7 +164,7 @@ func FetchRawArrayPage[T any](
 	offset int,
 	limit int,
 	fetcher RawArrayFetcher[T],
-) ([]T, *output.PaginationMeta, error) {
+) ([]T, *PaginationMeta, error) {
 
 	if limit <= 0 {
 		limit = 50
@@ -179,7 +177,7 @@ func FetchRawArrayPage[T any](
 
 	hasNext := len(items) == limit
 
-	meta := &output.PaginationMeta{
+	meta := &PaginationMeta{
 		Offset:      offset,
 		Limit:       limit,
 		Total:       nil, // raw array: total unknown

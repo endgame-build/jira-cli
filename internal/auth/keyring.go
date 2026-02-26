@@ -12,6 +12,9 @@ import (
 
 const serviceName = "jira-cli"
 
+// ErrTokenNotFound is returned when a token is not found in any store.
+var ErrTokenNotFound = keyring.ErrNotFound
+
 // tokenKey builds the keyring key for a given profile: "{profile}-token".
 func tokenKey(profile string) string {
 	return profile + "-token"
@@ -79,7 +82,8 @@ func (s *fallbackStore) RetrieveToken(profile string) (string, error) {
 		// Still try fallback in case it was stored there previously.
 		return s.fallback.RetrieveToken(profile)
 	}
-	// Keyring is broken/unavailable — fall back silently for reads.
+	// Keyring is broken/unavailable — warn and fall back (symmetric with StoreToken).
+	fmt.Fprintf(s.stderr, "warning: keyring unavailable (%v), trying plaintext token storage\n", err)
 	return s.fallback.RetrieveToken(profile)
 }
 

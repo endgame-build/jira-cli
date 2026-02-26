@@ -2,6 +2,8 @@
 package root
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/endgameio/jira-cli/internal/cmd/alias"
@@ -76,7 +78,9 @@ func preRun(f *factory.Factory, cmd *cobra.Command) error {
 	// Resolve JSON mode from config if not set via flags.
 	if !f.OutputJSON && !f.Text {
 		cfg, err := f.Config()
-		if err == nil && cfg != nil && cfg.Get("output.format") == "json" {
+		if err != nil {
+			fmt.Fprintf(f.IOStreams.Err, "Warning: could not load config: %v\n", err)
+		} else if cfg != nil && cfg.Get("output.format") == "json" {
 			f.OutputJSON = true
 		}
 	}

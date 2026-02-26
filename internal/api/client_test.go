@@ -53,8 +53,9 @@ func TestAuthTransport_InjectsHeaders(t *testing.T) {
 		t.Errorf("Authorization header = %q, want %q", gotAuth, wantAuth)
 	}
 
-	if gotContentType != "application/json" {
-		t.Errorf("Content-Type = %q, want %q", gotContentType, "application/json")
+	// Content-Type should not be set on GET requests (no body).
+	if gotContentType != "" {
+		t.Errorf("Content-Type on GET = %q, want empty (no body)", gotContentType)
 	}
 
 	if gotAccept != "application/json" {

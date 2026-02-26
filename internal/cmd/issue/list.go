@@ -55,6 +55,14 @@ func NewCmdList(f *factory.Factory) *cobra.Command {
 				return clierrors.NewValidationError("--order requires --sort").
 					WithSuggestion("Specify a field to sort by with --sort")
 			}
+			// Validate --order value.
+			if opts.Sort != "" {
+				order := strings.ToLower(opts.Order)
+				if order != "asc" && order != "desc" {
+					return clierrors.NewValidationError("--order must be 'asc' or 'desc'").
+						WithSuggestion("Use --order asc or --order desc")
+				}
+			}
 			if opts.NoPager {
 				f.IOStreams.NoPager = true
 			}
