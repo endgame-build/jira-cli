@@ -7,7 +7,6 @@ import (
 )
 
 // NewCmdConfig creates the "config" command group.
-// Subcommands (get, set, list) are registered in their own stories.
 func NewCmdConfig(f *factory.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config <command>",
@@ -17,6 +16,10 @@ func NewCmdConfig(f *factory.Factory) *cobra.Command {
 			return cmd.Help()
 		},
 	}
+
+	cmd.AddCommand(NewCmdConfigSet(f))
+	cmd.AddCommand(NewCmdConfigGet(f))
+	cmd.AddCommand(NewCmdConfigList(f))
 
 	return cmd
 }
