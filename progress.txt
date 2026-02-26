@@ -43,6 +43,7 @@ Started: Thu Feb 26 00:47:59 EET 2026
 - Root command: gofmt auto-aligns struct field tags — when adding `RunE` to Cobra commands, keep `Long:` tag aligned with `Short:` / `Use:`
 - Alias commands: `aliasManager` local interface (Aliases/SetAlias/Save) for type-asserting config — same pattern as `profileSetter` and `profileManager`
 - Shadow detection in alias set: `cmd.Root().Commands()` dynamically checks all registered commands — avoids hardcoded lists and circular imports
+- ADF: `Convert(markdown)` returns `(*Node, error)` — the Node is always type `doc` with `version:1`. Empty string returns valid empty doc. goldmark tight lists use `TextBlock` not `Paragraph` for items
 - `.gitignore`: bare names (e.g., `jira`) match recursively; use `/jira` to anchor to repo root only
 - `main.go`: `run() int` separates logic from `os.Exit()` — testable via `TestRunFunction` without subprocess
 - Auth commands that create their own API client use `clientOpts []api.ClientOption` field for test injection of `api.WithBaseURL()`
@@ -323,4 +324,19 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `aliasNameRe` allows single chars (e.g., "a") but not leading/trailing hyphens — anchored regex `^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$` handles both
   - Alias list follows same format as config list: `key=value\n` text, flat JSON object — consistent user experience
   - `mockRootCmd.asCobraRoot()` test helper builds a Cobra command tree for shadow testing without importing the real root package
+---
+
+## 2026-02-26 - US-019
+- Implemented Markdown → ADF (Atlassian Document Format) converter
+- internal/adf/nodes.go: ADF node types (Document, Paragraph, Heading, BulletList, OrderedList, ListItem, CodeBlock, Blockquote, Rule, Text, HardBreak) and mark types (Strong, Em, Code, Link, Strike) with constructor functions
+- internal/adf/converter.go: goldmark-based CommonMark parser → ADF tree walker. Handles block nodes (paragraphs, headings, lists, code blocks, blockquotes, rules) and inline nodes (text, emphasis, strong, code spans, links, autolinks, strikethrough). Recursive mark accumulation for nested inline formatting
+- internal/adf/converter_test.go: 24 top-level tests (all passing): empty input, plain text, paragraphs, all 6 heading levels, bold/italic/inline code/link/strikethrough, bullet/ordered lists, fenced code blocks (with/without language), blockquote, horizontal rule, nested bold-inside-italic, link inside list, code inside bold, multi-line blockquote, nested lists, JSON round-trip, empty doc JSON shape, 9 node constructor tests, 4 mark constructor tests
+- Removed internal/adf/.gitkeep (replaced by real .go files)
+- **Learnings for future iterations:**
+  - goldmark tight lists use `ast.KindTextBlock` (not `ast.KindParagraph`) for list item content — must handle both in the converter
+  - `extension.Strikethrough` must be enabled explicitly via `goldmark.WithExtensions()` — not part of CommonMark core
+  - gofmt auto-sorts imports alphabetically — named imports like `east "..."` sort by their package path, not their alias. Pre-commit hook catches this
+  - ADF `doc` node requires `version: 1` — Jira rejects documents without it
+  - Mark accumulation pattern: `copyMarks(marks)` before append prevents mutation of parent's marks slice during recursion
+  - `Convert("")` returns empty Document (no content array) — this is a valid ADF document for clearing descriptions
 ---
