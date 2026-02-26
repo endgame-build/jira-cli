@@ -1,130 +1,104 @@
 # CLAUDE.md
 
-## Project
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Go CLI wrapping Jira Cloud REST API v3. Module: `github.com/endgameio/jira-cli`. Go 1.26+.
-
-## Git Conventions
-
-- Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): description`
-- Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`, `ci`
-- Scope is optional but encouraged (e.g., `feat(auth): add login command`)
-- Don't commit without approval
-
-## Build & Test
+## Build & Test Commands
 
 ```sh
-make build      # outputs bin/jira
-make test       # go test ./...
-make lint       # go vet ./...
-make install    # go install ./cmd/jira
-make clean      # rm -rf bin/
+make build          # Build binary to bin/jira
+make test           # Run all tests (go test ./...)
+make lint           # Run go vet ./...
+make install        # go install ./cmd/jira
+go test ./internal/api/...              # Run tests for a single package
+go test ./internal/cmd/issue/... -run TestView  # Run a specific test
 ```
+
+Version info is injected via ldflags (`-X main.version=... -X main.commit=... -X main.date=...`).
 
 ## Architecture
 
-gh-CLI blueprint: Cobra command tree, Factory DI, lazy auth resolution.
+This is a Go CLI wrapping Jira Cloud REST API v3, following the **gh-CLI blueprint**: Cobra command tree, Factory DI container, lazy auth resolution.
 
-**Dependency order** (acyclic — build leaf-first):
+### Dependency flow (strict layering — no upward imports)
+
 ```
-errors → iostreams → config → auth → api → output → factory → commands → main.go
+errors → iostreams → config → auth → api → output → adf → factory → commands → main
 ```
 
-**Key packages:**
-- `internal/errors` — CLIError type (codes, context, suggestions, exit codes 0-8)
-- `internal/iostreams` — IO abstraction (TTY detection, color, pager)
-- `internal/config` — TOML config at XDG path, profiles
-- `internal/auth` — Keyring storage, credential resolver (flags → env → profile)
-- `internal/api` — HTTP client, auth transport, retry, Jira types, typed API methods
-- `internal/output` — Formatter (OutputData/OutputList/OutputMutation/OutputDryRun), table, JSON envelopes, jq
-- `internal/adf` — Markdown → Atlassian Document Format converter
-- `internal/factory` — Lazy DI hub (IOStreams, Config, Auth, APIClient)
-- `internal/cmd/*` — Cobra command implementations
+### Factory DI pattern
 
-## Command Pattern
+`factory.Factory` is the single DI hub. IOStreams is eager; Config, Auth, and APIClient are lazy via `sync.Once`. Auth-free commands (help, config, alias) never trigger credential resolution.
 
-Every command follows this structure — no exceptions:
+### Command constructor pattern
+
+Every command follows this exact shape:
 
 ```go
 func NewCmdXxx(f *factory.Factory) *cobra.Command {
-    opts := &XxxOptions{}
+    opts := &XxxOptions{Factory: f}
     cmd := &cobra.Command{
-        Use:   "xxx <required-arg>",
-        Short: "One-line description",
         RunE: func(cmd *cobra.Command, args []string) error {
-            // parse positional args into opts
-            return xxxRun(cmd.Context(), f, opts)
+            // validate args, resolve lazy deps
+            return runXxx(opts)
         },
     }
-    cmd.Flags().StringVar(&opts.Field, "field", "", "description")
+    // register flags
     return cmd
 }
 ```
 
-- Constructor returns `*cobra.Command`, takes `*factory.Factory`
-- Options struct holds parsed flags and args
-- Run function takes `(context.Context, *factory.Factory, *XxxOptions)`, returns `error`
-- No `init()`, no global state, no package-level vars
+- `XxxOptions` struct holds all resolved inputs for `runXxx`
+- No `init()` functions, no global state
+- Commands return `error` — only `main.go` renders errors and calls `os.Exit`
 
-## Error Handling
+### Error handling
 
-- Commands **return** errors — they never write to stderr directly
-- `main.go` is the sole error renderer (prevents double-printing)
-- All errors should be `*CLIError` with code, message, context, suggestion
-- Use constructors: `NewAuthError`, `NewValidationError`, `NewNotFoundError`, etc.
-- Exit codes: 0=success, 1=general, 2=auth, 3=validation, 4=not-found, 5=permission, 6=rate-limited, 7=network-error, 8=conflict
+All errors are `CLIError` (structured with code, message, context, suggestion). Error codes map to exit codes 0-8. `main.go` is the sole error renderer — it wraps unknown errors as `GENERAL_ERROR`.
 
-## Output Rules
+### Output system
 
-- Data to stdout, errors/warnings to stderr
-- No ANSI escape codes when stdout is not a TTY
-- JSON envelopes: bare object (single reads), `{"data":[], "pagination":{}}` (lists), `{"ok":true, ...}` (mutations)
-- `OutputError` is a standalone function, not on Formatter
+`output.Formatter` routes between JSON and text modes. Four output shapes:
+- `OutputData` — single item (view commands)
+- `OutputList` — list with pagination envelope
+- `OutputMutation` — mutation result with `"ok": true`
+- `OutputDryRun` — dry-run preview with payload and validation
 
-## API Client Rules
+`--jq` expressions applied via `output.ApplyJQ` (itchyny/gojq, pure Go).
 
-- All requests go through `Client.Do()` — never construct raw HTTP requests in commands
-- Auth injected via `http.RoundTripper` (Basic auth: `base64(email:token)`)
-- Accept 200, 201, 204 as success; skip body decode on 204
-- Retry only 429 (with Retry-After) and 5xx; never retry 401 or timeouts
-- Base URL: `https://{instance}/rest/api/3/{path}`
+### API client
 
-## Testing
+`api.Client.Do(ctx, method, path, body, out)` handles all HTTP. Transport chain: retryablehttp → authTransport → http.DefaultTransport. Accepts 200/201/204; maps errors via `mapHTTPError` to `CLIError`. Never retries 401 or timeouts; only 429 and 5xx.
 
-- `httptest.NewServer` for API mocks — no real Jira instance in tests
-- `iostreams.Test()` for output capture (returns buffers, `isTTY: false`)
-- `keyring.MockInit()` for in-memory keyring — no OS keyring in tests
-- `t.TempDir()` for config file isolation
-- `t.Setenv()` for env var tests
-- Table-driven tests preferred
+### ADF converter
 
-## Dependencies (11)
+`internal/adf` converts Markdown → Atlassian Document Format (for creating/editing issues) and ADF → plaintext (for displaying).
 
-| Package | Purpose |
-|---------|---------|
-| `spf13/cobra` | CLI framework |
-| `hashicorp/go-retryablehttp` | HTTP retry with backoff |
-| `BurntSushi/toml` | Config format |
-| `zalando/go-keyring` | Secure credential storage |
-| `yuin/goldmark` | Markdown parsing for ADF conversion |
-| `jedib0t/go-pretty/v6` | Table output |
-| `fatih/color` | Color output |
-| `mattn/go-isatty` | TTY detection |
-| `adrg/xdg` | XDG config paths |
-| `cli/browser` | Cross-platform browser opening |
-| `itchyny/gojq` | Pure Go jq for `--jq` flag |
+## Test patterns
 
-## Key Conventions
+- `factory.NewTestFactory(ios, cfg, client)` — pre-wired factory, no credential resolution
+- `iostreams.Test()` — returns IOStreams + stdout/stderr buffers for capture
+- `httptest.NewServer` — API mock servers in test files
+- `keyring.MockInit()` — in-memory keyring for credential tests
+- `t.TempDir()` for config files, `t.Setenv()` for env vars
+- Table-driven tests throughout
+- `BrowserOpen` field on options structs overridden in tests to capture URLs
 
-- Jira API v3 only — use new endpoints (`POST /search/jql`, not `GET /search`)
-- `User.EmailAddress` is `*string` (nullable — Jira privacy settings)
-- `deleteSubtasks` is a string query param (`"true"`), not boolean
-- Instance URLs stored as bare hostname (`mycompany.atlassian.net`)
-- Config writes use write-to-temp-then-rename (atomic)
-- Auth-free commands (`config`, `alias`, `--help`, `--version`) must never trigger credential resolution
+## Key conventions
 
-## Reference Docs
+- Commits: `type(scope): description` (conventional commits)
+- Config writes use write-to-temp-then-rename for atomicity
+- Credential chain: flags → env vars (`JIRA_INSTANCE`, `JIRA_USER`, `JIRA_TOKEN`) → stored profiles
+- `--no-pager` is per-command (view, list, search), not global
+- `--text` overrides config-level `output.format:json` back to text mode
+- `--web + --json` is dual-action: prints JSON AND opens browser
+- `--field key=value` splits on first `=` only; named flag wins over `--field` collision (warning to stderr)
+- All mutation JSON outputs include `"ok": true`
+- Issue key validation via `ValidateIssueKeyOrID` in `internal/cmd/issue/validate.go`
+
+## Reference docs
 
 - `SPEC.md` — functional specification
 - `PLAN.md` — implementation plan with architecture
-- `tasks/prd-jira-cli-foundation.md` — detailed PRD for Phases 0-2 (32 user stories, **supersedes SPEC.md and PLAN.md where they differ**)
+- `tasks/prd-jira-cli-foundation.md` — PRD for Phases 0-2 (32 user stories)
+- `swagger-v3.v3.txt` — Jira Cloud v3 OpenAPI spec (2.46MB reference)
+- PRD supersedes SPEC.md and PLAN.md where they differ

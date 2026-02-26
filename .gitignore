@@ -1,0 +1,21 @@
+# Build artifacts
+bin/
+/jira
+*.exe
+*.test
+*.out
+dist/
+
+# Dependencies
+vendor/
+
+# OS
+.DS_Store
+
+# Agent artifacts
+progress.txt
+ralph.sh
+.last-branch
+
+# Reference files (too large for repo)
+swagger-v3.v3.txt

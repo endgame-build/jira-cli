@@ -50,12 +50,12 @@ jira issue assign PROJ-123 "Jane Doe"
 jira search "project = PROJ AND assignee = currentUser()" --json
 
 # List my open issues
-jira issue list --mine
+jira issue list --assignee @me
 ```
 
 ## Configuration
 
-Config stored at `~/.config/jira-cli/config.toml`. Set defaults to skip repetitive flags:
+Config stored at `$XDG_CONFIG_HOME/jira-cli/config.toml` (`~/.config/jira-cli/` on Linux, `~/Library/Application Support/jira-cli/` on macOS). Set defaults to skip repetitive flags:
 
 ```sh
 jira config set default.project PROJ
