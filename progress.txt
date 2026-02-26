@@ -277,3 +277,17 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `DeleteProfile` auto-clears active profile if deleting the active one — no need for separate `SetActiveProfile("")` call
   - `newTestLogoutFactory` pre-populates both config profile AND keyring token before test — mirrors real state after login
 ---
+
+## 2026-02-26 - US-016
+- Implemented auth switch command: positional profile arg, sets active profile in config, displays instance URL
+- Error handling: profile not found → CLIError(NOT_FOUND) with available profiles listed in message
+- JSON output: {ok:true, profile, instance} via OutputMutation
+- Cobra ExactArgs(1) enforces required positional argument
+- Files changed: internal/cmd/auth/switch.go (new), internal/cmd/auth/switch_test.go (new), internal/cmd/auth/auth.go (register subcommand)
+- 5 tests (all passing): successful switch, unknown profile with available list, JSON shape, Cobra missing arg, unknown profile with no available profiles
+- **Learnings for future iterations:**
+  - Switch command does not need keyring/token access — it only changes config metadata (active profile pointer)
+  - `NewNotFoundError(msg, key)` takes a custom message string — use it to embed available profiles list directly in the error message
+  - Test helper `newTestSwitchFactory` uses `map[string][2]string` for multi-profile setup — cleaner than repeated `SetProfile` calls in each test
+  - No need for `--yes` on switch — it's non-destructive (unlike logout)
+---
