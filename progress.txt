@@ -376,3 +376,17 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - GetIssue query params built via string concatenation (not url.Values) — acceptable for simple cases where values don't need URL encoding
   - Error code is `CONFLICT_ERROR` (not `CONFLICT`) — check errors package constants before using
 ---
+
+## 2026-02-26 - US-030b
+- Implemented User API methods: GetMyself and SearchUsers on *Client
+- GetMyself: GET /myself, returns *User with nullable EmailAddress
+- SearchUsers: GET /user/search with query, startAt, maxResults params — returns plain []User array (not envelope-wrapped)
+- Used url.Values for query param encoding (handles spaces/special chars in search queries)
+- Files changed: internal/api/users.go (new), internal/api/users_test.go (new)
+- 10 tests (all passing): GetMyself (success, null email, 401), SearchUsers (success, pagination params, no params, empty results, 400, 403, path verification)
+- **Learnings for future iterations:**
+  - `SearchUsers` uses direct startAt/maxResults params instead of PaginationOptions (which is token-based) — offset-based endpoints should use simple int params
+  - Error code for 403 is `PERMISSION_DENIED` (not `PERMISSION_ERROR`) — always check errors package constants
+  - `url.Values` preferred over string concatenation when query values may contain special chars (e.g., user search queries with spaces)
+  - `Do()` handles `[]User` decode correctly when passed as `*[]User` — no envelope wrapper needed for raw-array endpoints
+---
