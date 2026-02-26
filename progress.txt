@@ -561,3 +561,14 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - Resolution is conditional in JSON output (`if opts.Resolution != "" { extras["resolution"] = ... }`) to avoid polluting JSON with empty strings
   - Dry-run reuses `OutputDryRun` from the formatter (same pattern as create/edit dry-run) — consistent across all mutation commands
 ---
+
+## 2026-02-26 - US-026
+- Implemented issue assign command with assign/unassign, dry-run, JSON output, and quiet mode
+- Files changed: internal/cmd/issue/assign.go (new), internal/cmd/issue/assign_test.go (new), internal/cmd/issue/issue.go (added NewCmdAssign registration)
+- 11 tests, all passing: assign text, assign JSON, unassign text (verifies null accountId in body), unassign JSON, --unassign+user conflict, no user no --unassign, dry-run text (verifies no PUT call), dry-run JSON, unassign dry-run, user not found, 404, 403, quiet mode
+- **Learnings for future iterations:**
+  - `AssignIssue(ctx, key, *string)` — nil = unassign (sends `{"accountId":null}`), non-nil = assign
+  - For JSON output enrichment with user details: after `ResolveUser` returns account ID, do a follow-up `SearchUsers` to get the full `User` object; fall back to `GetMyself` when input was `@me` or a direct account ID
+  - Assign is the simplest mutation command — no build-payload step, just resolve user and PUT
+  - `assignHandler(issue, user, assignErr)` mock pattern: serves GET /issue, GET /user/search, PUT /assignee — reuse for delete command handler pattern
+---

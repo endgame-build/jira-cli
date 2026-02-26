@@ -817,7 +817,7 @@
         "Tests pass"
       ],
       "priority": 35,
-      "passes": false,
+      "passes": true,
       "notes": "Swagger note: accountId=\"-1\" assigns to project default assignee \u2014 not implemented in MVP (only null/unassign and explicit user)"
     },
     {
