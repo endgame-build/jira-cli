@@ -170,7 +170,7 @@ func runList(opts *ListOptions) error {
 		if shared.ShowField(wantFields, "priority") {
 			header = append(header, "PRIORITY")
 		}
-		if shared.ShowField(wantFields, "issuetype") {
+		if shared.ShowField(wantFields, "issuetype") || shared.ShowField(wantFields, "type") {
 			header = append(header, "TYPE")
 		}
 		tw.AppendHeader(header)
@@ -202,7 +202,7 @@ func runList(opts *ListOptions) error {
 				}
 				row = append(row, priority)
 			}
-			if shared.ShowField(wantFields, "issuetype") {
+			if shared.ShowField(wantFields, "issuetype") || shared.ShowField(wantFields, "type") {
 				typeName := ""
 				if issue.Fields.IssueType != nil {
 					typeName = issue.Fields.IssueType.Name

@@ -4,7 +4,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
+	clierrors "github.com/endgameio/jira-cli/internal/errors"
 	"github.com/endgameio/jira-cli/internal/factory"
 	"github.com/endgameio/jira-cli/internal/output"
 )
@@ -43,7 +43,7 @@ func runConfigSet(opts *SetOptions) error {
 	}
 
 	if err := cfg.Set(opts.Key, opts.Value); err != nil {
-		return cliErrors.NewValidationError(err.Error())
+		return clierrors.NewValidationError(err.Error())
 	}
 
 	if err := cfg.Save(); err != nil {

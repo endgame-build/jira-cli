@@ -199,8 +199,8 @@ func TestSearchJQLOverridesMine(t *testing.T) {
 	opts := &SearchOptions{
 		Factory: f,
 		JQL:     "reporter = currentUser()",
-		Mine:    true,   // should be ignored
-		Status:  "Done", // should be ignored
+		Mine:    true,   // should be ignored when JQL is set
+		Status:  "Done", // should be appended to JQL
 		Limit:   50,
 	}
 
@@ -209,9 +209,10 @@ func TestSearchJQLOverridesMine(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Positional JQL overrides --mine and --status.
-	if capturedJQL != "reporter = currentUser()" {
-		t.Errorf("JQL should be raw positional, got: %s", capturedJQL)
+	// Positional JQL overrides --mine, but --status is still applied.
+	expected := `(reporter = currentUser()) AND status = "Done"`
+	if capturedJQL != expected {
+		t.Errorf("JQL should include status filter, got: %s", capturedJQL)
 	}
 }
 

@@ -21,7 +21,7 @@ type SearchOptions struct {
 
 	JQL     string   // positional arg: raw JQL query
 	Mine    bool     // --mine shortcut
-	Status  string   // --status (only with --mine)
+	Status  string   // --status (with --mine or JQL)
 	Fields  []string // --fields
 	Limit   int      // --limit
 	Offset  int      // --offset
@@ -158,7 +158,7 @@ func runSearch(opts *SearchOptions) error {
 		if shared.ShowField(wantFields, "priority") {
 			header = append(header, "PRIORITY")
 		}
-		if shared.ShowField(wantFields, "issuetype") {
+		if shared.ShowField(wantFields, "issuetype") || shared.ShowField(wantFields, "type") {
 			header = append(header, "TYPE")
 		}
 		tw.AppendHeader(header)
@@ -190,7 +190,7 @@ func runSearch(opts *SearchOptions) error {
 				}
 				row = append(row, priority)
 			}
-			if shared.ShowField(wantFields, "issuetype") {
+			if shared.ShowField(wantFields, "issuetype") || shared.ShowField(wantFields, "type") {
 				typeName := ""
 				if issue.Fields.IssueType != nil {
 					typeName = issue.Fields.IssueType.Name
@@ -204,12 +204,16 @@ func runSearch(opts *SearchOptions) error {
 }
 
 // buildSearchJQL constructs the JQL query for the search command.
-// If a positional JQL arg is provided, it overrides --mine and --status.
+// If a positional JQL arg is provided, it overrides --mine but still honors --status
+// by appending AND status=... to the provided JQL.
 // If --mine is set, it generates assignee=currentUser() AND resolution=Unresolved,
 // optionally appending AND status=... if --status is provided.
 func buildSearchJQL(opts *SearchOptions) string {
-	// Positional JQL overrides everything.
+	// Positional JQL overrides --mine, but we still apply an explicit --status filter.
 	if opts.JQL != "" {
+		if opts.Status != "" {
+			return fmt.Sprintf("(%s) AND status = %q", opts.JQL, opts.Status)
+		}
 		return opts.JQL
 	}
 

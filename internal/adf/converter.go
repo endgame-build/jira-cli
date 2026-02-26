@@ -139,10 +139,10 @@ func (c *converter) convertInline(n ast.Node, source []byte, marks []Mark) []*No
 		var nodes []*Node
 		nodes = append(nodes, node)
 		if tn.SoftLineBreak() {
-			// Soft line breaks become spaces in ADF (or we can add the newline).
-			// goldmark treats soft breaks as whitespace; the text already ends before the break.
-			// We add a newline to preserve line separation.
-			nodes = append(nodes, Text("\n"))
+			// CommonMark soft line breaks are treated as whitespace (single space).
+			// ADF represents line breaks with hardBreak nodes, not embedded newlines
+			// in text nodes. A soft break maps to a space per CommonMark semantics.
+			nodes = append(nodes, Text(" "))
 		}
 		if tn.HardLineBreak() {
 			nodes = append(nodes, HardBreak())

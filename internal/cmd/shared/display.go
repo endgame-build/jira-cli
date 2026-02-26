@@ -22,18 +22,23 @@ func FieldSet(fields []string) map[string]bool {
 	}
 	set := make(map[string]bool, len(fields))
 	for _, f := range fields {
-		set[strings.ToLower(strings.TrimSpace(f))] = true
+		key := strings.ToLower(strings.TrimSpace(f))
+		if key == "" {
+			continue
+		}
+		set[key] = true
 	}
 	return set
 }
 
 // ShowField returns true if the field should be displayed.
 // If wantFields is nil (no filter), all fields are shown.
+// The name is normalized to lowercase to match FieldSet's behavior.
 func ShowField(wantFields map[string]bool, name string) bool {
 	if wantFields == nil {
 		return true
 	}
-	return wantFields[name]
+	return wantFields[strings.ToLower(name)]
 }
 
 // StatusWithColor colorizes a status name based on its category.

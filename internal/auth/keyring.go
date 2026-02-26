@@ -78,9 +78,9 @@ func (s *fallbackStore) RetrieveToken(profile string) (string, error) {
 	if err == nil {
 		return token, nil
 	}
-	// If keyring says "not found", don't fall back — the token genuinely doesn't exist there.
+	// If keyring says "not found", still try fallback in case the token was stored there
+	// previously (e.g. keyring was unavailable during a prior store).
 	if err == keyring.ErrNotFound {
-		// Still try fallback in case it was stored there previously.
 		return s.fallback.RetrieveToken(profile)
 	}
 	// Keyring is broken/unavailable — warn and fall back (symmetric with StoreToken).

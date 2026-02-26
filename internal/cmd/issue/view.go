@@ -119,7 +119,7 @@ func runView(opts *ViewOptions) error {
 			statusText := shared.StatusWithColor(ios, fields.Status)
 			fmt.Fprintf(ios.Out, "Status:    %s\n", statusText)
 		}
-		if shared.ShowField(wantFields, "type") && fields.IssueType != nil {
+		if (shared.ShowField(wantFields, "issuetype") || shared.ShowField(wantFields, "type")) && fields.IssueType != nil {
 			fmt.Fprintf(ios.Out, "Type:      %s\n", fields.IssueType.Name)
 		}
 		if shared.ShowField(wantFields, "priority") && fields.Priority != nil {
