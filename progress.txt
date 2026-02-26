@@ -609,3 +609,18 @@ Started: Thu Feb 26 00:47:59 EET 2026
   - `defaultAPIFields` sent to Jira even when --fields not specified — CRITICAL because Jira returns only `id` by default
   - `searchHandler` test mock captures JQL via `*string` pointer for assertion — simpler than the `moveHandlerWithCapture` body capture pattern
 ---
+
+## 2026-02-26 - US-028b
+- Implemented --sort/-s and --order flags for issue list with ORDER BY appending and assignee resolution error handling
+- --sort <field> + --order <asc|desc> (default: desc) appends `ORDER BY field ASC/DESC` to composed JQL
+- --order without --sort: CLIError(VALIDATION_ERROR, '--order requires --sort'), exit 3
+- --sort + --jql: sort/order silently ignored (--jql returns verbatim from buildJQL before appendOrderBy is reached)
+- Assignee resolution errors (not found, ambiguous) propagate correctly from `api.ResolveUser`
+- Files changed: internal/cmd/issue/list.go (modified), internal/cmd/issue/list_test.go (modified)
+- 7 new tests added (20 total for list command): sort+order DESC, sort+order ASC, sort default order, order-without-sort error, sort ignored with --jql, assignee not found, assignee ambiguous
+- **Learnings for future iterations:**
+  - `cmd.Flags().Changed("order")` distinguishes "user passed --order" from "default value" — essential for detecting --order-without---sort since --order has a default of "desc"
+  - `appendOrderBy()` extracted as pure helper; `buildJQL()` calls it at both return paths (default query and composed query)
+  - For the --order-without-sort test, must use `NewCmdList` + `cmd.SetArgs` + `cmd.Execute()` because `Flags().Changed()` only works through Cobra execution (not via direct `runList()` call)
+  - `ResolveUser` returns NOT_FOUND (0 matches) or AMBIGUOUS_USER (>1 match) — both propagate through `buildJQL()` without wrapping
+---

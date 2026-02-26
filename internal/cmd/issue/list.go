@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/endgameio/jira-cli/internal/api"
+	clierrors "github.com/endgameio/jira-cli/internal/errors"
 	"github.com/endgameio/jira-cli/internal/factory"
 	"github.com/endgameio/jira-cli/internal/output"
 )
@@ -23,6 +24,8 @@ type ListOptions struct {
 	Type     string   // --type
 	Label    string   // --label
 	JQL      string   // --jql (overrides all filter flags)
+	Sort     string   // --sort (field name for ORDER BY)
+	Order    string   // --order (asc/desc, default: desc)
 	Fields   []string // --fields (controls returned/displayed fields)
 	Limit    int      // --limit
 	Offset   int      // --offset
@@ -47,6 +50,11 @@ func NewCmdList(f *factory.Factory) *cobra.Command {
 		Short: "List Jira issues",
 		Long:  "List Jira issues with optional filters. Without flags, defaults to your open issues.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// --order without --sort is an error.
+			if cmd.Flags().Changed("order") && opts.Sort == "" {
+				return clierrors.NewValidationError("--order requires --sort").
+					WithSuggestion("Specify a field to sort by with --sort")
+			}
 			if opts.NoPager {
 				f.IOStreams.NoPager = true
 			}
@@ -60,6 +68,8 @@ func NewCmdList(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.Type, "type", "t", "", "Filter by issue type")
 	cmd.Flags().StringVarP(&opts.Label, "label", "l", "", "Filter by label")
 	cmd.Flags().StringVar(&opts.JQL, "jql", "", "Raw JQL query (overrides all filter flags)")
+	cmd.Flags().StringVarP(&opts.Sort, "sort", "s", "", "Sort results by field name (appends ORDER BY to JQL)")
+	cmd.Flags().StringVar(&opts.Order, "order", "desc", "Sort order: asc or desc (requires --sort)")
 	cmd.Flags().StringSliceVar(&opts.Fields, "fields", nil, "Comma-separated list of fields to display")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of results")
 	cmd.Flags().IntVar(&opts.Offset, "offset", 0, "Number of results to skip")
@@ -246,8 +256,16 @@ func buildJQL(ctx context.Context, client *api.Client, opts *ListOptions) (strin
 
 	// No filters at all: default to "my open issues".
 	if len(clauses) == 0 {
-		return "assignee = currentUser() AND resolution = Unresolved", nil
+		return appendOrderBy("assignee = currentUser() AND resolution = Unresolved", opts.Sort, opts.Order), nil
 	}
 
-	return strings.Join(clauses, " AND "), nil
+	return appendOrderBy(strings.Join(clauses, " AND "), opts.Sort, opts.Order), nil
+}
+
+// appendOrderBy appends ORDER BY to a JQL string if sort is non-empty.
+func appendOrderBy(jql, sort, order string) string {
+	if sort == "" {
+		return jql
+	}
+	return fmt.Sprintf("%s ORDER BY %s %s", jql, sort, strings.ToUpper(order))
 }

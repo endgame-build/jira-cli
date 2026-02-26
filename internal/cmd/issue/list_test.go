@@ -2,6 +2,7 @@ package issue
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/endgameio/jira-cli/internal/api"
 	"github.com/endgameio/jira-cli/internal/auth"
+	clierrors "github.com/endgameio/jira-cli/internal/errors"
 	"github.com/endgameio/jira-cli/internal/factory"
 	"github.com/endgameio/jira-cli/internal/iostreams"
 )
@@ -523,5 +525,197 @@ func TestBuildJQLProjectFromConfig(t *testing.T) {
 	expected := "assignee = currentUser() AND resolution = Unresolved"
 	if capturedJQL != expected {
 		t.Errorf("expected default JQL %q, got: %s", expected, capturedJQL)
+	}
+}
+
+func TestListSortOrder(t *testing.T) {
+	var capturedJQL string
+
+	f, _, _ := newTestListFactory(t, searchHandler(t, sampleIssues(), &capturedJQL))
+
+	opts := &ListOptions{
+		Factory: f,
+		Project: "PROJ",
+		Sort:    "created",
+		Order:   "desc",
+		Limit:   50,
+	}
+
+	err := runList(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.HasSuffix(capturedJQL, "ORDER BY created DESC") {
+		t.Errorf("expected ORDER BY created DESC suffix, got: %s", capturedJQL)
+	}
+}
+
+func TestListSortOrderAsc(t *testing.T) {
+	var capturedJQL string
+
+	f, _, _ := newTestListFactory(t, searchHandler(t, sampleIssues(), &capturedJQL))
+
+	opts := &ListOptions{
+		Factory: f,
+		Project: "PROJ",
+		Sort:    "priority",
+		Order:   "asc",
+		Limit:   50,
+	}
+
+	err := runList(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.HasSuffix(capturedJQL, "ORDER BY priority ASC") {
+		t.Errorf("expected ORDER BY priority ASC suffix, got: %s", capturedJQL)
+	}
+}
+
+func TestListSortDefaultOrder(t *testing.T) {
+	// --sort without explicit --order defaults to desc.
+	var capturedJQL string
+
+	f, _, _ := newTestListFactory(t, searchHandler(t, sampleIssues(), &capturedJQL))
+
+	opts := &ListOptions{
+		Factory: f,
+		Project: "PROJ",
+		Sort:    "updated",
+		Order:   "desc", // default
+		Limit:   50,
+	}
+
+	err := runList(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.HasSuffix(capturedJQL, "ORDER BY updated DESC") {
+		t.Errorf("expected ORDER BY updated DESC suffix, got: %s", capturedJQL)
+	}
+}
+
+func TestListOrderWithoutSortError(t *testing.T) {
+	f, _, _ := newTestListFactory(t, searchHandler(t, sampleIssues(), nil))
+
+	cmd := NewCmdList(f)
+	cmd.SetArgs([]string{"--order", "asc"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for --order without --sort")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got: %T %v", err, err)
+	}
+	if cliErr.Code != clierrors.VALIDATION_ERROR {
+		t.Errorf("expected VALIDATION_ERROR, got: %s", cliErr.Code)
+	}
+	if !strings.Contains(cliErr.Message, "--order requires --sort") {
+		t.Errorf("expected '--order requires --sort' in message, got: %s", cliErr.Message)
+	}
+}
+
+func TestListSortIgnoredWithJQL(t *testing.T) {
+	var capturedJQL string
+
+	f, _, _ := newTestListFactory(t, searchHandler(t, sampleIssues(), &capturedJQL))
+
+	opts := &ListOptions{
+		Factory: f,
+		JQL:     "project = PROJ",
+		Sort:    "created", // should be ignored because --jql is set
+		Order:   "asc",
+		Limit:   50,
+	}
+
+	err := runList(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// --jql overrides everything, including --sort/--order.
+	if capturedJQL != "project = PROJ" {
+		t.Errorf("--sort should be ignored with --jql, got: %s", capturedJQL)
+	}
+}
+
+func TestListAssigneeNotFound(t *testing.T) {
+	// Mock that returns empty user search results.
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/user/search") {
+			json.NewEncoder(w).Encode([]api.User{})
+			return
+		}
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/search/jql") {
+			json.NewEncoder(w).Encode(api.SearchResults{IsLast: true})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}
+
+	f, _, _ := newTestListFactory(t, http.HandlerFunc(handler))
+
+	opts := &ListOptions{
+		Factory:  f,
+		Assignee: "nonexistent",
+		Limit:    50,
+	}
+
+	err := runList(opts)
+	if err == nil {
+		t.Fatal("expected error for unresolvable assignee")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got: %T %v", err, err)
+	}
+	if cliErr.Code != clierrors.NOT_FOUND {
+		t.Errorf("expected NOT_FOUND, got: %s", cliErr.Code)
+	}
+}
+
+func TestListAssigneeAmbiguous(t *testing.T) {
+	// Mock that returns multiple user search results.
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/user/search") {
+			json.NewEncoder(w).Encode([]api.User{
+				{AccountID: "user1", DisplayName: "Jane Doe"},
+				{AccountID: "user2", DisplayName: "Jane Smith"},
+			})
+			return
+		}
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/search/jql") {
+			json.NewEncoder(w).Encode(api.SearchResults{IsLast: true})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}
+
+	f, _, _ := newTestListFactory(t, http.HandlerFunc(handler))
+
+	opts := &ListOptions{
+		Factory:  f,
+		Assignee: "jane",
+		Limit:    50,
+	}
+
+	err := runList(opts)
+	if err == nil {
+		t.Fatal("expected error for ambiguous assignee")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got: %T %v", err, err)
+	}
+	if cliErr.Code != clierrors.AMBIGUOUS_USER {
+		t.Errorf("expected AMBIGUOUS_USER, got: %s", cliErr.Code)
 	}
 }

@@ -878,8 +878,8 @@
         "Tests pass"
       ],
       "priority": 38,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "--sort/-s and --order flags; ORDER BY appended to composed JQL; --order without --sort = VALIDATION_ERROR; --sort+--jql = sort silently ignored; assignee resolution errors propagate correctly"
     },
     {
       "id": "US-029",
