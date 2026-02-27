@@ -12,6 +12,7 @@ import (
 	configcmd "github.com/endgameio/jira-cli/internal/cmd/config"
 	"github.com/endgameio/jira-cli/internal/cmd/issue"
 	"github.com/endgameio/jira-cli/internal/cmd/project"
+	"github.com/endgameio/jira-cli/internal/cmd/schema"
 	"github.com/endgameio/jira-cli/internal/cmd/search"
 	"github.com/endgameio/jira-cli/internal/cmd/user"
 	clierrors "github.com/endgameio/jira-cli/internal/errors"
@@ -63,6 +64,7 @@ func NewCmdRoot(f *factory.Factory) *cobra.Command {
 	cmd.AddCommand(comment.NewCmdComment(f))
 	cmd.AddCommand(project.NewCmdProject(f))
 	cmd.AddCommand(user.NewCmdUser(f))
+	cmd.AddCommand(schema.NewCmdSchema(f))
 	cmd.AddCommand(configcmd.NewCmdConfig(f))
 	cmd.AddCommand(alias.NewCmdAlias(f))
 
