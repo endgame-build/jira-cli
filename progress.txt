@@ -349,3 +349,39 @@ Started: Fri Feb 27 01:10:56 EET 2026
   - Test handler for paginated endpoints: parse startAt/maxResults from query params, slice the source array, return isLast based on end >= len(source)
   - Schema label --project warning is distinct wording from fields/statuses ("not supported by Jira API" vs "not yet implemented") since Jira has no label-by-project endpoint
 ---
+
+## 2026-02-27 - US-027
+- Implemented `jira meta commands` command in internal/cmd/meta/commands.go
+- Walks Cobra command tree via root.Commands() recursion, collecting: full command path, description, positional args (from Use string), all flags (name, type, required, default, description)
+- JSON by default (machine-first): bare array of CommandInfo objects, NOT list envelope
+- --text mode: table with COMMAND, DESCRIPTION, FLAGS columns (required flags comma-separated or "(none)")
+- Hidden commands and hidden flags excluded from output
+- Flag "required" status detected via Cobra's BashCompOneRequiredFlag annotation
+- Positional args extracted from Use string: `<foo>` = required, `[foo]` = optional, `[flags]` skipped
+- Auth-free: never calls f.APIClient() or f.AuthCredentials() — works without authentication
+- --json accepted but is no-op (already JSON by default). --jq works.
+- 6 tests: JSON default output, hidden excluded, args extracted, flags extracted (including required detection), text table output, no auth triggered
+- Files changed: internal/cmd/meta/commands.go (new), internal/cmd/meta/commands_test.go (new), prd.json
+- **Learnings for future iterations:**
+  - Meta commands are JSON-by-default — invert the text/JSON logic: check f.Text for table mode, everything else is JSON
+  - walkCommands recurses into parent commands (HasSubCommands) without emitting them — only leaf commands appear in output
+  - Cobra's Use field format "name <required> [optional] [flags]" — parse with strings.Fields, skip "[flags]"
+  - BashCompOneRequiredFlag annotation populated by cmd.MarkFlagRequired() — check flag.Annotations map
+  - No API mock needed for meta commands tests — build a synthetic command tree with buildTestRoot()
+---
+
+## 2026-02-27 - US-028
+- Implemented `jira meta version` command in internal/cmd/meta/version.go
+- JSON by default (machine-first): {"version":"0.1.0", "api":"jira-cloud-v3", "instance":"mycompany.atlassian.net"} or instance:null when unconfigured
+- --text mode: table with PROPERTY/VALUE columns, shows "(not configured)" when no instance
+- Instance resolved WITHOUT triggering auth via new Factory.ResolveInstance() method: flags → JIRA_INSTANCE env → config profile
+- Added Factory.ResolveInstance() to internal/factory/factory.go — reads config without touching credentials
+- Version obtained from cmd.Root().Version (set by root command from ldflags) — avoids circular package dependency
+- 7 tests: JSON default output, instance from flag, instance from env, instance from profile, text output, text no instance, no auth triggered
+- Files changed: internal/factory/factory.go, internal/cmd/meta/version.go (new), internal/cmd/meta/version_test.go (new), prd.json
+- **Learnings for future iterations:**
+  - Factory.ResolveInstance() follows same chain as auth.Resolve (flags→env→profile) but never touches tokens or credentials
+  - Version comes from cmd.Root().Version — no need for a package-level var in meta; avoids meta→root circular import
+  - VersionInfo.Instance is *string (pointer) to serialize as JSON null when unconfigured — same nullable pattern as User.EmailAddress
+  - Meta commands are JSON-by-default — check f.Text for table mode, default path is JSON (same as meta commands)
+---

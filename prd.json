@@ -520,7 +520,7 @@
         "Tests pass"
       ],
       "priority": 28,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-051/FR-43/FR-47. Requires adding Factory.ResolveInstance() method — a small auth-free addition to internal/factory/factory.go that reads instance from flags, env, or config profile without triggering credential resolution."
     },
     {
