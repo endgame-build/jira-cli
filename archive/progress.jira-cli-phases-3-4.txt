@@ -385,3 +385,29 @@ Started: Fri Feb 27 01:10:56 EET 2026
   - VersionInfo.Instance is *string (pointer) to serialize as JSON null when unconfigured — same nullable pattern as User.EmailAddress
   - Meta commands are JSON-by-default — check f.Text for table mode, default path is JSON (same as meta commands)
 ---
+
+## 2026-02-27 - US-029
+- Created internal/cmd/meta/meta.go with parent command registering commands and version subcommands
+- Registered meta group on root command in internal/cmd/root/root.go
+- `jira meta --help` shows commands and version subcommands
+- Meta commands are auth-free by design — never call f.APIClient() or f.AuthCredentials()
+- 2 tests: help shows subcommands (with root.SetOut for Cobra help capture), no auth triggered via parent
+- Files changed: internal/cmd/meta/meta.go (new), internal/cmd/meta/meta_test.go (new), internal/cmd/root/root.go
+- **Learnings for future iterations:**
+  - Meta parent command follows exact same pattern as comment/project/user parents: NewCmdXxx, RunE→cmd.Help(), AddCommand
+  - Root command registration order: auth, issue, search, comment, project, user, schema, meta, config, alias
+  - Cobra help output goes to cmd.OutOrStdout() — when testing help text capture, must set root.SetOut(buffer) explicitly
+  - Auth-free commands (meta, config, alias) simply never call f.APIClient() — no explicit whitelist mechanism exists
+---
+
+## 2026-02-27 - US-030
+- Updated issue view description rendering from adf.ExtractText() to adf.ToPlaintext() for structured plaintext output
+- Also updated renderComments to use ToPlaintext for consistency
+- Added TestViewDescriptionPlaintext test: verifies bullet list ("- " prefix) and code block (4-space indent) render correctly
+- JSON output unchanged (pass-through ADF)
+- Files changed: internal/cmd/issue/view.go, internal/cmd/issue/view_test.go
+- **Learnings for future iterations:**
+  - ToPlaintext produces multi-line output with blank lines between block elements — be aware of the 5-line truncation limit when testing
+  - renderComments also used ExtractText — updating description rendering should also update comment body rendering for consistency
+  - Minimal change: only swapped the function call (ExtractText→ToPlaintext), no signature or control flow changes needed
+---
