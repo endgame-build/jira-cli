@@ -266,3 +266,57 @@ Started: Fri Feb 27 01:10:56 EET 2026
   - No --offset flag by design — Jira's user search startAt is unreliable, always use startAt=0
   - Test handler path matching: use strings.Contains(path, "/user/search") not strings.HasPrefix — the API client prepends /rest/api/3/
 ---
+
+## 2026-02-27 - US-019
+- Implemented `jira user me` command in internal/cmd/user/me.go
+- Table output: account ID, display name, email (or '(hidden)' when null)
+- JSON output: bare object with Jira API camelCase field names (accountId, displayName, emailAddress)
+- Auth failure propagated from f.APIClient() → GetMyself
+- 3 tests: success, null email, JSON output shape with camelCase field verification
+- Files changed: internal/cmd/user/me.go (new), internal/cmd/user/me_test.go (new), prd.json
+- **Learnings for future iterations:**
+  - User me is the simplest view command — no positional args, no pagination, no pager; bare object JSON via formatter.RawJSON
+  - Null email handling pattern: `*string` field, check nil before display, show "(hidden)" for text mode
+  - Test factory pattern reused from search: newTestUserMeFactory creates httptest server + pre-wired factory
+  - myselfHandler matches on strings.HasSuffix(path, "/myself") — consistent with API client path construction
+---
+
+## 2026-02-27 - US-020
+- Created internal/cmd/user/user.go with parent command registering search and me subcommands
+- Registered user group on root command in internal/cmd/root/root.go
+- `jira user --help` shows search and me subcommands
+- Files changed: internal/cmd/user/user.go (new), internal/cmd/root/root.go
+- **Learnings for future iterations:**
+  - User parent command follows exact same pattern as comment and project parents: NewCmdXxx, RunE→cmd.Help(), AddCommand for each subcommand
+  - Root command registration order: auth, issue, search, comment, project, user, config, alias
+---
+
+## 2026-02-27 - US-021
+- Implemented `jira schema fields` command in internal/cmd/schema/fields.go
+- Table output: field ID, name, schema type, custom flag (yes/no)
+- JSON output: unpaginated list envelope (pagination: null)
+- Forward-compat flags: --project and --type accepted but no-op with stderr warning
+- 5 tests: success, JSON shape (null pagination + field structure), --project warning, --type warning, data identical with and without flags
+- Files changed: internal/cmd/schema/fields.go (new), internal/cmd/schema/fields_test.go (new), prd.json
+- **Learnings for future iterations:**
+  - Schema commands use unpaginated list envelope: `formatter.OutputList(items, nil, tableFunc)` — nil pagination produces `"pagination": null` in JSON
+  - Forward-compat no-op flags pattern: accept the flag, emit `fmt.Fprintln(f.IOStreams.Err, "Warning: ...")`, proceed with full data — lets agents use flags now without breaking when filtering is added later
+  - Schema command test factory pattern: same as user search — `newTestSchemaFieldsFactory` creates httptest server + pre-wired factory
+  - Handler matches on `strings.HasSuffix(r.URL.Path, "/field")` — consistent with API client path construction
+---
+
+## 2026-02-27 - US-022
+- Implemented `jira schema types` command in internal/cmd/schema/types.go
+- Without --project: calls ListIssueTypes (GET /issuetype, all types globally)
+- With --project: resolves project key to numeric ID via GetProject, then calls ListIssueTypesForProject
+- Table output: name, description (truncated to 60 chars), subtask flag (yes/no), icon URL
+- JSON output: unpaginated list envelope (pagination: null) with full IssueType fields (id, name, description, subtask, iconUrl, hierarchyLevel, scope)
+- Project not found: CLIError(NOT_FOUND) via GetProject error enrichment
+- 4 tests: global types, project-scoped types, project 404, JSON output shape
+- Files changed: internal/cmd/schema/types.go (new), internal/cmd/schema/types_test.go (new), prd.json
+- **Learnings for future iterations:**
+  - Schema types is the first schema command with functional --project flag (not no-op) — resolves key→ID via GetProject then calls ListIssueTypesForProject
+  - Both branches return []api.IssueType — use concrete typed variable, not interface{}, for clean table rendering
+  - Error message "NOT_FOUND: No project could be found" — when checking lowercased error strings, match "not_found" (underscore) not "not found" (space)
+  - truncateDescription is a simple char-level truncation; distinct from truncateBody (line-level in comment list)
+---

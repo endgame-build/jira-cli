@@ -371,7 +371,7 @@
         "Tests pass"
       ],
       "priority": 20,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-052 (partial). User commands require authentication."
     },
     {
@@ -389,7 +389,7 @@
         "Tests pass"
       ],
       "priority": 21,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-044/FR-39/FR-55. GET /field returns all fields globally. Agents needing scoped fields should use issue create --dry-run."
     },
     {
@@ -409,7 +409,7 @@
         "Tests pass"
       ],
       "priority": 22,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-045/FR-40. The /issuetype/project endpoint requires numeric projectId — must resolve key first."
     },
     {
