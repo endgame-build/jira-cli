@@ -355,7 +355,7 @@
         "Tests pass"
       ],
       "priority": 19,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-043/FR-53. Uses existing GetMyself API method."
     },
     {
