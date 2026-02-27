@@ -145,7 +145,7 @@ func runView(opts *ViewOptions) error {
 			fmt.Fprintf(ios.Out, "Updated:   %s\n", fields.Updated)
 		}
 		if shared.ShowField(wantFields, "description") {
-			desc := adf.ExtractText(fields.Description)
+			desc := adf.ToPlaintext(fields.Description)
 			if desc != "" {
 				lines := strings.Split(desc, "\n")
 				if len(lines) > 5 {
@@ -255,7 +255,7 @@ func renderComments(w io.Writer, commentPage *api.CommentPage) {
 		if c.Author != nil {
 			author = c.Author.DisplayName
 		}
-		body := adf.ExtractText(c.Body)
+		body := adf.ToPlaintext(c.Body)
 		lines := strings.Split(body, "\n")
 		if len(lines) > 3 {
 			lines = append(lines[:3], "... (truncated)")

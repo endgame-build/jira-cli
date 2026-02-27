@@ -307,6 +307,59 @@ func TestViewDescriptionTruncation(t *testing.T) {
 	}
 }
 
+func TestViewDescriptionPlaintext(t *testing.T) {
+	// Build an ADF document with structured elements (bullets, code block).
+	// ToPlaintext renders these with structure; ExtractText would just concatenate text.
+	descJSON := json.RawMessage(`{
+		"type": "doc",
+		"version": 1,
+		"content": [
+			{
+				"type": "bulletList",
+				"content": [
+					{"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Open the login page"}]}]},
+					{"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Click submit"}]}]}
+				]
+			},
+			{
+				"type": "codeBlock",
+				"content": [{"type": "text", "text": "Error: null pointer"}]
+			}
+		]
+	}`)
+
+	issue := api.Issue{
+		ID:  "10003",
+		Key: "PROJ-789",
+		Fields: api.IssueFields{
+			Summary:     "Complex description test",
+			Description: descJSON,
+			Status:      &api.Status{ID: "1", Name: "Open"},
+		},
+	}
+
+	f, tio, _ := newTestViewFactory(t, issueHandler(issue))
+	opts := &ViewOptions{Factory: f, KeyOrID: "PROJ-789"}
+
+	if err := runView(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+
+	// ToPlaintext renders structured output: bullets with "- " prefix, code block with 4-space indent.
+	// ExtractText would just produce "Open the login pageClick submit\nError: null pointer" without structure.
+	for _, want := range []string{
+		"- Open the login page",
+		"- Click submit",
+		"    Error: null pointer", // code block indented 4 spaces
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\ngot:\n%s", want, out)
+		}
+	}
+}
+
 func TestViewUnassigned(t *testing.T) {
 	issue := sampleIssue()
 	issue.Fields.Assignee = nil
