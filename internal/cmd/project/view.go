@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/endgameio/jira-cli/internal/cmd/shared"
 	"github.com/endgameio/jira-cli/internal/factory"
 	"github.com/endgameio/jira-cli/internal/output"
 )
@@ -29,7 +30,11 @@ func NewCmdView(f *factory.Factory) *cobra.Command {
 		Long:  "Display details of a Jira project by key (e.g. PROJ) or numeric ID.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.KeyOrID = args[0]
+			key, err := shared.ValidateProjectKeyOrID(args[0])
+			if err != nil {
+				return err
+			}
+			opts.KeyOrID = key
 			return runProjectView(opts)
 		},
 	}

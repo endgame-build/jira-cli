@@ -25,6 +25,24 @@ func ValidateCommentID(input string) (string, error) {
 	return input, nil
 }
 
+// projectKeyRe matches Jira project keys: 2+ ASCII letters (no hyphen or digits).
+var projectKeyRe = regexp.MustCompile(`^[A-Za-z]{2,}$`)
+
+// ValidateProjectKeyOrID validates the input as either a Jira project key (PROJ)
+// or a numeric project ID (10001). Keys are auto-uppercased. Returns the normalized
+// value or a CLIError(VALIDATION_ERROR) if the input matches neither pattern.
+func ValidateProjectKeyOrID(input string) (string, error) {
+	if numericIDRe.MatchString(input) {
+		return input, nil
+	}
+	if projectKeyRe.MatchString(input) {
+		return strings.ToUpper(input), nil
+	}
+	return "", errors.NewValidationError("Invalid project key or ID").
+		WithContext(map[string]interface{}{"input": input}).
+		WithSuggestion("Use a key like PROJ or a numeric ID like 10001")
+}
+
 // ValidateIssueKeyOrID validates the input as either a Jira issue key (PROJ-123)
 // or a numeric issue ID (10001). Keys are auto-uppercased. Returns the normalized
 // value or a CLIError(VALIDATION_ERROR) if the input matches neither pattern.

@@ -54,6 +54,62 @@ func TestValidateCommentID(t *testing.T) {
 	}
 }
 
+func TestValidateProjectKeyOrID(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		// Valid project keys
+		{name: "standard key", input: "PROJ", want: "PROJ"},
+		{name: "two-letter key", input: "AB", want: "AB"},
+		{name: "long key", input: "MYPROJECT", want: "MYPROJECT"},
+
+		// Lowercase normalization
+		{name: "lowercase key", input: "proj", want: "PROJ"},
+		{name: "mixed case key", input: "Proj", want: "PROJ"},
+
+		// Numeric IDs
+		{name: "numeric ID", input: "10001", want: "10001"},
+		{name: "single digit", input: "1", want: "1"},
+
+		// Invalid formats
+		{name: "empty string", input: "", wantErr: true},
+		{name: "single letter", input: "A", wantErr: true},
+		{name: "issue key format", input: "PROJ-123", wantErr: true},
+		{name: "contains digits", input: "PROJ1", wantErr: true},
+		{name: "contains underscore", input: "MY_PROJ", wantErr: true},
+		{name: "spaces", input: "MY PROJ", wantErr: true},
+		{name: "special chars", input: "PROJ@", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ValidateProjectKeyOrID(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for input %q, got %q", tt.input, got)
+				}
+				var cliErr *clierrors.CLIError
+				if !stderrors.As(err, &cliErr) {
+					t.Fatalf("expected CLIError, got %T", err)
+				}
+				if cliErr.Code != clierrors.VALIDATION_ERROR {
+					t.Errorf("expected VALIDATION_ERROR, got %s", cliErr.Code)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestValidateIssueKeyOrID(t *testing.T) {
 	tests := []struct {
 		name    string

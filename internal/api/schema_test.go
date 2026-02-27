@@ -238,8 +238,8 @@ func TestListPriorities_Success(t *testing.T) {
 	if priorities[0].StatusColor != "#d04437" {
 		t.Errorf("priorities[0].StatusColor = %q, want %q", priorities[0].StatusColor, "#d04437")
 	}
-	if priorities[1].IsDefault != true {
-		t.Error("priorities[1].IsDefault = false, want true")
+	if priorities[1].IsDefault == nil || *priorities[1].IsDefault != true {
+		t.Error("priorities[1].IsDefault should be true")
 	}
 }
 

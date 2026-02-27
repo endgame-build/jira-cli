@@ -94,7 +94,7 @@ type Priority struct {
 	IconURL     string `json:"iconUrl"`
 	Description string `json:"description,omitempty"`
 	StatusColor string `json:"statusColor,omitempty"`
-	IsDefault   bool   `json:"isDefault,omitempty"`
+	IsDefault   *bool  `json:"isDefault,omitempty"`
 }
 
 // Project represents a Jira project.

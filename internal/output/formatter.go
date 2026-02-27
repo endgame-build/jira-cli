@@ -107,7 +107,7 @@ func (f *Formatter) outputJSONOrJQ(writeFn func(w io.Writer) error) error {
 	return ApplyJQ(f.ios.Out, raw, f.jqExpr)
 }
 
-// RawJSON writes arbitrary pre-serialized JSON. Useful for pass-through output.
+// RawJSON serializes data to JSON and writes it. Useful for pass-through output.
 func (f *Formatter) RawJSON(data interface{}) error {
 	return f.outputJSONOrJQ(func(w io.Writer) error {
 		return writeJSON(w, data)

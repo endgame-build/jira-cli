@@ -36,7 +36,7 @@ func (c *Client) GetComment(ctx context.Context, issueKey, commentID string) (*C
 }
 
 // AddComment posts a new comment on an issue. Expects HTTP 201.
-// body should be an *adf.Node (the ADF document from adf.Convert).
+// body should be an ADF document node (the result of markdown-to-ADF conversion).
 func (c *Client) AddComment(ctx context.Context, issueKey string, body interface{}) (*Comment, error) {
 	path := fmt.Sprintf("issue/%s/comment", issueKey)
 	payload := map[string]interface{}{
@@ -51,7 +51,7 @@ func (c *Client) AddComment(ctx context.Context, issueKey string, body interface
 }
 
 // UpdateComment updates an existing comment. Expects HTTP 200.
-// body should be an *adf.Node (the ADF document from adf.Convert).
+// body should be an ADF document node (the result of markdown-to-ADF conversion).
 func (c *Client) UpdateComment(ctx context.Context, issueKey, commentID string, body interface{}) (*Comment, error) {
 	path := fmt.Sprintf("issue/%s/comment/%s", issueKey, commentID)
 	payload := map[string]interface{}{

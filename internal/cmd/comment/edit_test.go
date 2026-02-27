@@ -300,6 +300,37 @@ func TestCommentEdit_DryRun_Quiet(t *testing.T) {
 	}
 }
 
+func TestCommentEdit_Forbidden(t *testing.T) {
+	f, _ := newTestCommentEditFactory(t, commentEditHandler(t))
+
+	cmd := NewCmdEdit(f)
+	cmd.SetArgs([]string{"NOPERM-123", "10042", "--body", "test"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for 403, got nil")
+	}
+	errMsg := strings.ToLower(err.Error())
+	if !strings.Contains(errMsg, "forbidden") && !strings.Contains(errMsg, "permission") {
+		t.Errorf("expected forbidden error, got: %v", err)
+	}
+}
+
+func TestCommentEdit_Quiet(t *testing.T) {
+	f, tio := newTestCommentEditFactory(t, commentEditHandler(t))
+	f.Quiet = true
+
+	cmd := NewCmdEdit(f)
+	cmd.SetArgs([]string{"PROJ-123", "10042", "--body", "Quiet edit"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if out != "" {
+		t.Errorf("--quiet should produce no output, got: %s", out)
+	}
+}
+
 func TestCommentEdit_InvalidKey(t *testing.T) {
 	f, _ := newTestCommentEditFactory(t, commentEditHandler(t))
 

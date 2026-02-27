@@ -47,6 +47,7 @@ func NewCmdAdd(f *factory.Factory) *cobra.Command {
 
 	cmd.Flags().StringVar(&opts.Body, "body", "", "Comment body (Markdown)")
 	cmd.Flags().StringVar(&opts.BodyFile, "body-file", "", "Read comment body from file (use - for stdin)")
+	cmd.MarkFlagsMutuallyExclusive("body", "body-file")
 
 	return cmd
 }
@@ -56,7 +57,7 @@ func runCommentAdd(opts *CommentAddOptions) error {
 	f := opts.Factory
 	ctx := context.Background()
 
-	// Resolve body: --body-file overrides --body.
+	// Resolve body from --body or --body-file (mutually exclusive via Cobra).
 	body := opts.Body
 	if opts.BodyFile != "" {
 		content, err := shared.ReadBodyFile(opts.BodyFile, f.IOStreams.In)

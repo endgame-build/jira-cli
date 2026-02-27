@@ -9,7 +9,11 @@ import (
 // ExtractText walks an ADF document (as raw JSON) and returns a plain-text
 // representation by concatenating all text nodes. Block-level nodes are
 // separated by newlines. Returns an empty string for nil/empty input.
-// Returns the raw string as fallback for invalid JSON.
+//
+// NOTE: Returns the raw string as fallback for invalid JSON. This is
+// intentional — callers display the result in text mode, where raw JSON
+// is a better degradation than an empty string or error. If callers need
+// to detect parse failure, compare the result to string(raw).
 func ExtractText(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -62,7 +66,7 @@ func extractNode(sb *strings.Builder, n *Node, isFirst bool) {
 // blockquote prefixes, and nested list indentation.
 //
 // Returns empty string for nil/empty input. Returns the raw string as fallback
-// for invalid JSON.
+// for invalid JSON (same rationale as ExtractText — raw text beats empty).
 func ToPlaintext(doc json.RawMessage) string {
 	if len(doc) == 0 {
 		return ""

@@ -161,6 +161,20 @@ func TestProjectView_JSON(t *testing.T) {
 	}
 }
 
+func TestProjectView_InvalidKey(t *testing.T) {
+	f, _ := newTestProjectViewFactory(t, projectViewHandler(sampleProjectDetail()))
+
+	cmd := NewCmdView(f)
+	cmd.SetArgs([]string{"bad-key-123"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), "Invalid project key") {
+		t.Errorf("expected validation error, got: %v", err)
+	}
+}
+
 func TestProjectView_IssueTypesDisplay(t *testing.T) {
 	project := sampleProjectDetail()
 	f, tio := newTestProjectViewFactory(t, projectViewHandler(project))
