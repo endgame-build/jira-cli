@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	clierrors "github.com/endgameio/jira-cli/internal/errors"
-	"github.com/endgameio/jira-cli/internal/iostreams"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/iostreams"
 	"github.com/jedib0t/go-pretty/v6/table"
 )
 
@@ -545,6 +545,72 @@ func TestFormatter_JQ_FilterOnOutputMutation(t *testing.T) {
 	got := strings.TrimSpace(buf.String())
 	if got != "true" {
 		t.Errorf("jq .ok = %q, want true", got)
+	}
+}
+
+func TestFormatter_OutputDryRunWithContext_JSON(t *testing.T) {
+	f, buf := newTestFormatter(true, "")
+	payload := map[string]string{"body": "Hello"}
+	extras := map[string]interface{}{
+		"key":        "PROJ-123",
+		"comment_id": "10042",
+	}
+
+	if err := f.OutputDryRunWithContext(extras, payload, "passed", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var got map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if got["dry_run"] != true {
+		t.Errorf("dry_run = %v", got["dry_run"])
+	}
+	if got["validation"] != "passed" {
+		t.Errorf("validation = %v", got["validation"])
+	}
+	if got["key"] != "PROJ-123" {
+		t.Errorf("key = %v, want PROJ-123", got["key"])
+	}
+	if got["comment_id"] != "10042" {
+		t.Errorf("comment_id = %v, want 10042", got["comment_id"])
+	}
+}
+
+func TestFormatter_OutputDryRunWithContext_NilExtras(t *testing.T) {
+	f, buf := newTestFormatter(true, "")
+	payload := map[string]string{"summary": "Test"}
+
+	if err := f.OutputDryRunWithContext(nil, payload, "passed", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var got map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if got["dry_run"] != true {
+		t.Errorf("dry_run = %v", got["dry_run"])
+	}
+	// Should have exactly 3 keys: dry_run, payload, validation
+	if len(got) != 3 {
+		t.Errorf("expected 3 keys, got %d: %v", len(got), got)
+	}
+}
+
+func TestFormatter_OutputDryRunWithContext_Table(t *testing.T) {
+	f, buf := newTestFormatter(false, "")
+	extras := map[string]interface{}{"key": "PROJ-123"}
+
+	err := f.OutputDryRunWithContext(extras, nil, "", func(t table.Writer) {
+		t.AppendRow(table.Row{"DRY RUN", "body: Hello"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "DRY RUN") {
+		t.Errorf("table output: %s", buf.String())
 	}
 }
 

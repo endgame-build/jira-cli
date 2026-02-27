@@ -1,9 +1,9 @@
 package factory
 
 import (
-	"github.com/endgameio/jira-cli/internal/api"
-	"github.com/endgameio/jira-cli/internal/config"
-	"github.com/endgameio/jira-cli/internal/iostreams"
+	"github.com/endgame-build/jira-cli/internal/api"
+	"github.com/endgame-build/jira-cli/internal/config"
+	"github.com/endgame-build/jira-cli/internal/iostreams"
 )
 
 // NewTestFactory creates a pre-wired Factory for tests.

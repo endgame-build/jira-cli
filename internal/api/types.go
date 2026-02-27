@@ -78,18 +78,23 @@ type StatusCategory struct {
 
 // IssueType represents a Jira issue type (Bug, Story, Task, etc.).
 type IssueType struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Subtask     bool   `json:"subtask"`
-	IconURL     string `json:"iconUrl"`
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description"`
+	Subtask        bool            `json:"subtask"`
+	IconURL        string          `json:"iconUrl"`
+	HierarchyLevel *int            `json:"hierarchyLevel,omitempty"`
+	Scope          json.RawMessage `json:"scope,omitempty"`
 }
 
 // Priority represents a Jira issue priority.
 type Priority struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	IconURL string `json:"iconUrl"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	IconURL     string `json:"iconUrl"`
+	Description string `json:"description,omitempty"`
+	StatusColor string `json:"statusColor,omitempty"`
+	IsDefault   *bool  `json:"isDefault,omitempty"`
 }
 
 // Project represents a Jira project.
@@ -178,6 +183,69 @@ type CommentPage struct {
 }
 
 // ──────────────────────────────────────────────
+// Schema / introspection response types
+// ──────────────────────────────────────────────
+
+// Field represents a Jira field definition from GET /field.
+type Field struct {
+	ID     string      `json:"id"`
+	Key    string      `json:"key"`
+	Name   string      `json:"name"`
+	Schema FieldSchema `json:"schema"`
+	Custom bool        `json:"custom"`
+}
+
+// FieldSchema describes the data type of a Jira field.
+type FieldSchema struct {
+	Type   string `json:"type"`
+	Items  string `json:"items,omitempty"`  // for array fields
+	Custom string `json:"custom,omitempty"` // custom field type URI
+	System string `json:"system,omitempty"` // system field name
+}
+
+// StatusDetail is a standalone type for GET /status responses.
+// It does NOT embed Status to avoid JSON tag ambiguity.
+type StatusDetail struct {
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	StatusCategory *StatusCategory `json:"statusCategory"`
+	Description    string          `json:"description,omitempty"`
+	IconURL        string          `json:"iconUrl,omitempty"`
+}
+
+// LabelPage is the response from GET /label (PageBeanString shape).
+type LabelPage struct {
+	Values     []string `json:"values"`
+	StartAt    int      `json:"startAt"`
+	MaxResults int      `json:"maxResults"`
+	Total      int      `json:"total"`
+	IsLast     bool     `json:"isLast"`
+}
+
+// ProjectDetail is the detailed response from GET /project/{keyOrId}.
+type ProjectDetail struct {
+	ID             string      `json:"id"`
+	Key            string      `json:"key"`
+	Name           string      `json:"name"`
+	Description    string      `json:"description"`
+	Lead           *User       `json:"lead"`
+	ProjectTypeKey string      `json:"projectTypeKey"`
+	IssueTypes     []IssueType `json:"issueTypes"`
+	URL            string      `json:"url"`
+	Simplified     bool        `json:"simplified"`
+	Style          string      `json:"style"`
+}
+
+// ProjectSearchResult is the response from GET /project/search (PageBeanProject shape).
+type ProjectSearchResult struct {
+	Values     []ProjectDetail `json:"values"`
+	StartAt    int             `json:"startAt"`
+	MaxResults int             `json:"maxResults"`
+	Total      int             `json:"total"`
+	IsLast     bool            `json:"isLast"`
+}
+
+// ──────────────────────────────────────────────
 // Create / mutation response types
 // ──────────────────────────────────────────────
 
@@ -257,6 +325,12 @@ type EditIssueInput struct {
 type PaginationOptions struct {
 	MaxResults    int
 	NextPageToken string
+}
+
+// OffsetPaginationOptions controls offset-based pagination for comments, projects, and labels.
+type OffsetPaginationOptions struct {
+	StartAt    int
+	MaxResults int
 }
 
 // GetIssueOptions controls which fields/expansions to request for GET /issue/{key}.

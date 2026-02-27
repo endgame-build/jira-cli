@@ -7,9 +7,9 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
-	"github.com/endgameio/jira-cli/internal/factory"
-	"github.com/endgameio/jira-cli/internal/output"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/output"
 )
 
 // aliasNameRe allows alphanumeric characters and hyphens.

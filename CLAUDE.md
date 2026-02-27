@@ -1,37 +1,35 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Build & Test Commands
+## Build & Test
 
 ```sh
-make build          # Build binary to bin/jira
-make test           # Run all tests (go test ./...)
-make lint           # Run go vet ./...
+make build          # bin/jira
+make test           # go test ./...
+make lint           # go vet ./...
 make install        # go install ./cmd/jira
-go test ./internal/api/...              # Run tests for a single package
-go test ./internal/cmd/issue/... -run TestView  # Run a specific test
+go test ./internal/api/...              # single package
+go test ./internal/cmd/issue/... -run TestView  # single test
 ```
 
-Version info is injected via ldflags (`-X main.version=... -X main.commit=... -X main.date=...`).
+Ldflags inject version info: `-X main.version=... -X main.commit=... -X main.date=...`.
 
 ## Architecture
 
-This is a Go CLI wrapping Jira Cloud REST API v3, following the **gh-CLI blueprint**: Cobra command tree, Factory DI container, lazy auth resolution.
+Go CLI for Jira Cloud REST API v3. Follows the gh-CLI blueprint: Cobra command tree, Factory DI, lazy auth.
 
-### Dependency flow (strict layering — no upward imports)
+### Layer order (no upward imports)
 
 ```
-errors → iostreams → config → auth → api → output → adf → factory → commands → main
+errors → iostreams → config → auth → api → output → adf → shared → factory → commands → main
 ```
 
-### Factory DI pattern
+### Factory
 
-`factory.Factory` is the single DI hub. IOStreams is eager; Config, Auth, and APIClient are lazy via `sync.Once`. Auth-free commands (help, config, alias) never trigger credential resolution.
+`factory.Factory` is the DI hub. IOStreams resolves eagerly; Config, Auth, and APIClient resolve lazily via `sync.Once`. Auth-free commands (help, config, alias, meta) skip credential resolution entirely.
 
-### Command constructor pattern
+### Command pattern
 
-Every command follows this exact shape:
+Every command follows this shape:
 
 ```go
 func NewCmdXxx(f *factory.Factory) *cobra.Command {
@@ -47,58 +45,60 @@ func NewCmdXxx(f *factory.Factory) *cobra.Command {
 }
 ```
 
-- `XxxOptions` struct holds all resolved inputs for `runXxx`
-- No `init()` functions, no global state
-- Commands return `error` — only `main.go` renders errors and calls `os.Exit`
+- `XxxOptions` holds all resolved inputs for `runXxx`
+- No `init()`, no global state
+- Commands return `error`; only `main.go` renders errors and calls `os.Exit`
+- Command tree: `auth`, `issue`, `search`, `comment`, `project`, `user`, `schema`, `meta`, `config`, `alias`
 
-### Error handling
+### Errors
 
-All errors are `CLIError` (structured with code, message, context, suggestion). Error codes map to exit codes 0-8. `main.go` is the sole error renderer — it wraps unknown errors as `GENERAL_ERROR`.
+All errors use `CLIError` (code, message, context, suggestion). Codes map to exit codes 0–8. `main.go` wraps unknown errors as `GENERAL_ERROR`.
 
-### Output system
+### Output
 
-`output.Formatter` routes between JSON and text modes. Four output shapes:
-- `OutputData` — single item (view commands)
+`output.Formatter` routes JSON vs text. Five shapes:
+- `OutputData` — single item
 - `OutputList` — list with pagination envelope
-- `OutputMutation` — mutation result with `"ok": true`
-- `OutputDryRun` — dry-run preview with payload and validation
+- `OutputMutation` — mutation result (`"ok": true`)
+- `OutputDryRun` — dry-run preview (payload + validation)
+- `OutputDryRunWithContext` — dry-run with extra context fields
 
-`--jq` expressions applied via `output.ApplyJQ` (itchyny/gojq, pure Go).
+`output.ApplyJQ` filters `--jq` expressions (itchyny/gojq, pure Go).
 
 ### API client
 
-`api.Client.Do(ctx, method, path, body, out)` handles all HTTP. Transport chain: retryablehttp → authTransport → http.DefaultTransport. Accepts 200/201/204; maps errors via `mapHTTPError` to `CLIError`. Never retries 401 or timeouts; only 429 and 5xx.
+`api.Client.Do(ctx, method, path, body, out)` — single HTTP entry point. Transport chain: retryablehttp → authTransport → http.DefaultTransport. Accepts 200/201/204. Maps errors via `mapHTTPError` to `CLIError`. Retries only 429 and 5xx (skips 401, timeouts).
 
-### ADF converter
+### ADF
 
-`internal/adf` converts Markdown → Atlassian Document Format (for creating/editing issues) and ADF → plaintext (for displaying).
+`internal/adf`: Markdown → ADF (create/edit), ADF → plaintext via `ToPlaintext` (display).
+
+### Shared utilities
+
+`internal/cmd/shared`:
+- `ValidateIssueKeyOrID` — issue key/ID validation (re-exported by `internal/cmd/issue/validate.go`)
+- `ValidateProjectKeyOrID` — project key/ID validation
+- `ValidateCommentID` — numeric comment ID validation
+- `ReadBodyFile` — read body from file or stdin, enforces 10 MB limit
+- Display helpers — comment/issue rendering with color
 
 ## Test patterns
 
 - `factory.NewTestFactory(ios, cfg, client)` — pre-wired factory, no credential resolution
-- `iostreams.Test()` — returns IOStreams + stdout/stderr buffers for capture
-- `httptest.NewServer` — API mock servers in test files
-- `keyring.MockInit()` — in-memory keyring for credential tests
+- `iostreams.Test()` — IOStreams + stdout/stderr buffers
+- `httptest.NewServer` — API mocks
+- `keyring.MockInit()` — in-memory keyring
 - `t.TempDir()` for config files, `t.Setenv()` for env vars
 - Table-driven tests throughout
-- `BrowserOpen` field on options structs overridden in tests to capture URLs
+- `BrowserOpen` on options structs — override in tests to capture URLs
 
-## Key conventions
+## Conventions
 
 - Commits: `type(scope): description` (conventional commits)
-- Config writes use write-to-temp-then-rename for atomicity
+- Config writes: write-to-temp-then-rename (atomic)
 - Credential chain: flags → env vars (`JIRA_INSTANCE`, `JIRA_USER`, `JIRA_TOKEN`) → stored profiles
-- `--no-pager` is per-command (view, list, search), not global
-- `--text` overrides config-level `output.format:json` back to text mode
-- `--web + --json` is dual-action: prints JSON AND opens browser
-- `--field key=value` splits on first `=` only; named flag wins over `--field` collision (warning to stderr)
-- All mutation JSON outputs include `"ok": true`
-- Issue key validation via `ValidateIssueKeyOrID` in `internal/cmd/issue/validate.go`
-
-## Reference docs
-
-- `SPEC.md` — functional specification
-- `PLAN.md` — implementation plan with architecture
-- `tasks/prd-jira-cli-foundation.md` — PRD for Phases 0-2 (32 user stories)
-- `swagger-v3.v3.txt` — Jira Cloud v3 OpenAPI spec (2.46MB reference)
-- PRD supersedes SPEC.md and PLAN.md where they differ
+- `--no-pager` per-command (view, list, search), not global
+- `--text` overrides config-level `output.format:json` back to text
+- `--web + --json` dual-action: prints JSON AND opens browser
+- `--field key=value` splits on first `=`; named flag wins over `--field` collision (warning to stderr)
+- All mutation JSON includes `"ok": true`

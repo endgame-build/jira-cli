@@ -11,12 +11,12 @@ import (
 
 	"github.com/zalando/go-keyring"
 
-	"github.com/endgameio/jira-cli/internal/api"
-	"github.com/endgameio/jira-cli/internal/auth"
-	"github.com/endgameio/jira-cli/internal/config"
-	clierrors "github.com/endgameio/jira-cli/internal/errors"
-	"github.com/endgameio/jira-cli/internal/factory"
-	"github.com/endgameio/jira-cli/internal/iostreams"
+	"github.com/endgame-build/jira-cli/internal/api"
+	"github.com/endgame-build/jira-cli/internal/auth"
+	"github.com/endgame-build/jira-cli/internal/config"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/iostreams"
 )
 
 // sampleIssue returns a fully populated Issue for tests.
@@ -304,6 +304,59 @@ func TestViewDescriptionTruncation(t *testing.T) {
 	out := tio.OutBuf.String()
 	if !strings.Contains(out, "... (truncated)") {
 		t.Errorf("output should indicate truncation for long descriptions: %s", out)
+	}
+}
+
+func TestViewDescriptionPlaintext(t *testing.T) {
+	// Build an ADF document with structured elements (bullets, code block).
+	// ToPlaintext renders these with structure; ExtractText would just concatenate text.
+	descJSON := json.RawMessage(`{
+		"type": "doc",
+		"version": 1,
+		"content": [
+			{
+				"type": "bulletList",
+				"content": [
+					{"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Open the login page"}]}]},
+					{"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Click submit"}]}]}
+				]
+			},
+			{
+				"type": "codeBlock",
+				"content": [{"type": "text", "text": "Error: null pointer"}]
+			}
+		]
+	}`)
+
+	issue := api.Issue{
+		ID:  "10003",
+		Key: "PROJ-789",
+		Fields: api.IssueFields{
+			Summary:     "Complex description test",
+			Description: descJSON,
+			Status:      &api.Status{ID: "1", Name: "Open"},
+		},
+	}
+
+	f, tio, _ := newTestViewFactory(t, issueHandler(issue))
+	opts := &ViewOptions{Factory: f, KeyOrID: "PROJ-789"}
+
+	if err := runView(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+
+	// ToPlaintext renders structured output: bullets with "- " prefix, code block with 4-space indent.
+	// ExtractText would just produce "Open the login pageClick submit\nError: null pointer" without structure.
+	for _, want := range []string{
+		"- Open the login page",
+		"- Click submit",
+		"    Error: null pointer", // code block indented 4 spaces
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\ngot:\n%s", want, out)
+		}
 	}
 }
 
@@ -622,6 +675,49 @@ func TestViewWebJSON(t *testing.T) {
 	}
 	if result["url"] != want {
 		t.Errorf("url = %v, want %q", result["url"], want)
+	}
+}
+
+func TestViewCommentsWithFieldsFilter(t *testing.T) {
+	// Verify that --comments works even when --fields is specified without "comments".
+	issue := sampleIssue()
+	issue.Fields.Comment = &api.CommentPage{
+		Comments: []api.Comment{
+			{
+				ID:      "100",
+				Author:  &api.User{DisplayName: "Alice"},
+				Body:    json.RawMessage(`{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"Visible comment"}]}]}`),
+				Created: "2026-02-20T10:00:00.000+0000",
+			},
+		},
+		Total: 1,
+	}
+
+	f, tio, _ := newTestViewFactory(t, issueHandler(issue))
+	opts := &ViewOptions{
+		Factory:  f,
+		KeyOrID:  "PROJ-123",
+		Comments: true,
+		Fields:   []string{"key", "summary"}, // does NOT include "comments"
+	}
+
+	if err := runView(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+
+	// --comments is a standalone flag; should not be gated by --fields.
+	if !strings.Contains(out, "Visible comment") {
+		t.Errorf("--comments should show comments regardless of --fields filter:\n%s", out)
+	}
+	if !strings.Contains(out, "Comments (1):") {
+		t.Errorf("output should contain comment section header:\n%s", out)
+	}
+
+	// --fields=key,summary should still filter other fields.
+	if strings.Contains(out, "Jane Doe") {
+		t.Errorf("assignee should be filtered out by --fields:\n%s", out)
 	}
 }
 

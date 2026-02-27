@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"io"
 
-	"github.com/endgameio/jira-cli/internal/iostreams"
+	"github.com/endgame-build/jira-cli/internal/iostreams"
 )
 
 // Formatter handles output routing between JSON and text (table) modes.
@@ -67,12 +67,22 @@ func (f *Formatter) OutputMutation(extras map[string]interface{}, tableFn TableF
 // OutputDryRun renders a dry-run preview. JSON includes dry_run:true plus payload
 // and validation. Text renders via the supplied table function.
 func (f *Formatter) OutputDryRun(payload interface{}, validation string, tableFn TableFunc) error {
+	return f.OutputDryRunWithContext(nil, payload, validation, tableFn)
+}
+
+// OutputDryRunWithContext renders a dry-run preview with optional extra context
+// fields merged at the JSON top level (e.g., key, comment_id). Text output is
+// unaffected by extras.
+func (f *Formatter) OutputDryRunWithContext(extras map[string]interface{}, payload interface{}, validation string, tableFn TableFunc) error {
 	if f.asJSON {
-		result := map[string]interface{}{
-			"dry_run":    true,
-			"payload":    payload,
-			"validation": validation,
+		result := make(map[string]interface{}, 3+len(extras))
+		for k, v := range extras {
+			result[k] = v
 		}
+		// Reserved keys always take precedence over extras.
+		result["dry_run"] = true
+		result["payload"] = payload
+		result["validation"] = validation
 		return f.outputJSONOrJQ(func(w io.Writer) error {
 			return writeJSON(w, result)
 		})
@@ -97,7 +107,7 @@ func (f *Formatter) outputJSONOrJQ(writeFn func(w io.Writer) error) error {
 	return ApplyJQ(f.ios.Out, raw, f.jqExpr)
 }
 
-// RawJSON writes arbitrary pre-serialized JSON. Useful for pass-through output.
+// RawJSON serializes data to JSON and writes it. Useful for pass-through output.
 func (f *Formatter) RawJSON(data interface{}) error {
 	return f.outputJSONOrJQ(func(w io.Writer) error {
 		return writeJSON(w, data)

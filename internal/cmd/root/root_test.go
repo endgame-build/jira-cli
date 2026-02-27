@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/endgameio/jira-cli/internal/config"
-	clierrors "github.com/endgameio/jira-cli/internal/errors"
-	"github.com/endgameio/jira-cli/internal/factory"
-	"github.com/endgameio/jira-cli/internal/iostreams"
+	"github.com/endgame-build/jira-cli/internal/config"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/iostreams"
 )
 
 func TestNewCmdRoot_SubcommandRegistered(t *testing.T) {

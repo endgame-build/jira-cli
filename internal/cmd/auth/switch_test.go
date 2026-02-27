@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/endgameio/jira-cli/internal/config"
-	clierrors "github.com/endgameio/jira-cli/internal/errors"
-	"github.com/endgameio/jira-cli/internal/factory"
-	"github.com/endgameio/jira-cli/internal/iostreams"
+	"github.com/endgame-build/jira-cli/internal/config"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/iostreams"
 )
 
 // newTestSwitchFactory creates a Factory with a disk-backed config pre-populated with profiles.

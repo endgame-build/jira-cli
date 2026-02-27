@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"io"
 
-	"github.com/endgameio/jira-cli/internal/api"
+	"github.com/endgame-build/jira-cli/internal/api"
 )
 
 // PaginationMeta describes the pagination state returned in list JSON envelopes.

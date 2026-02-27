@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"regexp"
 
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
 )
 
 // GetMyself returns the currently authenticated user via GET /myself.

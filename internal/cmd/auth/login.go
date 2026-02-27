@@ -7,12 +7,13 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 
-	"github.com/endgameio/jira-cli/internal/api"
-	internalAuth "github.com/endgameio/jira-cli/internal/auth"
-	"github.com/endgameio/jira-cli/internal/config"
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
-	"github.com/endgameio/jira-cli/internal/factory"
-	"github.com/endgameio/jira-cli/internal/output"
+	"github.com/endgame-build/jira-cli/internal/api"
+	internalAuth "github.com/endgame-build/jira-cli/internal/auth"
+	"github.com/endgame-build/jira-cli/internal/cmd/meta"
+	"github.com/endgame-build/jira-cli/internal/config"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/output"
 )
 
 // LoginOptions holds all resolved inputs for the login command.
@@ -57,6 +58,8 @@ func NewCmdLogin(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.Instance, "instance", "", "Jira instance URL (e.g. mysite.atlassian.net)")
 	cmd.Flags().StringVar(&opts.User, "user", "", "Jira user email for authentication")
 	cmd.Flags().StringVar(&opts.Token, "token", "", "Jira API token")
+
+	meta.MarkRequired(cmd, "instance", "user", "token")
 
 	return cmd
 }

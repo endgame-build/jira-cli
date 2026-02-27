@@ -10,11 +10,11 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 
-	"github.com/endgameio/jira-cli/internal/adf"
-	"github.com/endgameio/jira-cli/internal/api"
-	"github.com/endgameio/jira-cli/internal/cmd/shared"
-	"github.com/endgameio/jira-cli/internal/factory"
-	"github.com/endgameio/jira-cli/internal/output"
+	"github.com/endgame-build/jira-cli/internal/adf"
+	"github.com/endgame-build/jira-cli/internal/api"
+	"github.com/endgame-build/jira-cli/internal/cmd/shared"
+	"github.com/endgame-build/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/output"
 )
 
 // ViewOptions holds all resolved inputs for the issue view command.
@@ -145,7 +145,7 @@ func runView(opts *ViewOptions) error {
 			fmt.Fprintf(ios.Out, "Updated:   %s\n", fields.Updated)
 		}
 		if shared.ShowField(wantFields, "description") {
-			desc := adf.ExtractText(fields.Description)
+			desc := adf.ToPlaintext(fields.Description)
 			if desc != "" {
 				lines := strings.Split(desc, "\n")
 				if len(lines) > 5 {
@@ -176,7 +176,7 @@ func runView(opts *ViewOptions) error {
 		}
 
 		// Comments section (only when --comments flag is set).
-		if opts.Comments && shared.ShowField(wantFields, "comments") {
+		if opts.Comments {
 			renderComments(ios.Out, fields.Comment)
 		}
 	})
@@ -255,7 +255,7 @@ func renderComments(w io.Writer, commentPage *api.CommentPage) {
 		if c.Author != nil {
 			author = c.Author.DisplayName
 		}
-		body := adf.ExtractText(c.Body)
+		body := adf.ToPlaintext(c.Body)
 		lines := strings.Split(body, "\n")
 		if len(lines) > 3 {
 			lines = append(lines[:3], "... (truncated)")

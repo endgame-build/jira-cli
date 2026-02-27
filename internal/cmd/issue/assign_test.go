@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/endgameio/jira-cli/internal/api"
-	"github.com/endgameio/jira-cli/internal/auth"
-	clierrors "github.com/endgameio/jira-cli/internal/errors"
-	"github.com/endgameio/jira-cli/internal/factory"
-	"github.com/endgameio/jira-cli/internal/iostreams"
+	"github.com/endgame-build/jira-cli/internal/api"
+	"github.com/endgame-build/jira-cli/internal/auth"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/iostreams"
 )
 
 // sampleUser returns a test user for assign tests.

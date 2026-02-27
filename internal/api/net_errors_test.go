@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
 )
 
 func TestMapNetworkError_ReturnsCLIError(t *testing.T) {

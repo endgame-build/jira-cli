@@ -27,7 +27,7 @@ func (c *Client) GetIssue(ctx context.Context, keyOrID string, opts *GetIssueOpt
 
 	var issue Issue
 	if err := c.Do(ctx, http.MethodGet, path, nil, &issue); err != nil {
-		return nil, err
+		return nil, withResourceContext(err, "Issue", keyOrID)
 	}
 	return &issue, nil
 }

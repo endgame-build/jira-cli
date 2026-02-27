@@ -1,4 +1,4 @@
-module github.com/endgameio/jira-cli
+module github.com/endgame-build/jira-cli
 
 go 1.25.7
 

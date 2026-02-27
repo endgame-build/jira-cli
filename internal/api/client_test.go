@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/endgameio/jira-cli/internal/auth"
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/auth"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
 )
 
 // newTestClient creates a Client whose base URL points at the httptest server.

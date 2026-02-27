@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
 )
 
 // Credentials holds resolved authentication data for the Jira API.

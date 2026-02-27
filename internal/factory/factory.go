@@ -3,13 +3,14 @@
 package factory
 
 import (
+	"os"
 	"path/filepath"
 	"sync"
 
-	"github.com/endgameio/jira-cli/internal/api"
-	"github.com/endgameio/jira-cli/internal/auth"
-	"github.com/endgameio/jira-cli/internal/config"
-	"github.com/endgameio/jira-cli/internal/iostreams"
+	"github.com/endgame-build/jira-cli/internal/api"
+	"github.com/endgame-build/jira-cli/internal/auth"
+	"github.com/endgame-build/jira-cli/internal/config"
+	"github.com/endgame-build/jira-cli/internal/iostreams"
 )
 
 // Factory is the dependency injection hub for all CLI commands.
@@ -109,6 +110,38 @@ func (f *Factory) APIClient() (*api.Client, error) {
 		f.clientVal = api.NewClient(creds)
 	})
 	return f.clientVal, f.clientErr
+}
+
+// ResolveInstance returns the Jira instance URL using the same resolution chain
+// as auth (flags → env → config profile) but WITHOUT triggering credential or
+// token resolution. Returns empty string if none is configured.
+func (f *Factory) ResolveInstance() string {
+	// 1. Flag
+	if f.FlagInstance != "" {
+		return f.FlagInstance
+	}
+	// 2. Env var
+	if env := os.Getenv("JIRA_INSTANCE"); env != "" {
+		return env
+	}
+	// 3. Config profile
+	cfg, err := f.Config()
+	if err != nil || cfg == nil {
+		return ""
+	}
+	pc, ok := cfg.(profileConfigAdapter)
+	if !ok {
+		return ""
+	}
+	profileName := f.Profile
+	if profileName == "" {
+		profileName = pc.ActiveProfile()
+	}
+	p := pc.GetProfile(profileName)
+	if p == nil {
+		return ""
+	}
+	return p.Instance
 }
 
 // profileConfigAdapter is the subset of methods we need from config's concrete type.

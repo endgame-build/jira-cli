@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	clierrors "github.com/endgameio/jira-cli/internal/errors"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 )
 
 // OutputError renders err to w (typically stderr).

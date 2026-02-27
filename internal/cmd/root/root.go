@@ -6,13 +6,18 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/endgameio/jira-cli/internal/cmd/alias"
-	authcmd "github.com/endgameio/jira-cli/internal/cmd/auth"
-	configcmd "github.com/endgameio/jira-cli/internal/cmd/config"
-	"github.com/endgameio/jira-cli/internal/cmd/issue"
-	"github.com/endgameio/jira-cli/internal/cmd/search"
-	clierrors "github.com/endgameio/jira-cli/internal/errors"
-	"github.com/endgameio/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/cmd/alias"
+	authcmd "github.com/endgame-build/jira-cli/internal/cmd/auth"
+	"github.com/endgame-build/jira-cli/internal/cmd/comment"
+	configcmd "github.com/endgame-build/jira-cli/internal/cmd/config"
+	"github.com/endgame-build/jira-cli/internal/cmd/issue"
+	"github.com/endgame-build/jira-cli/internal/cmd/meta"
+	"github.com/endgame-build/jira-cli/internal/cmd/project"
+	"github.com/endgame-build/jira-cli/internal/cmd/schema"
+	"github.com/endgame-build/jira-cli/internal/cmd/search"
+	"github.com/endgame-build/jira-cli/internal/cmd/user"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/factory"
 )
 
 // Version is set via ldflags at build time.
@@ -57,6 +62,11 @@ func NewCmdRoot(f *factory.Factory) *cobra.Command {
 	cmd.AddCommand(authcmd.NewCmdAuth(f))
 	cmd.AddCommand(issue.NewCmdIssue(f))
 	cmd.AddCommand(search.NewCmdSearch(f))
+	cmd.AddCommand(comment.NewCmdComment(f))
+	cmd.AddCommand(project.NewCmdProject(f))
+	cmd.AddCommand(user.NewCmdUser(f))
+	cmd.AddCommand(schema.NewCmdSchema(f))
+	cmd.AddCommand(meta.NewCmdMeta(f))
 	cmd.AddCommand(configcmd.NewCmdConfig(f))
 	cmd.AddCommand(alias.NewCmdAlias(f))
 

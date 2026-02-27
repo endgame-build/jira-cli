@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
 )
 
 // isTimeout returns true if err (or any wrapped error) is a timeout.

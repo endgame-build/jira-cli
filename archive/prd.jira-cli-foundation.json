@@ -133,7 +133,7 @@
       "title": "Project bootstrap with Go modules, Makefile, and directory structure",
       "description": "As a developer, I want the Go project initialized with all dependencies, build tooling, and directory structure so that development can begin immediately.",
       "acceptanceCriteria": [
-        "go.mod created with module path github.com/endgameio/jira-cli, Go 1.25, all 11 dependencies (cobra, go-retryablehttp, toml, go-keyring, goldmark, go-pretty/v6, color, go-isatty, xdg, cli/browser, gojq)",
+        "go.mod created with module path github.com/endgame-build/jira-cli, Go 1.25, all 11 dependencies (cobra, go-retryablehttp, toml, go-keyring, goldmark, go-pretty/v6, color, go-isatty, xdg, cli/browser, gojq)",
         "go.sum generated via go mod tidy",
         "Makefile with targets: build (outputs bin/jira), test (go test ./...), lint (go vet ./...), install (go install ./cmd/jira), clean (rm -rf bin/)",
         ".gitignore covers: bin/, *.exe, .DS_Store, vendor/, *.test, *.out, dist/",
