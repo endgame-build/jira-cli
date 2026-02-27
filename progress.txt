@@ -320,3 +320,32 @@ Started: Fri Feb 27 01:10:56 EET 2026
   - Error message "NOT_FOUND: No project could be found" — when checking lowercased error strings, match "not_found" (underscore) not "not found" (space)
   - truncateDescription is a simple char-level truncation; distinct from truncateBody (line-level in comment list)
 ---
+
+## 2026-02-27 - US-024
+- Implemented `jira schema priorities` command in internal/cmd/schema/priorities.go
+- Table output: name, ID, description (truncated to 60 chars), icon URL
+- JSON output: unpaginated list envelope (pagination: null) with id, name, description, iconUrl, statusColor, isDefault
+- No forward-compat flags needed (priorities has no project/type scoping concept)
+- 2 tests: success table output, JSON output shape (verifies all 6 fields including statusColor and isDefault)
+- Files changed: internal/cmd/schema/priorities.go (new), internal/cmd/schema/priorities_test.go (new)
+- **Learnings for future iterations:**
+  - Schema priorities is the simplest schema command — no no-op flags, no pagination, no project resolution
+  - Priority type already has all extended fields (description, statusColor, isDefault) from US-001 — no type changes needed
+  - Same truncateDescription pattern as schema types (char-level, 60 char limit with "..." suffix)
+---
+
+## 2026-02-27 - US-025
+- Implemented `jira schema labels` command in internal/cmd/schema/labels.go
+- Table output: label names, one per line (single LABEL column)
+- JSON output: offset-paginated list envelope with string data array and total
+- Empty results: text prints "No labels found"; JSON returns empty data array with pagination
+- Forward-compat flag: --project accepted but no-op with stderr warning ("not supported by Jira API — showing all labels")
+- Pagination: --limit (default 50), --offset (default 0) via FetchOffsetPage[string] mapping LabelPage.Values
+- 6 tests: success, pagination (offset+limit+total+has_next_page), empty (text), empty (JSON), JSON shape, project warning
+- Files changed: internal/cmd/schema/labels.go (new), internal/cmd/schema/labels_test.go (new), prd.json
+- **Learnings for future iterations:**
+  - Labels is the only paginated schema command — uses FetchOffsetPage[string] since LabelPage.Values is []string (not a struct)
+  - FetchOffsetPage generic type can be a primitive (string) not just a struct — same API as FetchOffsetPage[ProjectDetail]
+  - Test handler for paginated endpoints: parse startAt/maxResults from query params, slice the source array, return isLast based on end >= len(source)
+  - Schema label --project warning is distinct wording from fields/statuses ("not supported by Jira API" vs "not yet implemented") since Jira has no label-by-project endpoint
+---
