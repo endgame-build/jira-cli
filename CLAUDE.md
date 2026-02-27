@@ -76,7 +76,9 @@ All errors use `CLIError` (code, message, context, suggestion). Codes map to exi
 ### Shared utilities
 
 `internal/cmd/shared`:
-- `ValidateIssueKeyOrID` — key/ID validation (re-exported by `internal/cmd/issue/validate.go`)
+- `ValidateIssueKeyOrID` — issue key/ID validation (re-exported by `internal/cmd/issue/validate.go`)
+- `ValidateProjectKeyOrID` — project key/ID validation
+- `ValidateCommentID` — numeric comment ID validation
 - `ReadBodyFile` — read body from file or stdin, enforces 10 MB limit
 - Display helpers — comment/issue rendering with color
 
