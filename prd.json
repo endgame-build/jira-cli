@@ -318,7 +318,7 @@
         "Tests pass"
       ],
       "priority": 17,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-052 (partial). Project commands require authentication."
     },
     {
@@ -337,7 +337,7 @@
         "Tests pass"
       ],
       "priority": 18,
-      "passes": false,
+      "passes": true,
       "notes": "PRD US-042/FR-46. Uses existing SearchUsers API method from Phase 2 with startAt=0."
     },
     {

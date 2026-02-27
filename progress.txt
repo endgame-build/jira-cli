@@ -224,3 +224,45 @@ Started: Fri Feb 27 01:10:56 EET 2026
   - CheckEmptyResultsAuth is needed for any list endpoint that returns 200 with empty results for unauthenticated (project search, issue search) but NOT for endpoints that properly return 404 (comment list)
   - No validation on positional args needed for project list (no issue key) — simplest list command so far
 ---
+
+## 2026-02-27 - US-016
+- Implemented `jira project view <key-or-id>` command in internal/cmd/project/view.go
+- Table output: key, name, lead (display name), description (truncated to 5 lines), type (projectTypeKey), issue types (comma-separated), URL
+- JSON output: bare object (no envelope) via formatter.RawJSON — same pattern as issue view
+- Project not found: CLIError(NOT_FOUND) with suggestion, exit 4 — handled by GetProject's error enrichment
+- --quiet: suppresses all output
+- 4 tests: success, 404, JSON shape, issue types comma display
+- Files changed: internal/cmd/project/view.go (new), internal/cmd/project/view_test.go (new), prd.json
+- **Learnings for future iterations:**
+  - Single-entity view commands use formatter.RawJSON for JSON mode (bare object) vs list commands which use formatter.OutputList (envelope with pagination)
+  - Project description is plain string (NOT ADF) per Swagger spec — no adf.ToPlaintext() needed, just truncate by lines
+  - GetProject already enriches 404 errors with project key context — the command doesn't need to do its own error wrapping
+  - Project view has no --fields flag (simpler than issue view) and no --no-pager (single entity, not paginated)
+---
+
+## 2026-02-27 - US-017
+- Created internal/cmd/project/project.go with parent command registering list and view subcommands
+- Registered project group on root command in internal/cmd/root/root.go
+- `jira project --help` shows list and view subcommands
+- Files changed: internal/cmd/project/project.go (new), internal/cmd/root/root.go
+- **Learnings for future iterations:**
+  - Project parent command follows exact same pattern as comment parent: NewCmdXxx, RunE→cmd.Help(), AddCommand for each subcommand
+  - Root command registration order: auth, issue, search, comment, project, config, alias
+  - Pre-commit hook runs full test suite including build — if hook passes, commit is safe
+---
+
+## 2026-02-27 - US-018
+- Implemented `jira user search <query>` command in internal/cmd/user/search.go
+- Table output: account ID, display name, email (or '(hidden)' when null), active status (yes/no)
+- JSON output: raw-array list envelope with null total; has_next_page inferred from len(results)==limit
+- Empty results: text prints "No users matching 'xyz'"; JSON returns empty data array with null total
+- No --offset flag (Jira user search startAt is unreliable per SPEC deviation)
+- --limit defaults to 10
+- 5 tests: success, empty results, null email handling, JSON output shape (null total + camelCase fields), has_next_page inference
+- Files changed: internal/cmd/user/search.go (new), internal/cmd/user/search_test.go (new), prd.json
+- **Learnings for future iterations:**
+  - User search returns plain []User array — no pagination envelope from Jira, so PaginationMeta is constructed manually with Total: nil
+  - has_next_page is inferred from len(results) == limit (if exact match, probably more exist)
+  - No --offset flag by design — Jira's user search startAt is unreliable, always use startAt=0
+  - Test handler path matching: use strings.Contains(path, "/user/search") not strings.HasPrefix — the API client prepends /rest/api/3/
+---
