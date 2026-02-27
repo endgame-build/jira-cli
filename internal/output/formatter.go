@@ -75,14 +75,14 @@ func (f *Formatter) OutputDryRun(payload interface{}, validation string, tableFn
 // unaffected by extras.
 func (f *Formatter) OutputDryRunWithContext(extras map[string]interface{}, payload interface{}, validation string, tableFn TableFunc) error {
 	if f.asJSON {
-		result := map[string]interface{}{
-			"dry_run":    true,
-			"payload":    payload,
-			"validation": validation,
-		}
+		result := make(map[string]interface{}, 3+len(extras))
 		for k, v := range extras {
 			result[k] = v
 		}
+		// Reserved keys always take precedence over extras.
+		result["dry_run"] = true
+		result["payload"] = payload
+		result["validation"] = validation
 		return f.outputJSONOrJQ(func(w io.Writer) error {
 			return writeJSON(w, result)
 		})

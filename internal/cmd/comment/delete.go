@@ -2,7 +2,6 @@ package comment
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -42,7 +41,11 @@ func NewCmdDelete(f *factory.Factory) *cobra.Command {
 				return err
 			}
 			opts.IssueKey = key
-			opts.CommentID = args[1]
+			cid, err := shared.ValidateCommentID(args[1])
+			if err != nil {
+				return err
+			}
+			opts.CommentID = cid
 			return runCommentDelete(opts)
 		},
 	}
@@ -111,7 +114,7 @@ func runCommentDeleteDryRun(ctx context.Context, f *factory.Factory, client *api
 	// Extract first line of body for preview.
 	bodyPreview := ""
 	if comment.Body != nil {
-		bodyPreview = truncateBody(adf.ToPlaintext(json.RawMessage(comment.Body)), 1)
+		bodyPreview = truncateBody(adf.ToPlaintext(comment.Body), 1)
 	}
 
 	extras := map[string]interface{}{
@@ -131,7 +134,11 @@ func runCommentDeleteDryRun(ctx context.Context, f *factory.Factory, client *api
 		fmt.Fprintf(f.IOStreams.Out, "DRY RUN — comment delete preview\n\n")
 		tw.AppendRow(table.Row{"Issue", issueKey})
 		tw.AppendRow(table.Row{"Comment ID", commentID})
-		tw.AppendRow(table.Row{"Author", comment.Author.DisplayName})
+		author := "Unknown"
+		if comment.Author != nil {
+			author = comment.Author.DisplayName
+		}
+		tw.AppendRow(table.Row{"Author", author})
 		tw.AppendRow(table.Row{"Created", comment.Created})
 		if bodyPreview != "" {
 			tw.AppendRow(table.Row{"Body", bodyPreview})

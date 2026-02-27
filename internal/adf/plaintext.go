@@ -9,6 +9,7 @@ import (
 // ExtractText walks an ADF document (as raw JSON) and returns a plain-text
 // representation by concatenating all text nodes. Block-level nodes are
 // separated by newlines. Returns an empty string for nil/empty input.
+// Returns the raw string as fallback for invalid JSON.
 func ExtractText(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -16,7 +17,7 @@ func ExtractText(raw json.RawMessage) string {
 
 	var doc Node
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return ""
+		return string(raw)
 	}
 
 	var sb strings.Builder

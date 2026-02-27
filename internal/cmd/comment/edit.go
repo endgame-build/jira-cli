@@ -42,7 +42,11 @@ func NewCmdEdit(f *factory.Factory) *cobra.Command {
 				return err
 			}
 			opts.IssueKey = key
-			opts.CommentID = args[1]
+			cid, err := shared.ValidateCommentID(args[1])
+			if err != nil {
+				return err
+			}
+			opts.CommentID = cid
 			return runCommentEdit(opts)
 		},
 	}

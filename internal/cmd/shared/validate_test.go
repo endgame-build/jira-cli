@@ -7,6 +7,53 @@ import (
 	clierrors "github.com/endgameio/jira-cli/internal/errors"
 )
 
+func TestValidateCommentID(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "valid numeric", input: "10042", want: "10042"},
+		{name: "single digit", input: "1", want: "1"},
+		{name: "large ID", input: "9999999", want: "9999999"},
+		{name: "empty string", input: "", wantErr: true},
+		{name: "non-numeric", input: "abc", wantErr: true},
+		{name: "mixed", input: "123abc", wantErr: true},
+		{name: "negative", input: "-1", wantErr: true},
+		{name: "decimal", input: "1.5", wantErr: true},
+		{name: "spaces", input: "10 42", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ValidateCommentID(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for input %q, got %q", tt.input, got)
+				}
+				var cliErr *clierrors.CLIError
+				if !stderrors.As(err, &cliErr) {
+					t.Fatalf("expected CLIError, got %T", err)
+				}
+				if cliErr.Code != clierrors.VALIDATION_ERROR {
+					t.Errorf("expected VALIDATION_ERROR, got %s", cliErr.Code)
+				}
+				if cliErr.ExitCode != 3 {
+					t.Errorf("expected exit code 3, got %d", cliErr.ExitCode)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestValidateIssueKeyOrID(t *testing.T) {
 	tests := []struct {
 		name    string

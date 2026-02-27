@@ -83,7 +83,7 @@ type IssueType struct {
 	Description    string          `json:"description"`
 	Subtask        bool            `json:"subtask"`
 	IconURL        string          `json:"iconUrl"`
-	HierarchyLevel int             `json:"hierarchyLevel,omitempty"`
+	HierarchyLevel *int            `json:"hierarchyLevel,omitempty"`
 	Scope          json.RawMessage `json:"scope,omitempty"`
 }
 
