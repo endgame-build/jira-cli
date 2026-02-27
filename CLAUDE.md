@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 ## Build & Test
 
 ```sh
@@ -13,6 +15,8 @@ go test ./internal/cmd/issue/... -run TestView  # single test
 
 Ldflags inject version info: `-X main.version=... -X main.commit=... -X main.date=...`.
 
+Pre-commit hooks run `gofmt`, `go vet`, `go build`, `go test -short`, and gitleaks on commit. Install with `make hooks`. Commit messages are enforced as conventional commits with allowed types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`, `ci`.
+
 ## Architecture
 
 Go CLI for Jira Cloud REST API v3. Follows the gh-CLI blueprint: Cobra command tree, Factory DI, lazy auth.
@@ -25,7 +29,7 @@ errors → iostreams → config → auth → api → output → adf → shared �
 
 ### Factory
 
-`factory.Factory` is the DI hub. IOStreams resolves eagerly; Config, Auth, and APIClient resolve lazily via `sync.Once`. Auth-free commands (help, config, alias, meta) skip credential resolution entirely.
+`factory.Factory` is the DI hub. IOStreams resolves eagerly; Config, Auth, and APIClient resolve lazily via `sync.Once`. Auth-free commands (help, config, alias, meta) skip credential resolution entirely. Global flags (`--json`, `--quiet`, `--jq`, `--text`, `--dry-run`, `--no-color`, `--profile`, `--instance`, `--user`, `--token`) are bound to Factory fields and resolved in `root.preRun` (PersistentPreRunE). `--jq` implies `--json`; `--text` overrides config-level JSON; `--json`+`--text` and `--quiet`+`--json` are rejected as conflicts.
 
 ### Command pattern
 
