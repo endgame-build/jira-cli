@@ -2,7 +2,7 @@
 package user
 
 import (
-	"github.com/endgameio/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/factory"
 	"github.com/spf13/cobra"
 )
 

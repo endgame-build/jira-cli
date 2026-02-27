@@ -4,11 +4,11 @@ import (
 	"errors"
 	"os"
 
-	clierrors "github.com/endgameio/jira-cli/internal/errors"
-	"github.com/endgameio/jira-cli/internal/factory"
-	"github.com/endgameio/jira-cli/internal/output"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/output"
 
-	"github.com/endgameio/jira-cli/internal/cmd/root"
+	"github.com/endgame-build/jira-cli/internal/cmd/root"
 )
 
 // version vars injected via ldflags at build time:

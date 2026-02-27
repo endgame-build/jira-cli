@@ -8,8 +8,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/endgameio/jira-cli/internal/api"
-	clierrors "github.com/endgameio/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/api"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 )
 
 // ColorHelper is the interface for colorizing output. Satisfied by iostreams.IOStreams.

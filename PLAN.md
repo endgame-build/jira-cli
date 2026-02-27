@@ -25,7 +25,7 @@ Build a CLI tool (`jira`) that wraps the Jira Cloud Platform REST API v3 for dev
 ### go.mod
 
 ```
-module github.com/endgameio/jira-cli
+module github.com/endgame-build/jira-cli
 
 go 1.23
 
@@ -281,7 +281,7 @@ Goldmark parses CommonMark → AST. Custom walker emits ADF nodes. Mapping: para
 **Files:** `go.mod`, `Makefile`, `CLAUDE.md`, `.gitignore`
 
 **Actions:**
-- `go mod init github.com/endgameio/jira-cli`
+- `go mod init github.com/endgame-build/jira-cli`
 - `go get` all 11 dependencies
 - Create `Makefile` with targets: `build`, `test`, `lint`, `install`, `clean`
 - Create `CLAUDE.md` with project conventions (module path, command constructor pattern, test patterns, no `init()` rule, error handling conventions)

@@ -6,18 +6,18 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/endgameio/jira-cli/internal/cmd/alias"
-	authcmd "github.com/endgameio/jira-cli/internal/cmd/auth"
-	"github.com/endgameio/jira-cli/internal/cmd/comment"
-	configcmd "github.com/endgameio/jira-cli/internal/cmd/config"
-	"github.com/endgameio/jira-cli/internal/cmd/issue"
-	"github.com/endgameio/jira-cli/internal/cmd/meta"
-	"github.com/endgameio/jira-cli/internal/cmd/project"
-	"github.com/endgameio/jira-cli/internal/cmd/schema"
-	"github.com/endgameio/jira-cli/internal/cmd/search"
-	"github.com/endgameio/jira-cli/internal/cmd/user"
-	clierrors "github.com/endgameio/jira-cli/internal/errors"
-	"github.com/endgameio/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/cmd/alias"
+	authcmd "github.com/endgame-build/jira-cli/internal/cmd/auth"
+	"github.com/endgame-build/jira-cli/internal/cmd/comment"
+	configcmd "github.com/endgame-build/jira-cli/internal/cmd/config"
+	"github.com/endgame-build/jira-cli/internal/cmd/issue"
+	"github.com/endgame-build/jira-cli/internal/cmd/meta"
+	"github.com/endgame-build/jira-cli/internal/cmd/project"
+	"github.com/endgame-build/jira-cli/internal/cmd/schema"
+	"github.com/endgame-build/jira-cli/internal/cmd/search"
+	"github.com/endgame-build/jira-cli/internal/cmd/user"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/factory"
 )
 
 // Version is set via ldflags at build time.

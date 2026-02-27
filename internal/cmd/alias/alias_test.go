@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	internalConfig "github.com/endgameio/jira-cli/internal/config"
-	clierrors "github.com/endgameio/jira-cli/internal/errors"
-	"github.com/endgameio/jira-cli/internal/factory"
-	"github.com/endgameio/jira-cli/internal/iostreams"
+	internalConfig "github.com/endgame-build/jira-cli/internal/config"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/iostreams"
 )
 
 // newTestAliasFactory creates a Factory with a disk-backed config (no auth needed).

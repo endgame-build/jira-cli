@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
 )
 
 func TestParseErrorCollection_ValidJSON(t *testing.T) {

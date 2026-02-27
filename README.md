@@ -35,7 +35,7 @@ Or download from [GitHub Releases](https://github.com/endgame-build/jira-cli/rel
 **From source (requires Go):**
 
 ```sh
-go install github.com/endgameio/jira-cli/cmd/jira@latest
+go install github.com/endgame-build/jira-cli/cmd/jira@latest
 ```
 
 ## Quick Start

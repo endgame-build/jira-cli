@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
 )
 
 func TestListProjects_Success(t *testing.T) {

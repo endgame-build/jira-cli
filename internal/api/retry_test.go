@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
 )
 
 func TestRetry_429_RetriesAndSucceeds(t *testing.T) {

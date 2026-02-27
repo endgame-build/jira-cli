@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/endgameio/jira-cli/internal/auth"
+	"github.com/endgame-build/jira-cli/internal/auth"
 )
 
 const defaultTimeout = 30 * time.Second

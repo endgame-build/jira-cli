@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/endgameio/jira-cli/internal/api"
-	"github.com/endgameio/jira-cli/internal/auth"
-	"github.com/endgameio/jira-cli/internal/config"
-	"github.com/endgameio/jira-cli/internal/iostreams"
+	"github.com/endgame-build/jira-cli/internal/api"
+	"github.com/endgame-build/jira-cli/internal/auth"
+	"github.com/endgame-build/jira-cli/internal/config"
+	"github.com/endgame-build/jira-cli/internal/iostreams"
 )
 
 // Factory is the dependency injection hub for all CLI commands.

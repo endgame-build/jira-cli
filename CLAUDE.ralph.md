@@ -112,7 +112,7 @@ This is an autonomous agent project. The agent MUST commit changes after every c
 ## Project Conventions
 
 ### Module & Build
-- Module path: `github.com/endgameio/jira-cli`
+- Module path: `github.com/endgame-build/jira-cli`
 - Go 1.25 (pinned in go.mod)
 - Entry point: `cmd/jira/main.go`
 - Build: `make build` → `bin/jira`; `make test`; `make lint` (go vet)

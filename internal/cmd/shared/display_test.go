@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/endgameio/jira-cli/internal/api"
-	"github.com/endgameio/jira-cli/internal/auth"
+	"github.com/endgame-build/jira-cli/internal/api"
+	"github.com/endgame-build/jira-cli/internal/auth"
 )
 
 func sampleIssues() []api.Issue {

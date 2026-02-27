@@ -24,7 +24,7 @@ This PRD covers Phases 0–2 from the implementation plan (note: Search was prom
 **Description:** As a developer, I want the Go project initialized with all dependencies, build tooling, and conventions documented so that development can begin immediately.
 
 **Acceptance Criteria:**
-- [ ] `go.mod` created with module path `github.com/endgameio/jira-cli`, Go 1.23, all 11 dependencies from PLAN.md (original 10 + `itchyny/gojq` for `--jq` support)
+- [ ] `go.mod` created with module path `github.com/endgame-build/jira-cli`, Go 1.23, all 11 dependencies from PLAN.md (original 10 + `itchyny/gojq` for `--jq` support)
 - [ ] `go.sum` generated via `go mod tidy`
 - [ ] `Makefile` with targets: `build` (outputs `bin/jira`), `test` (`go test ./...`), `lint` (`go vet ./...`), `install` (`go install ./cmd/jira`), `clean` (`rm -rf bin/`)
 - [ ] `.gitignore` covers: `bin/`, `*.exe`, `.DS_Store`, `vendor/`, `*.test`, `*.out`, `dist/`

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
 )
 
 // ListProjects searches for projects using offset-based pagination.

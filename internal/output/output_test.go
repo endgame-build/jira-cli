@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	clierrors "github.com/endgameio/jira-cli/internal/errors"
-	"github.com/endgameio/jira-cli/internal/iostreams"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/iostreams"
 	"github.com/jedib0t/go-pretty/v6/table"
 )
 

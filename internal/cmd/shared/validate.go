@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/endgameio/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/errors"
 )
 
 // issueKeyRe matches Jira issue keys: 1+ ASCII letters, hyphen, 1+ digits.

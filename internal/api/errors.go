@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	cliErrors "github.com/endgameio/jira-cli/internal/errors"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
 )
 
 // ErrorCollection mirrors the Jira REST API error response shape.

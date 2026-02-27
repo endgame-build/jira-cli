@@ -1,6 +1,6 @@
 package issue
 
-import "github.com/endgameio/jira-cli/internal/cmd/shared"
+import "github.com/endgame-build/jira-cli/internal/cmd/shared"
 
 // ValidateIssueKeyOrID delegates to shared.ValidateIssueKeyOrID.
 // Kept for backward compatibility within the issue package.
