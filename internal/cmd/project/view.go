@@ -57,6 +57,13 @@ func runProjectView(opts *ProjectViewOptions) error {
 		return err
 	}
 
+	// Construct browse URL client-side if the API didn't provide one.
+	// Jira's /project endpoint returns an optional "url" field for external
+	// project links, not the browse URL. We build it from instance + key.
+	if project.URL == "" {
+		project.URL = fmt.Sprintf("https://%s/browse/%s", client.Instance(), project.Key)
+	}
+
 	formatter := output.NewFormatter(f.IOStreams, f.OutputJSON, f.JQExpr)
 
 	if f.Quiet {
@@ -98,9 +105,7 @@ func runProjectView(opts *ProjectViewOptions) error {
 		fmt.Fprintf(out, "Issue Types:  %s\n", strings.Join(names, ", "))
 	}
 
-	if project.URL != "" {
-		fmt.Fprintf(out, "URL:          %s\n", project.URL)
-	}
+	fmt.Fprintf(out, "URL:          %s\n", project.URL)
 
 	return nil
 }

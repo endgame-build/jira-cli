@@ -28,7 +28,6 @@ func sampleProjectDetail() map[string]interface{} {
 			{"id": "10002", "name": "Story", "subtask": false},
 			{"id": "10003", "name": "Sub-task", "subtask": true},
 		},
-		"url":        "https://test.atlassian.net/projects/PROJ",
 		"simplified": false,
 		"style":      "classic",
 	}
@@ -85,7 +84,7 @@ func TestProjectView_Success(t *testing.T) {
 		"A sample project for testing",
 		"software",
 		"Bug, Story, Sub-task",
-		"https://test.atlassian.net/projects/PROJ",
+		"https://test.atlassian.net/browse/PROJ",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q\ngot:\n%s", want, out)
@@ -158,6 +157,11 @@ func TestProjectView_JSON(t *testing.T) {
 	}
 	if len(issueTypes) != 3 {
 		t.Errorf("issueTypes length = %d, want 3", len(issueTypes))
+	}
+
+	// Verify URL is constructed client-side.
+	if url, ok := result["url"].(string); !ok || url != "https://test.atlassian.net/browse/PROJ" {
+		t.Errorf("url = %v, want https://test.atlassian.net/browse/PROJ", result["url"])
 	}
 }
 

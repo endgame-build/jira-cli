@@ -19,7 +19,7 @@ func (c *Client) ListComments(ctx context.Context, issueKey string, opts OffsetP
 
 	var page CommentPage
 	if err := c.Do(ctx, http.MethodGet, path, nil, &page); err != nil {
-		return nil, err
+		return nil, withResourceContext(err, "Issue", issueKey)
 	}
 	return &page, nil
 }
@@ -30,7 +30,7 @@ func (c *Client) GetComment(ctx context.Context, issueKey, commentID string) (*C
 
 	var comment Comment
 	if err := c.Do(ctx, http.MethodGet, path, nil, &comment); err != nil {
-		return nil, err
+		return nil, withResourceContext(err, "Comment", commentID+" on "+issueKey)
 	}
 	return &comment, nil
 }
@@ -45,7 +45,7 @@ func (c *Client) AddComment(ctx context.Context, issueKey string, body interface
 
 	var comment Comment
 	if err := c.Do(ctx, http.MethodPost, path, payload, &comment); err != nil {
-		return nil, err
+		return nil, withResourceContext(err, "Issue", issueKey)
 	}
 	return &comment, nil
 }
@@ -60,7 +60,7 @@ func (c *Client) UpdateComment(ctx context.Context, issueKey, commentID string, 
 
 	var comment Comment
 	if err := c.Do(ctx, http.MethodPut, path, payload, &comment); err != nil {
-		return nil, err
+		return nil, withResourceContext(err, "Comment", commentID+" on "+issueKey)
 	}
 	return &comment, nil
 }
@@ -68,5 +68,5 @@ func (c *Client) UpdateComment(ctx context.Context, issueKey, commentID string, 
 // DeleteComment removes a comment from an issue. Expects HTTP 204.
 func (c *Client) DeleteComment(ctx context.Context, issueKey, commentID string) error {
 	path := fmt.Sprintf("issue/%s/comment/%s", issueKey, commentID)
-	return c.Do(ctx, http.MethodDelete, path, nil, nil)
+	return withResourceContext(c.Do(ctx, http.MethodDelete, path, nil, nil), "Comment", commentID+" on "+issueKey)
 }

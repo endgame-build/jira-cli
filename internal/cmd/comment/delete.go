@@ -9,6 +9,7 @@ import (
 
 	"github.com/endgame-build/jira-cli/internal/adf"
 	"github.com/endgame-build/jira-cli/internal/api"
+	"github.com/endgame-build/jira-cli/internal/cmd/meta"
 	"github.com/endgame-build/jira-cli/internal/cmd/shared"
 	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/factory"
@@ -51,6 +52,8 @@ func NewCmdDelete(f *factory.Factory) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Confirm deletion")
+
+	meta.MarkRequired(cmd, "yes")
 
 	return cmd
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/endgame-build/jira-cli/internal/auth"
+	"github.com/endgame-build/jira-cli/internal/cmd/meta"
 	"github.com/endgame-build/jira-cli/internal/config"
 	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/factory"
@@ -62,6 +63,8 @@ func NewCmdLogout(f *factory.Factory) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Confirm logout")
+
+	meta.MarkRequired(cmd, "yes")
 
 	return cmd
 }

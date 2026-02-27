@@ -48,7 +48,7 @@ func buildTestRoot(f *factory.Factory) *cobra.Command {
 	}
 	issueCreateCmd.Flags().String("project", "", "Project key")
 	issueCreateCmd.Flags().String("type", "", "Issue type")
-	_ = issueCreateCmd.MarkFlagRequired("project")
+	MarkRequired(issueCreateCmd, "project")
 	issueCmd.AddCommand(issueCreateCmd)
 
 	root.AddCommand(issueCmd)

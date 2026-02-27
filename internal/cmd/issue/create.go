@@ -11,6 +11,7 @@ import (
 
 	"github.com/endgame-build/jira-cli/internal/adf"
 	"github.com/endgame-build/jira-cli/internal/api"
+	"github.com/endgame-build/jira-cli/internal/cmd/meta"
 	"github.com/endgame-build/jira-cli/internal/cmd/shared"
 	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/factory"
@@ -58,6 +59,8 @@ func NewCmdCreate(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringSliceVarP(&opts.Labels, "labels", "l", nil, "Comma-separated labels")
 	cmd.Flags().StringVar(&opts.Parent, "parent", "", "Parent issue key (for subtasks)")
 	cmd.Flags().StringArrayVar(&opts.Fields, "field", nil, "Custom field (key=value, repeatable)")
+
+	meta.MarkRequired(cmd, "project", "type", "summary")
 
 	return cmd
 }

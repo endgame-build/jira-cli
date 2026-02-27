@@ -160,6 +160,27 @@ func extractArgs(cmd *cobra.Command) []ArgInfo {
 	return args
 }
 
+// RequiredAnnotation is a custom flag annotation key used to signal that a
+// flag is required for meta commands discovery, without triggering Cobra's
+// built-in required-flag enforcement (which would replace custom CLIError
+// messages with Cobra's generic error).
+const RequiredAnnotation = "jira_required"
+
+// MarkRequired marks a flag as required for meta commands discovery.
+// Unlike Cobra's MarkFlagRequired, this does not change runtime validation.
+func MarkRequired(cmd *cobra.Command, names ...string) {
+	for _, name := range names {
+		f := cmd.Flags().Lookup(name)
+		if f == nil {
+			continue
+		}
+		if f.Annotations == nil {
+			f.Annotations = map[string][]string{}
+		}
+		f.Annotations[RequiredAnnotation] = []string{"true"}
+	}
+}
+
 // extractFlags collects non-hidden flags from the command.
 func extractFlags(cmd *cobra.Command) []FlagInfo {
 	var flags []FlagInfo
@@ -170,7 +191,12 @@ func extractFlags(cmd *cobra.Command) []FlagInfo {
 		}
 
 		required := false
-		if annot, ok := f.Annotations[cobra.BashCompOneRequiredFlag]; ok {
+		// Check our custom annotation first, then Cobra's built-in.
+		if annot, ok := f.Annotations[RequiredAnnotation]; ok {
+			if len(annot) > 0 && annot[0] == "true" {
+				required = true
+			}
+		} else if annot, ok := f.Annotations[cobra.BashCompOneRequiredFlag]; ok {
 			if len(annot) > 0 && annot[0] == "true" {
 				required = true
 			}

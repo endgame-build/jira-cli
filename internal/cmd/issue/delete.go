@@ -7,6 +7,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 
+	"github.com/endgame-build/jira-cli/internal/cmd/meta"
 	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/factory"
 	"github.com/endgame-build/jira-cli/internal/output"
@@ -49,6 +50,8 @@ func NewCmdDelete(f *factory.Factory) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Confirm deletion")
+
+	meta.MarkRequired(cmd, "yes")
 
 	return cmd
 }

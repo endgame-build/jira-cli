@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -75,7 +76,8 @@ func mapHTTPError(resp *http.Response, instance string) *cliErrors.CLIError {
 			WithSuggestion("You may not have permission to perform this action")
 
 	case http.StatusNotFound: // 404
-		return cliErrors.NewNotFoundError(message, "")
+		return cliErrors.NewNotFoundError(message, "").
+			WithSuggestion("Check the resource key or ID and try again")
 
 	case http.StatusConflict: // 409
 		return cliErrors.NewConflictError(message)
@@ -96,4 +98,23 @@ func mapHTTPError(resp *http.Response, instance string) *cliErrors.CLIError {
 		return cliErrors.NewGeneralError(message).
 			WithContext(map[string]interface{}{"status": resp.StatusCode})
 	}
+}
+
+// withResourceContext enriches a NOT_FOUND CLIError with the resource key for
+// better error messages. For non-CLIErrors or non-404 codes, returns the error unchanged.
+func withResourceContext(err error, resourceType, key string) error {
+	if err == nil {
+		return nil
+	}
+	var cliErr *cliErrors.CLIError
+	if !stderrors.As(err, &cliErr) {
+		return err
+	}
+	if cliErr.Code != cliErrors.NOT_FOUND {
+		return err
+	}
+	return cliErrors.NewNotFoundError(
+		fmt.Sprintf("%s '%s' not found", resourceType, key),
+		key,
+	).WithSuggestion(fmt.Sprintf("Check the %s key or ID and try again", resourceType))
 }
