@@ -678,6 +678,49 @@ func TestViewWebJSON(t *testing.T) {
 	}
 }
 
+func TestViewCommentsWithFieldsFilter(t *testing.T) {
+	// Verify that --comments works even when --fields is specified without "comments".
+	issue := sampleIssue()
+	issue.Fields.Comment = &api.CommentPage{
+		Comments: []api.Comment{
+			{
+				ID:      "100",
+				Author:  &api.User{DisplayName: "Alice"},
+				Body:    json.RawMessage(`{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"Visible comment"}]}]}`),
+				Created: "2026-02-20T10:00:00.000+0000",
+			},
+		},
+		Total: 1,
+	}
+
+	f, tio, _ := newTestViewFactory(t, issueHandler(issue))
+	opts := &ViewOptions{
+		Factory:  f,
+		KeyOrID:  "PROJ-123",
+		Comments: true,
+		Fields:   []string{"key", "summary"}, // does NOT include "comments"
+	}
+
+	if err := runView(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+
+	// --comments is a standalone flag; should not be gated by --fields.
+	if !strings.Contains(out, "Visible comment") {
+		t.Errorf("--comments should show comments regardless of --fields filter:\n%s", out)
+	}
+	if !strings.Contains(out, "Comments (1):") {
+		t.Errorf("output should contain comment section header:\n%s", out)
+	}
+
+	// --fields=key,summary should still filter other fields.
+	if strings.Contains(out, "Jane Doe") {
+		t.Errorf("assignee should be filtered out by --fields:\n%s", out)
+	}
+}
+
 func TestViewWebQuiet(t *testing.T) {
 	var openedURL string
 	mockBrowser := func(url string) error {

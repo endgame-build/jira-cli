@@ -115,10 +115,7 @@ func renderNode(sb *strings.Builder, n *Node, depth int, listPrefix string, inBl
 		sb.WriteString("\n")
 
 	case TypeBulletList:
-		for i, child := range n.Content {
-			if i > 0 && hasNestedList(child) {
-				// no extra newline between items with nested lists
-			}
+		for _, child := range n.Content {
 			renderNode(sb, child, depth, "- ", inBlockquote)
 		}
 
@@ -204,14 +201,4 @@ func renderTextWithMarks(n *Node) string {
 		}
 	}
 	return text
-}
-
-// hasNestedList checks if a list item has a nested list among its children.
-func hasNestedList(n *Node) bool {
-	for _, child := range n.Content {
-		if child.Type == TypeBulletList || child.Type == TypeOrderedList {
-			return true
-		}
-	}
-	return false
 }

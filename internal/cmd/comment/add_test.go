@@ -303,6 +303,23 @@ func TestCommentAdd_Quiet(t *testing.T) {
 	}
 }
 
+func TestCommentAdd_DryRun_Quiet(t *testing.T) {
+	f, tio := newTestCommentAddFactory(t, commentAddHandler(t))
+	f.DryRun = true
+	f.Quiet = true
+
+	cmd := NewCmdAdd(f)
+	cmd.SetArgs([]string{"PROJ-123", "--body", "Silent dry run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if out != "" {
+		t.Errorf("--quiet + --dry-run should produce no output, got: %s", out)
+	}
+}
+
 func TestCommentAdd_InvalidKey(t *testing.T) {
 	f, _ := newTestCommentAddFactory(t, commentAddHandler(t))
 

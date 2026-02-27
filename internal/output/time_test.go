@@ -32,8 +32,8 @@ func TestRelativeTimeSince(t *testing.T) {
 		{"45 days", 45 * 24 * time.Hour, "1 month ago"},
 		{"60 days", 60 * 24 * time.Hour, "2 months ago"},
 		{"11 months", 330 * 24 * time.Hour, "11 months ago"},
-		{"1 year", 365 * 24 * time.Hour, "1 year ago"},
-		{"18 months", 548 * 24 * time.Hour, "1 year ago"},
+		{"12 months", 365 * 24 * time.Hour, "12 months ago"},
+		{"18 months", 548 * 24 * time.Hour, "18 months ago"},
 		{"2 years", 730 * 24 * time.Hour, "2 years ago"},
 		{"5 years", 5 * 365 * 24 * time.Hour, "5 years ago"},
 	}
@@ -56,11 +56,18 @@ func TestRelativeTime(t *testing.T) {
 		t.Errorf("RelativeTime(3min ago) = %q, want %q", got, "3 minutes ago")
 	}
 
-	// Test with Jira millisecond format.
+	// Test with Jira millisecond format (numeric offset).
 	jiraFmt := time.Now().Add(-2 * time.Hour).Format("2006-01-02T15:04:05.000-0700")
 	got = RelativeTime(jiraFmt)
 	if got != "2 hours ago" {
 		t.Errorf("RelativeTime(jira format) = %q, want %q", got, "2 hours ago")
+	}
+
+	// Test with no-millis numeric offset (e.g. from older Jira versions).
+	noMillisFmt := time.Now().Add(-10 * time.Minute).Format("2006-01-02T15:04:05-0700")
+	got = RelativeTime(noMillisFmt)
+	if got != "10 minutes ago" {
+		t.Errorf("RelativeTime(no-millis offset) = %q, want %q", got, "10 minutes ago")
 	}
 }
 

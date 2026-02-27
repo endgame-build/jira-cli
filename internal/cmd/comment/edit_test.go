@@ -283,6 +283,23 @@ func TestCommentEdit_DryRun_JSON(t *testing.T) {
 	}
 }
 
+func TestCommentEdit_DryRun_Quiet(t *testing.T) {
+	f, tio := newTestCommentEditFactory(t, commentEditHandler(t))
+	f.DryRun = true
+	f.Quiet = true
+
+	cmd := NewCmdEdit(f)
+	cmd.SetArgs([]string{"PROJ-123", "10042", "--body", "Silent dry run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if out != "" {
+		t.Errorf("--quiet + --dry-run should produce no output, got: %s", out)
+	}
+}
+
 func TestCommentEdit_InvalidKey(t *testing.T) {
 	f, _ := newTestCommentEditFactory(t, commentEditHandler(t))
 

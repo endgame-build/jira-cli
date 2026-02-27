@@ -118,10 +118,9 @@ func runCommentAdd(opts *CommentAddOptions) error {
 	}
 
 	// Text output.
-	return formatter.OutputMutation(nil, func(tw table.Writer) {
-		fmt.Fprintf(f.IOStreams.Out, "Added comment %s to %s: %s\n",
-			comment.ID, opts.IssueKey, commentURL)
-	})
+	fmt.Fprintf(f.IOStreams.Out, "Added comment %s to %s: %s\n",
+		comment.ID, opts.IssueKey, commentURL)
+	return nil
 }
 
 // runCommentAddDryRun validates the issue exists and previews the comment payload.
@@ -130,6 +129,10 @@ func runCommentAddDryRun(ctx context.Context, f *factory.Factory, client *api.Cl
 	_, err := client.ListComments(ctx, issueKey, api.OffsetPaginationOptions{MaxResults: 1})
 	if err != nil {
 		return err
+	}
+
+	if f.Quiet {
+		return nil
 	}
 
 	payload := map[string]interface{}{
@@ -146,11 +149,11 @@ func runCommentAddDryRun(ctx context.Context, f *factory.Factory, client *api.Cl
 		return formatter.OutputDryRunWithContext(extras, payload, "passed (issue exists)", nil)
 	}
 
+	fmt.Fprintf(f.IOStreams.Out, "DRY RUN — comment add preview\n\n")
 	return formatter.OutputDryRunWithContext(nil, nil, "", func(tw table.Writer) {
-		fmt.Fprintf(f.IOStreams.Out, "DRY RUN — comment add preview\n\n")
 		tw.AppendRow(table.Row{"Issue", issueKey})
 		tw.AppendRow(table.Row{"Action", "add comment"})
 		tw.AppendRow(table.Row{"Body preview", truncateBody(rawBody, 5)})
-		fmt.Fprintf(f.IOStreams.Out, "\nValidation: passed (issue exists)\n")
+		tw.AppendRow(table.Row{"Validation", "passed (issue exists)"})
 	})
 }

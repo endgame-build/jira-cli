@@ -176,7 +176,7 @@ func runView(opts *ViewOptions) error {
 		}
 
 		// Comments section (only when --comments flag is set).
-		if opts.Comments && shared.ShowField(wantFields, "comments") {
+		if opts.Comments {
 			renderComments(ios.Out, fields.Comment)
 		}
 	})

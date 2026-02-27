@@ -10,13 +10,24 @@ import (
 // input is returned unchanged (graceful degradation). Only used for table
 // output — JSON always preserves the original ISO 8601 value.
 func RelativeTime(iso8601 string) string {
-	t, err := time.Parse(time.RFC3339, iso8601)
-	if err != nil {
-		// Try without timezone (some Jira responses use millisecond precision)
-		t, err = time.Parse("2006-01-02T15:04:05.000-0700", iso8601)
-		if err != nil {
-			return iso8601
+	// Jira Cloud uses "2006-01-02T15:04:05.000+0000" (millis, no colon in offset).
+	// RFC3339 handles Z and colon-offsets; the second format handles Jira's style.
+	// The third handles no-millis with Jira-style offset (rare but possible).
+	formats := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05.000-0700",
+		"2006-01-02T15:04:05-0700",
+	}
+	var t time.Time
+	var err error
+	for _, layout := range formats {
+		t, err = time.Parse(layout, iso8601)
+		if err == nil {
+			break
 		}
+	}
+	if err != nil {
+		return iso8601
 	}
 
 	return relativeTimeSince(time.Since(t))
@@ -51,9 +62,9 @@ func relativeTimeSince(d time.Duration) string {
 		return fmt.Sprintf("%d days ago", days)
 	case months == 1:
 		return "1 month ago"
-	case months < 12:
+	case months < 24:
 		return fmt.Sprintf("%d months ago", months)
-	case years == 1:
+	case years < 2:
 		return "1 year ago"
 	default:
 		return fmt.Sprintf("%d years ago", years)

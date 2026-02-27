@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 
 	"github.com/endgameio/jira-cli/internal/factory"
@@ -65,37 +64,38 @@ func runProjectView(opts *ProjectViewOptions) error {
 	}
 
 	// Text mode: key-value display.
-	return formatter.OutputData(project, func(tw table.Writer) {
-		fmt.Fprintf(f.IOStreams.Out, "Key:          %s\n", project.Key)
-		fmt.Fprintf(f.IOStreams.Out, "Name:         %s\n", project.Name)
+	out := f.IOStreams.Out
+	fmt.Fprintf(out, "Key:          %s\n", project.Key)
+	fmt.Fprintf(out, "Name:         %s\n", project.Name)
 
-		lead := "(none)"
-		if project.Lead != nil {
-			lead = project.Lead.DisplayName
+	lead := "(none)"
+	if project.Lead != nil {
+		lead = project.Lead.DisplayName
+	}
+	fmt.Fprintf(out, "Lead:         %s\n", lead)
+
+	if project.Description != "" {
+		desc := project.Description
+		lines := strings.Split(desc, "\n")
+		if len(lines) > 5 {
+			lines = append(lines[:5], "... (truncated)")
 		}
-		fmt.Fprintf(f.IOStreams.Out, "Lead:         %s\n", lead)
+		fmt.Fprintf(out, "Description:  %s\n", strings.Join(lines, "\n              "))
+	}
 
-		if project.Description != "" {
-			desc := project.Description
-			lines := strings.Split(desc, "\n")
-			if len(lines) > 5 {
-				lines = append(lines[:5], "... (truncated)")
-			}
-			fmt.Fprintf(f.IOStreams.Out, "Description:  %s\n", strings.Join(lines, "\n              "))
+	fmt.Fprintf(out, "Type:         %s\n", project.ProjectTypeKey)
+
+	if len(project.IssueTypes) > 0 {
+		names := make([]string, len(project.IssueTypes))
+		for i, it := range project.IssueTypes {
+			names[i] = it.Name
 		}
+		fmt.Fprintf(out, "Issue Types:  %s\n", strings.Join(names, ", "))
+	}
 
-		fmt.Fprintf(f.IOStreams.Out, "Type:         %s\n", project.ProjectTypeKey)
+	if project.URL != "" {
+		fmt.Fprintf(out, "URL:          %s\n", project.URL)
+	}
 
-		if len(project.IssueTypes) > 0 {
-			names := make([]string, len(project.IssueTypes))
-			for i, it := range project.IssueTypes {
-				names[i] = it.Name
-			}
-			fmt.Fprintf(f.IOStreams.Out, "Issue Types:  %s\n", strings.Join(names, ", "))
-		}
-
-		if project.URL != "" {
-			fmt.Fprintf(f.IOStreams.Out, "URL:          %s\n", project.URL)
-		}
-	})
+	return nil
 }

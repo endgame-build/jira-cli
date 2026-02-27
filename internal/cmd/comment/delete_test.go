@@ -260,6 +260,23 @@ func TestCommentDelete_DryRun_JSON(t *testing.T) {
 	}
 }
 
+func TestCommentDelete_DryRun_Quiet(t *testing.T) {
+	f, tio := newTestCommentDeleteFactory(t, commentDeleteHandler(t))
+	f.DryRun = true
+	f.Quiet = true
+
+	cmd := NewCmdDelete(f)
+	cmd.SetArgs([]string{"PROJ-123", "10042"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if out != "" {
+		t.Errorf("--quiet + --dry-run should produce no output, got: %s", out)
+	}
+}
+
 func TestCommentDelete_InvalidKey(t *testing.T) {
 	f, _ := newTestCommentDeleteFactory(t, commentDeleteHandler(t))
 

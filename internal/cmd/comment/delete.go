@@ -97,10 +97,9 @@ func runCommentDelete(opts *CommentDeleteOptions) error {
 	}
 
 	// Text output.
-	return formatter.OutputMutation(nil, func(tw table.Writer) {
-		fmt.Fprintf(f.IOStreams.Out, "Deleted comment %s from %s\n",
-			opts.CommentID, opts.IssueKey)
-	})
+	fmt.Fprintf(f.IOStreams.Out, "Deleted comment %s from %s\n",
+		opts.CommentID, opts.IssueKey)
+	return nil
 }
 
 // runCommentDeleteDryRun validates the comment exists and previews what would be deleted.
@@ -109,6 +108,10 @@ func runCommentDeleteDryRun(ctx context.Context, f *factory.Factory, client *api
 	comment, err := client.GetComment(ctx, issueKey, commentID)
 	if err != nil {
 		return err
+	}
+
+	if f.Quiet {
+		return nil
 	}
 
 	// Extract first line of body for preview.
@@ -130,8 +133,8 @@ func runCommentDeleteDryRun(ctx context.Context, f *factory.Factory, client *api
 		}, "passed (comment exists)", nil)
 	}
 
+	fmt.Fprintf(f.IOStreams.Out, "DRY RUN — comment delete preview\n\n")
 	return formatter.OutputDryRunWithContext(nil, nil, "", func(tw table.Writer) {
-		fmt.Fprintf(f.IOStreams.Out, "DRY RUN — comment delete preview\n\n")
 		tw.AppendRow(table.Row{"Issue", issueKey})
 		tw.AppendRow(table.Row{"Comment ID", commentID})
 		author := "Unknown"
@@ -144,6 +147,6 @@ func runCommentDeleteDryRun(ctx context.Context, f *factory.Factory, client *api
 			tw.AppendRow(table.Row{"Body", bodyPreview})
 		}
 		tw.AppendRow(table.Row{"Action", "delete comment"})
-		fmt.Fprintf(f.IOStreams.Out, "\nValidation: passed (comment exists)\n")
+		tw.AppendRow(table.Row{"Validation", "passed (comment exists)"})
 	})
 }
