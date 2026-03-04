@@ -20,3 +20,7 @@ ralph.sh
 
 # Reference files (too large for repo)
 swagger-v3.v3.txt
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
