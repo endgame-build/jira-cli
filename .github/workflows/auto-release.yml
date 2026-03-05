@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
   group: auto-release
@@ -28,21 +27,41 @@ jobs:
       - name: Install svu
         env:
           SVU_VERSION: "3.4.0"
+          SVU_SHA256: "f9fe4f0edb7d8cf4b0ecd84dd8ffa7e36186da6c701ab5fa59cb75a100a1705e"
         run: |
-          curl -fsSL "https://github.com/caarlos0/svu/releases/download/v${SVU_VERSION}/svu_${SVU_VERSION}_linux_amd64.tar.gz" | tar xz -C /usr/local/bin svu
+          set -euo pipefail
+          curl -fsSL "https://github.com/caarlos0/svu/releases/download/v${SVU_VERSION}/svu_${SVU_VERSION}_linux_amd64.tar.gz" -o /tmp/svu.tar.gz
+          echo "${SVU_SHA256}  /tmp/svu.tar.gz" | sha256sum -c -
+          tar xz -C /usr/local/bin svu < /tmp/svu.tar.gz
+          svu --version
 
       - name: Detect version bump
         id: version
         run: |
+          set -euo pipefail
+
           CURRENT=$(svu current)
           NEXT=$(svu next)
+          echo "svu current=$CURRENT next=$NEXT"
+
+          if [ -z "$CURRENT" ] || [ -z "$NEXT" ]; then
+            echo "::error::svu returned empty version (current='$CURRENT', next='$NEXT')"
+            exit 1
+          fi
 
           if [ "$CURRENT" != "$NEXT" ]; then
             echo "next=$NEXT" >> "$GITHUB_OUTPUT"
             echo "Version bump: $CURRENT → $NEXT"
           else
-            PATCH_TYPES="^(refactor|docs|chore|test|ci|build)(\(.+\))?!?:"
             COMMITS_SINCE=$(git log "${CURRENT}..HEAD" --format=%s --no-merges)
+            if [ -z "$COMMITS_SINCE" ]; then
+              echo "No commits since $CURRENT"
+              exit 0
+            fi
+
+            # Patch-bump types: everything except feat/fix (handled by svu) and breaking changes (!)
+            # Keep in sync with allowed types in CLAUDE.md
+            PATCH_TYPES="^(refactor|docs|chore|test|ci|build)(\(.+\))?:"
             QUALIFYING=$(echo "$COMMITS_SINCE" | grep -cE "$PATCH_TYPES" || true)
 
             if [ "$QUALIFYING" -gt 0 ]; then
@@ -63,10 +82,3 @@ jobs:
         run: |
           git tag "$NEXT_VERSION"
           git push origin "$NEXT_VERSION"
-
-      - name: Trigger release build
-        if: steps.version.outputs.next
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ steps.version.outputs.next }}
-        run: gh workflow run release.yml --ref "$TAG_NAME"
