@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: auto-release
@@ -23,6 +24,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Install svu
         env:
@@ -50,7 +52,6 @@ jobs:
           fi
 
           if [ "$CURRENT" != "$NEXT" ]; then
-            echo "next=$NEXT" >> "$GITHUB_OUTPUT"
             echo "Version bump: $CURRENT → $NEXT"
           else
             COMMITS_SINCE=$(git log "${CURRENT}..HEAD" --format=%s --no-merges)
@@ -68,17 +69,36 @@ jobs:
               CURRENT_BARE="${CURRENT#v}"
               IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_BARE"
               NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
-              echo "next=$NEXT" >> "$GITHUB_OUTPUT"
               echo "Patch bump (non-feat/fix): $CURRENT → $NEXT"
             else
               echo "No version bump detected ($CURRENT)"
+              exit 0
             fi
           fi
 
+          if ! [[ "$NEXT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version '$NEXT' does not match semver pattern"
+            exit 1
+          fi
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+
       - name: Create tag
+        id: tag
         if: steps.version.outputs.next
         env:
           NEXT_VERSION: ${{ steps.version.outputs.next }}
         run: |
+          if [ -n "$(git tag -l "$NEXT_VERSION")" ]; then
+            echo "Tag $NEXT_VERSION already exists, skipping"
+            exit 0
+          fi
           git tag "$NEXT_VERSION"
           git push origin "$NEXT_VERSION"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger release build
+        if: steps.tag.outputs.created
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.version.outputs.next }}
+        run: gh workflow run release.yml --ref "$TAG_NAME"
