@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
   group: auto-release
@@ -54,6 +53,10 @@ jobs:
           if [ "$CURRENT" != "$NEXT" ]; then
             echo "Version bump: $CURRENT → $NEXT"
           else
+            if ! git rev-parse "$CURRENT" >/dev/null 2>&1; then
+              echo "::error::Tag $CURRENT does not exist as a git ref"
+              exit 1
+            fi
             COMMITS_SINCE=$(git log "${CURRENT}..HEAD" --format=%s --no-merges)
             if [ -z "$COMMITS_SINCE" ]; then
               echo "::notice::No commits since $CURRENT, skipping release"
@@ -65,7 +68,10 @@ jobs:
             # Patch-bump types: everything except feat/fix (handled by svu) and breaking changes (!)
             # Keep in sync with allowed types in CLAUDE.md
             PATCH_TYPES="^(refactor|docs|chore|test|ci|build)(\(.+\))?:"
-            QUALIFYING=$(echo "$COMMITS_SINCE" | grep -cE "$PATCH_TYPES" || true)
+            QUALIFYING=$(echo "$COMMITS_SINCE" | grep -cE "$PATCH_TYPES") || {
+              rc=$?
+              if [ "$rc" -eq 1 ]; then QUALIFYING=0; else echo "::error::grep failed (exit $rc)"; exit 1; fi
+            }
 
             if [ "$QUALIFYING" -gt 0 ]; then
               CURRENT_BARE="${CURRENT#v}"
@@ -87,24 +93,21 @@ jobs:
           echo "next=$NEXT" >> "$GITHUB_OUTPUT"
 
       - name: Create tag
-        id: tag
         if: steps.version.outputs.next
         env:
           NEXT_VERSION: ${{ steps.version.outputs.next }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -n "$(git tag -l "$NEXT_VERSION")" ]; then
-            echo "::warning::Tag $NEXT_VERSION already exists, skipping tag creation"
-            echo "## Skipped: tag \`$NEXT_VERSION\` already exists" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            echo "::warning::Tag $NEXT_VERSION already exists, checking if release exists"
+            if gh release view "$NEXT_VERSION" >/dev/null 2>&1; then
+              echo "## Skipped: release \`$NEXT_VERSION\` already exists" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Tag exists but no release found, re-pushing to trigger release"
           fi
-          git tag "$NEXT_VERSION"
-          git push origin "$NEXT_VERSION"
-          echo "created=true" >> "$GITHUB_OUTPUT"
-
-      - name: Trigger release build
-        if: steps.tag.outputs.created
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ steps.version.outputs.next }}
-        run: gh workflow run release.yml --ref "$TAG_NAME"
+          git tag -f "$NEXT_VERSION"
+          git push --force origin "$NEXT_VERSION"
+          echo "## Release triggered" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pushed tag \`$NEXT_VERSION\`. Release workflow will run via \`push: tags\` trigger." >> "$GITHUB_STEP_SUMMARY"
