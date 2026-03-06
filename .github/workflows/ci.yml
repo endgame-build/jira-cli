@@ -29,6 +29,7 @@ jobs:
 
       - name: Check formatting
         run: |
+          set -euo pipefail
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
             echo "::error::Files not formatted with gofmt:"

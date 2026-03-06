@@ -56,7 +56,9 @@ jobs:
           else
             COMMITS_SINCE=$(git log "${CURRENT}..HEAD" --format=%s --no-merges)
             if [ -z "$COMMITS_SINCE" ]; then
-              echo "No commits since $CURRENT"
+              echo "::notice::No commits since $CURRENT, skipping release"
+              echo "## No release needed" >> "$GITHUB_STEP_SUMMARY"
+              echo "No new commits since \`$CURRENT\`." >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
 
@@ -71,7 +73,9 @@ jobs:
               NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
               echo "Patch bump (non-feat/fix): $CURRENT → $NEXT"
             else
-              echo "No version bump detected ($CURRENT)"
+              echo "::notice::No version bump detected ($CURRENT)"
+              echo "## No release needed" >> "$GITHUB_STEP_SUMMARY"
+              echo "No conventional commit types found since \`$CURRENT\`." >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
           fi
@@ -88,8 +92,10 @@ jobs:
         env:
           NEXT_VERSION: ${{ steps.version.outputs.next }}
         run: |
+          set -euo pipefail
           if [ -n "$(git tag -l "$NEXT_VERSION")" ]; then
-            echo "Tag $NEXT_VERSION already exists, skipping"
+            echo "::warning::Tag $NEXT_VERSION already exists, skipping tag creation"
+            echo "## Skipped: tag \`$NEXT_VERSION\` already exists" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           git tag "$NEXT_VERSION"
