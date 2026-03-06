@@ -1,6 +1,6 @@
 module github.com/endgame-build/jira-cli
 
-go 1.25.7
+go 1.26.1
 
 require (
 	github.com/adrg/xdg v0.5.3
@@ -12,6 +12,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.9
 	github.com/yuin/goldmark v1.7.16
 	github.com/zalando/go-keyring v0.2.6
 )
@@ -27,7 +28,6 @@ require (
 	github.com/itchyny/timefmt-go v0.1.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
-	github.com/spf13/pflag v1.0.9 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 )
