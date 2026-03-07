@@ -1,0 +1,124 @@
+name: Auto Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Install svu
+        env:
+          SVU_VERSION: "3.4.0"
+          SVU_SHA256: "f9fe4f0edb7d8cf4b0ecd84dd8ffa7e36186da6c701ab5fa59cb75a100a1705e"
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/caarlos0/svu/releases/download/v${SVU_VERSION}/svu_${SVU_VERSION}_linux_amd64.tar.gz" -o /tmp/svu.tar.gz
+          echo "${SVU_SHA256}  /tmp/svu.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf /tmp/svu.tar.gz -C "$HOME/.local/bin" svu
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/svu" --version
+
+      - name: Detect version bump
+        id: version
+        run: |
+          set -euo pipefail
+
+          CURRENT=$(svu current)
+          NEXT=$(svu next)
+          echo "svu current=$CURRENT next=$NEXT"
+
+          if [ -z "$CURRENT" ] || [ -z "$NEXT" ]; then
+            echo "::error::svu returned empty version (current='$CURRENT', next='$NEXT')"
+            exit 1
+          fi
+
+          if [ "$CURRENT" != "$NEXT" ]; then
+            echo "Version bump: $CURRENT → $NEXT"
+          else
+            if ! git rev-parse "$CURRENT" >/dev/null 2>&1; then
+              echo "::error::Tag $CURRENT does not exist as a git ref"
+              exit 1
+            fi
+            COMMITS_SINCE=$(git log "${CURRENT}..HEAD" --format=%s --no-merges)
+            if [ -z "$COMMITS_SINCE" ]; then
+              echo "::notice::No commits since $CURRENT, skipping release"
+              echo "## No release needed" >> "$GITHUB_STEP_SUMMARY"
+              echo "No new commits since \`$CURRENT\`." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
+            # Patch-bump types: everything except feat/fix (handled by svu) and breaking changes (!)
+            # Keep in sync with allowed types in CLAUDE.md
+            PATCH_TYPES="^(refactor|docs|chore|test|ci|build)(\(.+\))?:"
+            QUALIFYING=$(echo "$COMMITS_SINCE" | grep -cE "$PATCH_TYPES") || {
+              rc=$?
+              if [ "$rc" -eq 1 ]; then QUALIFYING=0; else echo "::error::grep failed (exit $rc)"; exit 1; fi
+            }
+
+            if [ "$QUALIFYING" -gt 0 ]; then
+              CURRENT_BARE="${CURRENT#v}"
+              IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_BARE"
+              NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+              echo "Patch bump (non-feat/fix): $CURRENT → $NEXT"
+            else
+              echo "::notice::No version bump detected ($CURRENT)"
+              echo "## No release needed" >> "$GITHUB_STEP_SUMMARY"
+              echo "No conventional commit types found since \`$CURRENT\`." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+
+          if ! [[ "$NEXT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version '$NEXT' does not match semver pattern"
+            exit 1
+          fi
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag
+        if: steps.version.outputs.next
+        env:
+          NEXT_VERSION: ${{ steps.version.outputs.next }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CURRENT_SHA="$(git rev-parse HEAD)"
+          EXISTING_TAG_SHA="$(git rev-parse -q --verify "refs/tags/$NEXT_VERSION^{commit}" 2>/dev/null || true)"
+          if [ -n "$EXISTING_TAG_SHA" ]; then
+            if [ "$EXISTING_TAG_SHA" != "$CURRENT_SHA" ]; then
+              echo "::error::Tag $NEXT_VERSION already exists and points to a different commit ($EXISTING_TAG_SHA) than HEAD ($CURRENT_SHA). Refusing to rewrite history."
+              exit 1
+            fi
+            echo "::warning::Tag $NEXT_VERSION already exists at HEAD ($CURRENT_SHA)"
+            if gh release view "$NEXT_VERSION" >/dev/null 2>&1; then
+              echo "## Skipped: release \`$NEXT_VERSION\` already exists" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Tag exists but no release found, triggering release workflow"
+            gh workflow run release.yml --field tag="$NEXT_VERSION"
+          else
+            git tag "$NEXT_VERSION"
+            git push origin "$NEXT_VERSION"
+          fi
+          echo "## Release triggered" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pushed tag \`$NEXT_VERSION\`. Release workflow will run via \`push: tags\` trigger." >> "$GITHUB_STEP_SUMMARY"
