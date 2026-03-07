@@ -30,4 +30,5 @@ require (
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
