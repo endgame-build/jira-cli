@@ -27,6 +27,11 @@ func (f *IssueFile) IsCreate() bool {
 	return tempKeyPattern.MatchString(f.Frontmatter.Key)
 }
 
+// IsTempKey returns true if the given key matches the temp key pattern.
+func IsTempKey(key string) bool {
+	return tempKeyPattern.MatchString(key)
+}
+
 // ParseFile reads a markdown file, splits YAML frontmatter from body, and validates.
 // Returns CLIError with VALIDATION_ERROR if frontmatter is missing or invalid.
 func ParseFile(path string) (*IssueFile, error) {
