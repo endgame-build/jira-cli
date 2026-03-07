@@ -182,3 +182,56 @@ Package: cmd/issue
 **Patterns**: Reused `newTestCreateFactory` helper from create_test.go (same package). Created `exportSearchHandler` that supports multi-page responses via a `pages [][]api.Issue` parameter — handler tracks `callCount` internally to serve different pages. Also reused `searchRequest` struct from list_test.go for decoding POST /search/jql.
 **Gotchas**: The `exportIssues()` helper provides fully populated `api.Issue` structs including `json.RawMessage` for ADF description — this ensures `TestExportFileContent` can verify the ADF→Markdown conversion in the exported file.
 ---
+
+## T-009 - Create jira issue import command
+Status: COMPLETED
+Package: cmd/issue
+
+### Changes
+- internal/cmd/issue/import.go — added ImportOptions, NewCmdImport, runImport, buildCreateFields, buildUpdateFields
+- internal/markdown/parse.go — added IsTempKey() exported function for temp key detection
+
+### Success Criteria
+- [x] SC 1 — Import command registered with correct flags and help text
+- [x] SC 2 — Positional args and --dir are mutually exclusive
+- [x] SC 3 — No args and no --dir returns validation error
+- [x] SC 4 — Creates require project and type in frontmatter, error if missing
+- [x] SC 5 — Creates build correct CreateIssueInput — description set as *adf.Node directly
+- [x] SC 6 — assignee_id maps to {accountId: ...}, missing assignee_id skips field
+- [x] SC 7 — Temp-to-temp parent references rejected with VALIDATION_ERROR
+- [x] SC 8 — Updates do NOT send type, project, parent, or status fields
+- [x] SC 9 — Updates fetch current issue and perform conflict check
+- [x] SC 10 — --force overrides conflict detection
+- [x] SC 11 — Stop-on-first-error behavior
+- [x] SC 12 — JSON output includes results array with action/key/temp_key/url and browse URLs
+- [x] SC 13 — Typecheck passes, verified by go vet + go build
+
+### Learnings
+**Patterns**: Import follows the same factory DI pattern as create/edit. Two code paths (create vs update) separated cleanly by `IsCreate()`. `buildCreateFields` and `buildUpdateFields` extract field map construction, mirroring the shapes from create.go. Added `IsTempKey()` to markdown package as an exported helper for temp key detection (used for parent validation).
+**Gotchas**: Conflict check compares `Frontmatter.Updated` vs `current.Fields.Updated` as plain strings — both sides must be non-empty for the check to trigger, so newly created issues (empty updated) skip conflict detection naturally.
+---
+
+## T-010 - Add tests for jira issue import command
+Status: COMPLETED
+Package: cmd/issue
+
+### Changes
+- internal/cmd/issue/import_test.go — 18 tests covering all import functionality
+
+### Success Criteria
+- [x] SC 1 — Create test verifies correct API payload (TestImportCreate: ADF *adf.Node in fields map)
+- [x] SC 2 — assignee_id mapping tested (TestImportCreateWithAssignee + TestImportCreateWithoutAssignee)
+- [x] SC 3 — Temp-to-temp parent reference rejection tested (TestImportTempToTempParent)
+- [x] SC 4 — Missing project/type on create returns validation error (TestImportCreateMissingProject + TestImportCreateMissingType)
+- [x] SC 5 — No args and no --dir returns validation error (TestImportNoArgsNoDir)
+- [x] SC 6 — Conflict detection tested (TestImportConflictMismatch, TestImportConflictMatching, TestImportConflictEmptyTimestamp)
+- [x] SC 7 — --force override tested (TestImportForceOverride)
+- [x] SC 8 — --dry-run prevents API calls (TestImportDryRun)
+- [x] SC 9 — Stop-on-first-error tested (TestImportStopOnFirstError)
+- [x] SC 10 — Mixed create + update scenario works (TestImportMixed with JSON output)
+- [x] SC 11 — Tests pass (18/18 passing)
+
+### Learnings
+**Patterns**: Created `newTestImportFactory` (simpler than `newTestCreateFactory` — no config needed) and `importHandler` with configurable `getIssueUpdated` parameter for conflict tests. Used `writeImportFile` helper for creating temp markdown files. Tested via both `cmd.Execute()` (for arg validation) and `runImport()` (for logic tests).
+**Gotchas**: Cobra's `cmd.Execute()` prints error + usage to stderr, so validation tests through `cmd.Execute()` should only check error code, not stderr content. The `importHandler` GET endpoint strips `/issue/` prefix to extract key for dynamic responses.
+---
