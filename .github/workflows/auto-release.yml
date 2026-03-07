@@ -115,10 +115,12 @@ jobs:
               exit 0
             fi
             echo "Tag exists but no release found, triggering release workflow"
-            gh workflow run release.yml --field tag="$NEXT_VERSION"
           else
             git tag "$NEXT_VERSION"
             git push origin "$NEXT_VERSION"
           fi
+          # GITHUB_TOKEN push events don't trigger other workflows, so
+          # explicitly dispatch the release workflow via API.
+          gh workflow run release.yml --field tag="$NEXT_VERSION"
           echo "## Release triggered" >> "$GITHUB_STEP_SUMMARY"
-          echo "Pushed tag \`$NEXT_VERSION\`. Release workflow will run via \`push: tags\` trigger." >> "$GITHUB_STEP_SUMMARY"
+          echo "Tagged \`$NEXT_VERSION\` and dispatched release workflow." >> "$GITHUB_STEP_SUMMARY"
