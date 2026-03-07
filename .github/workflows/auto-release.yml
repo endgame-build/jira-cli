@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: auto-release
@@ -33,8 +34,10 @@ jobs:
           set -euo pipefail
           curl -fsSL "https://github.com/caarlos0/svu/releases/download/v${SVU_VERSION}/svu_${SVU_VERSION}_linux_amd64.tar.gz" -o /tmp/svu.tar.gz
           echo "${SVU_SHA256}  /tmp/svu.tar.gz" | sha256sum -c -
-          tar xz -C /usr/local/bin svu < /tmp/svu.tar.gz
-          svu --version
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf /tmp/svu.tar.gz -C "$HOME/.local/bin" svu
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/svu" --version
 
       - name: Detect version bump
         id: version
@@ -99,15 +102,23 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -n "$(git tag -l "$NEXT_VERSION")" ]; then
-            echo "::warning::Tag $NEXT_VERSION already exists, checking if release exists"
+          CURRENT_SHA="$(git rev-parse HEAD)"
+          EXISTING_TAG_SHA="$(git rev-parse -q --verify "refs/tags/$NEXT_VERSION^{commit}" 2>/dev/null || true)"
+          if [ -n "$EXISTING_TAG_SHA" ]; then
+            if [ "$EXISTING_TAG_SHA" != "$CURRENT_SHA" ]; then
+              echo "::error::Tag $NEXT_VERSION already exists and points to a different commit ($EXISTING_TAG_SHA) than HEAD ($CURRENT_SHA). Refusing to rewrite history."
+              exit 1
+            fi
+            echo "::warning::Tag $NEXT_VERSION already exists at HEAD ($CURRENT_SHA)"
             if gh release view "$NEXT_VERSION" >/dev/null 2>&1; then
               echo "## Skipped: release \`$NEXT_VERSION\` already exists" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            echo "Tag exists but no release found, re-pushing to trigger release"
+            echo "Tag exists but no release found, triggering release workflow"
+            gh workflow run release.yml --field tag="$NEXT_VERSION"
+          else
+            git tag "$NEXT_VERSION"
+            git push origin "$NEXT_VERSION"
           fi
-          git tag -f "$NEXT_VERSION"
-          git push --force origin "$NEXT_VERSION"
           echo "## Release triggered" >> "$GITHUB_STEP_SUMMARY"
           echo "Pushed tag \`$NEXT_VERSION\`. Release workflow will run via \`push: tags\` trigger." >> "$GITHUB_STEP_SUMMARY"
