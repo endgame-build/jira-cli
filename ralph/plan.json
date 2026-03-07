@@ -71,7 +71,7 @@
       ],
       "dependsOn": ["T-001", "T-002"],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
