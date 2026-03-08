@@ -73,7 +73,7 @@ func runExport(opts *ExportOptions) error {
 
 	// Iterate pages, writing files as we go.
 	var exported int
-	var files []string
+	files := []string{}
 	token := ""
 
 	for {

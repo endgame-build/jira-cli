@@ -177,14 +177,9 @@ func TestSanitizeFilenameLongTruncation(t *testing.T) {
 	if len(got) > 100 {
 		t.Errorf("SanitizeFilename should truncate to max 100 chars, got %d", len(got))
 	}
-	// Should be 99 'a's + ' ' = 100, then trimmed to 99 'a's + space → trimmed to "aaa...a"
-	// Actually: 99 'a' + " b" = 101 → truncated to 100 → "aaa...a " → trimmed → "aaa...a"
-	if got != repeat("a", 99)+" " {
-		// Actually the truncation at 100 gives us 99 'a's + ' ', then TrimSpace gives 99 'a's
-		// Let's just check length
-	}
-	if len(got) > 100 {
-		t.Errorf("result should be at most 100 chars")
+	// 99 'a' + " b" = 101 → truncated to 100 → "aaa...a " → TrimSpace → 99 'a's
+	if want := repeat("a", 99); got != want {
+		t.Errorf("SanitizeFilename(%q) = %q, want %q", input, got, want)
 	}
 }
 

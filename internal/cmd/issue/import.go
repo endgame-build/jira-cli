@@ -144,7 +144,7 @@ func runImport(opts *ImportOptions) error {
 		}
 	}
 
-	var results []importResult
+	results := []importResult{}
 
 	// Process creates first.
 	for _, issueFile := range creates {
