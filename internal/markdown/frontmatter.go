@@ -3,6 +3,7 @@ package markdown
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 
 	"github.com/endgame-build/jira-cli/internal/adf"
 	"github.com/endgame-build/jira-cli/internal/api"
@@ -82,7 +83,10 @@ func IssueToMarkdown(issue api.Issue) ([]byte, error) {
 	buf.Write(yamlBytes)
 	buf.WriteString("---\n")
 
-	body := adf.ToMarkdown(json.RawMessage(issue.Fields.Description))
+	body, err := adf.ToMarkdown(json.RawMessage(issue.Fields.Description))
+	if err != nil {
+		return nil, fmt.Errorf("convert description for %s: %w", issue.Key, err)
+	}
 	if body != "" {
 		buf.WriteString(body)
 		buf.WriteString("\n")

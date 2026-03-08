@@ -3,6 +3,7 @@ package issue
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -24,9 +25,17 @@ type ImportOptions struct {
 	Force bool     // --force: overwrite on conflict
 }
 
+// Import action constants for importResult.Action.
+const (
+	actionCreate  = "create"  // dry-run preview
+	actionUpdate  = "update"  // dry-run preview
+	actionCreated = "created" // real operation completed
+	actionUpdated = "updated" // real operation completed
+)
+
 // importResult tracks the outcome of a single import operation.
 type importResult struct {
-	Action  string `json:"action"`             // "created" or "updated"
+	Action  string `json:"action"`             // one of the action* constants
 	Key     string `json:"key"`                // real issue key
 	TempKey string `json:"temp_key,omitempty"` // original temp key for creates
 	URL     string `json:"url"`                // browse URL
@@ -87,12 +96,6 @@ func runImport(opts *ImportOptions) error {
 	}
 
 	// Validate: temp-to-temp parent references.
-	tempKeys := make(map[string]bool)
-	for _, issueFile := range issueFiles {
-		if issueFile.IsCreate() {
-			tempKeys[issueFile.Frontmatter.Key] = true
-		}
-	}
 	for _, issueFile := range issueFiles {
 		if issueFile.Frontmatter.Parent != "" && markdown.IsTempKey(issueFile.Frontmatter.Parent) {
 			return clierrors.NewValidationError(
@@ -105,6 +108,11 @@ func runImport(opts *ImportOptions) error {
 	// Validate creates have required fields.
 	for _, issueFile := range issueFiles {
 		if issueFile.IsCreate() {
+			if issueFile.Frontmatter.Summary == "" {
+				return clierrors.NewValidationError(
+					fmt.Sprintf("missing required field 'summary' for create in %s", issueFile.Path),
+				).WithSuggestion("Add 'summary: ...' to the YAML frontmatter")
+			}
 			if issueFile.Frontmatter.Project == "" {
 				return clierrors.NewValidationError(
 					fmt.Sprintf("missing required field 'project' for create in %s", issueFile.Path),
@@ -139,7 +147,7 @@ func runImport(opts *ImportOptions) error {
 	for _, issueFile := range creates {
 		if f.DryRun {
 			results = append(results, importResult{
-				Action:  "create",
+				Action:  actionCreate,
 				Key:     "(pending)",
 				TempKey: issueFile.Frontmatter.Key,
 			})
@@ -166,11 +174,12 @@ func runImport(opts *ImportOptions) error {
 
 		created, err := client.CreateIssue(ctx, input)
 		if err != nil {
+			emitPartialResults(f.IOStreams.Err, results)
 			return err
 		}
 
 		results = append(results, importResult{
-			Action:  "created",
+			Action:  actionCreated,
 			Key:     created.Key,
 			TempKey: issueFile.Frontmatter.Key,
 			URL:     client.BrowseURL(created.Key),
@@ -183,7 +192,7 @@ func runImport(opts *ImportOptions) error {
 
 		if f.DryRun {
 			results = append(results, importResult{
-				Action: "update",
+				Action: actionUpdate,
 				Key:    key,
 			})
 			continue
@@ -194,12 +203,15 @@ func runImport(opts *ImportOptions) error {
 			Fields: []string{"updated"},
 		})
 		if err != nil {
+			emitPartialResults(f.IOStreams.Err, results)
 			return err
 		}
 
 		// Conflict check: compare updated timestamps.
-		if !opts.Force && issueFile.Frontmatter.Updated != "" && current.Fields.Updated != "" {
-			if issueFile.Frontmatter.Updated != current.Fields.Updated {
+		if !opts.Force {
+			if issueFile.Frontmatter.Updated == "" {
+				fmt.Fprintf(f.IOStreams.Err, "Warning: no 'updated' timestamp in %s; conflict detection skipped\n", issueFile.Path)
+			} else if current.Fields.Updated != "" && issueFile.Frontmatter.Updated != current.Fields.Updated {
 				return clierrors.NewConflictError(
 					fmt.Sprintf("conflict on %s: local updated=%s, remote updated=%s",
 						key, issueFile.Frontmatter.Updated, current.Fields.Updated),
@@ -225,11 +237,12 @@ func runImport(opts *ImportOptions) error {
 		}
 
 		if err := client.EditIssue(ctx, key, input); err != nil {
+			emitPartialResults(f.IOStreams.Err, results)
 			return err
 		}
 
 		results = append(results, importResult{
-			Action: "updated",
+			Action: actionUpdated,
 			Key:    key,
 			URL:    client.BrowseURL(key),
 		})
@@ -254,11 +267,7 @@ func runImport(opts *ImportOptions) error {
 		return formatter.OutputDryRun(nil, "", func(tw table.Writer) {
 			fmt.Fprintf(f.IOStreams.Out, "DRY RUN — import preview\n\n")
 			for _, r := range results {
-				fmt.Fprintf(f.IOStreams.Out, "  %s %s", r.Action, r.Key)
-				if r.TempKey != "" {
-					fmt.Fprintf(f.IOStreams.Out, " (from %s)", r.TempKey)
-				}
-				fmt.Fprintln(f.IOStreams.Out)
+				writeResultLine(f.IOStreams.Out, r)
 			}
 			fmt.Fprintf(f.IOStreams.Out, "\nWould process %d creates, %d updates\n", len(creates), len(updates))
 		})
@@ -268,7 +277,7 @@ func runImport(opts *ImportOptions) error {
 		created := 0
 		updated := 0
 		for _, r := range results {
-			if r.Action == "created" {
+			if r.Action == actionCreated {
 				created++
 			} else {
 				updated++
@@ -338,4 +347,25 @@ func buildUpdateFields(issueFile *markdown.IssueFile) map[string]interface{} {
 	}
 
 	return fields
+}
+
+// writeResultLine writes a single import result line to w.
+func writeResultLine(w io.Writer, r importResult) {
+	fmt.Fprintf(w, "  %s %s", r.Action, r.Key)
+	if r.TempKey != "" {
+		fmt.Fprintf(w, " (from %s)", r.TempKey)
+	}
+	fmt.Fprintln(w)
+}
+
+// emitPartialResults writes completed import results to stderr before an error return,
+// so the user knows which operations succeeded before the failure.
+func emitPartialResults(w io.Writer, results []importResult) {
+	if len(results) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nPartial import: %d operations completed before error:\n", len(results))
+	for _, r := range results {
+		writeResultLine(w, r)
+	}
 }

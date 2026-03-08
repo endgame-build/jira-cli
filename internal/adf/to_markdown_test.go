@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+func TestToMarkdownInvalidJSON(t *testing.T) {
+	_, err := ToMarkdown(json.RawMessage(`not valid json`))
+	if err == nil {
+		t.Fatal("expected error for invalid JSON, got nil")
+	}
+}
+
 func TestToMarkdown(t *testing.T) {
 	tests := []struct {
 		name string
@@ -21,11 +28,6 @@ func TestToMarkdown(t *testing.T) {
 			name: "empty input",
 			doc:  json.RawMessage{},
 			want: "",
-		},
-		{
-			name: "invalid JSON returns raw string",
-			doc:  json.RawMessage(`not valid json`),
-			want: "not valid json",
 		},
 		{
 			name: "empty document",
@@ -301,7 +303,10 @@ func TestToMarkdown(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ToMarkdown(tt.doc)
+			got, err := ToMarkdown(tt.doc)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if got != tt.want {
 				t.Errorf("ToMarkdown():\ngot:  %q\nwant: %q", got, tt.want)
 			}
@@ -393,7 +398,10 @@ func TestToMarkdownRoundTrip(t *testing.T) {
 			rawADF := mustMarshal(tt.doc)
 
 			// Step 2: ADF JSON → Markdown
-			md := ToMarkdown(rawADF)
+			md, err := ToMarkdown(rawADF)
+			if err != nil {
+				t.Fatalf("ToMarkdown error: %v", err)
+			}
 			if md == "" {
 				t.Fatal("ToMarkdown returned empty string")
 			}

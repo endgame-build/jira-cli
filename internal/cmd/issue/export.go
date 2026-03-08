@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/endgame-build/jira-cli/internal/api"
+	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/factory"
 	"github.com/endgame-build/jira-cli/internal/markdown"
 	"github.com/endgame-build/jira-cli/internal/output"
@@ -181,29 +182,29 @@ func buildExportJQL(f *factory.Factory, opts *ExportOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("project = %q ORDER BY key ASC", project), nil
+	return fmt.Sprintf("project = '%s' ORDER BY key ASC", project), nil
 }
 
 // writeFileAtomic writes an issue to a markdown file using temp-then-rename.
 func writeFileAtomic(path string, issue api.Issue) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create directory %s: %w", dir, err)
+		return clierrors.NewGeneralError(fmt.Sprintf("create directory %s", dir)).WithErr(err)
 	}
 
 	data, err := markdown.IssueToMarkdown(issue)
 	if err != nil {
-		return fmt.Errorf("convert issue %s to markdown: %w", issue.Key, err)
+		return clierrors.NewGeneralError(fmt.Sprintf("convert issue %s to markdown", issue.Key)).WithErr(err)
 	}
 
 	tmpPath := path + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		return fmt.Errorf("write temp file %s: %w", tmpPath, err)
+		return clierrors.NewGeneralError(fmt.Sprintf("write temp file %s", tmpPath)).WithErr(err)
 	}
 
 	if err := os.Rename(tmpPath, path); err != nil {
 		os.Remove(tmpPath) // best-effort cleanup
-		return fmt.Errorf("rename %s to %s: %w", tmpPath, path, err)
+		return clierrors.NewGeneralError(fmt.Sprintf("rename %s to %s", tmpPath, path)).WithErr(err)
 	}
 
 	return nil

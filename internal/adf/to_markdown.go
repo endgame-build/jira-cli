@@ -11,21 +11,22 @@ import (
 // produces standard CommonMark Markdown with proper syntax for headings,
 // lists, code blocks, inline marks, etc.
 //
-// Returns empty string for nil/empty input. Returns the raw string as fallback
-// for invalid JSON (same rationale as ExtractText — raw text beats empty).
-func ToMarkdown(raw json.RawMessage) string {
+// Returns empty string for nil/empty input. Returns an error for invalid JSON
+// rather than silently falling back, since this feeds a file-writing pipeline
+// where data integrity matters.
+func ToMarkdown(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 {
-		return ""
+		return "", nil
 	}
 
 	var root Node
 	if err := json.Unmarshal(raw, &root); err != nil {
-		return string(raw)
+		return "", fmt.Errorf("invalid ADF document: %w", err)
 	}
 
 	var sb strings.Builder
 	mdRenderNode(&sb, &root, 0)
-	return strings.TrimRight(sb.String(), "\n")
+	return strings.TrimRight(sb.String(), "\n"), nil
 }
 
 // mdRenderNode recursively walks the ADF tree, producing Markdown output.
@@ -60,14 +61,8 @@ func mdRenderNode(sb *strings.Builder, n *Node, depth int) {
 		sb.WriteString("\n")
 
 	case TypeParagraph:
-		if depth > 0 {
-			// Inside a list item — no extra blank line
-			mdRenderInline(sb, n)
-			sb.WriteString("\n")
-		} else {
-			mdRenderInline(sb, n)
-			sb.WriteString("\n")
-		}
+		mdRenderInline(sb, n)
+		sb.WriteString("\n")
 
 	case TypeBulletList:
 		for _, child := range n.Content {

@@ -50,9 +50,10 @@ func SanitizeFilename(name string) string {
 
 	name = strings.TrimSpace(name)
 
-	// Enforce max length
-	if len(name) > 100 {
-		name = name[:100]
+	// Enforce max length (by rune to avoid splitting multi-byte UTF-8)
+	runes := []rune(name)
+	if len(runes) > 100 {
+		name = string(runes[:100])
 		name = strings.TrimSpace(name)
 	}
 

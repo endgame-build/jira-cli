@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -437,13 +438,11 @@ func TestExportProgressStderr(t *testing.T) {
 	// Create 100 issues to trigger progress reporting (every 50).
 	issues := make([]api.Issue, 100)
 	for i := range issues {
-		key := "PROJ-" + strings.Repeat("0", 3-len(string(rune('0'+i%10)))) + string(rune('0'+i%10))
-		_ = key
 		issues[i] = api.Issue{
 			ID:  string(rune('0' + i)),
-			Key: "PROJ-" + itoa(i+1),
+			Key: "PROJ-" + strconv.Itoa(i+1),
 			Fields: api.IssueFields{
-				Summary: "Issue " + itoa(i+1),
+				Summary: "Issue " + strconv.Itoa(i+1),
 				Project: &api.Project{ID: "1001", Key: "PROJ", Name: "Project"},
 			},
 		}
@@ -470,17 +469,4 @@ func TestExportProgressStderr(t *testing.T) {
 	if !strings.Contains(errOut, "Exported 100 issues") {
 		t.Errorf("expected progress at 100 issues in stderr, got: %s", errOut)
 	}
-}
-
-// itoa is a simple int-to-string converter for test data.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
 }

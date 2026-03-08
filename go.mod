@@ -15,6 +15,7 @@ require (
 	github.com/spf13/pflag v1.0.9
 	github.com/yuin/goldmark v1.7.16
 	github.com/zalando/go-keyring v0.2.6
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -30,5 +31,4 @@ require (
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
