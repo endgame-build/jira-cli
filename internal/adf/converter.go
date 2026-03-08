@@ -20,7 +20,7 @@ func Convert(markdown string) (*Node, error) {
 	source := []byte(markdown)
 
 	md := goldmark.New(
-		goldmark.WithExtensions(extension.Strikethrough),
+		goldmark.WithExtensions(extension.Strikethrough, extension.Table),
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 	)
 	reader := text.NewReader(source)
@@ -106,6 +106,16 @@ func (c *converter) convertNode(n ast.Node, source []byte) *Node {
 		return Rule()
 
 	default:
+		// GFM table extension nodes
+		switch n.Kind() {
+		case east.KindTable:
+			return c.convertTable(n, source)
+		case east.KindTableHeader:
+			return c.convertTableRow(n, source, true)
+		case east.KindTableRow:
+			return c.convertTableRow(n, source, false)
+		}
+
 		// For unknown block-level nodes, try to extract children.
 		if n.HasChildren() {
 			content := c.convertChildren(n, source)
@@ -233,6 +243,33 @@ func (c *converter) extractInlineCodeText(n ast.Node, source []byte) string {
 		}
 	}
 	return string(buf)
+}
+
+// convertTable converts a GFM table AST node to an ADF table.
+func (c *converter) convertTable(n ast.Node, source []byte) *Node {
+	var rows []*Node
+	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+		if row := c.convertNode(child, source); row != nil {
+			rows = append(rows, row)
+		}
+	}
+	return Table(rows...)
+}
+
+// convertTableRow converts a GFM table header or row to an ADF tableRow.
+// Header cells become tableHeader nodes; body cells become tableCell nodes.
+func (c *converter) convertTableRow(n ast.Node, source []byte, isHeader bool) *Node {
+	var cells []*Node
+	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+		content := c.convertInlineChildren(child, source, nil)
+		para := Paragraph(content...)
+		if isHeader {
+			cells = append(cells, TableHeader(para))
+		} else {
+			cells = append(cells, TableCell(para))
+		}
+	}
+	return TableRow(cells...)
 }
 
 // copyMarks returns a copy of the marks slice to prevent mutation.

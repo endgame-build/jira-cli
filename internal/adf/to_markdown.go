@@ -119,6 +119,9 @@ func mdRenderNode(sb *strings.Builder, n *Node, depth int) {
 			mdRenderBlockquoteChild(sb, child)
 		}
 
+	case TypeTable:
+		mdRenderTable(sb, n)
+
 	case TypeRule:
 		sb.WriteString("---\n")
 
@@ -195,6 +198,47 @@ func mdRenderBlockquoteChild(sb *strings.Builder, child *Node) {
 			sb.WriteString("> ")
 			sb.WriteString(line)
 			sb.WriteString("\n")
+		}
+	}
+}
+
+// mdRenderTable renders an ADF table as a GFM Markdown table.
+func mdRenderTable(sb *strings.Builder, n *Node) {
+	if len(n.Content) == 0 {
+		return
+	}
+
+	for i, row := range n.Content {
+		if row.Type != TypeTableRow {
+			continue
+		}
+		sb.WriteString("|")
+		for _, cell := range row.Content {
+			sb.WriteString(" ")
+			mdRenderCellInline(sb, cell)
+			sb.WriteString(" |")
+		}
+		sb.WriteString("\n")
+
+		// After the first row (header), write the separator line
+		if i == 0 {
+			sb.WriteString("|")
+			for range row.Content {
+				sb.WriteString("---|")
+			}
+			sb.WriteString("\n")
+		}
+	}
+}
+
+// mdRenderCellInline renders the inline content of a table cell.
+// Cells contain block nodes (typically paragraphs); we extract inline text.
+func mdRenderCellInline(sb *strings.Builder, cell *Node) {
+	for _, child := range cell.Content {
+		if child.Type == TypeParagraph {
+			mdRenderInline(sb, child)
+		} else {
+			mdRenderFallbackText(sb, child)
 		}
 	}
 }

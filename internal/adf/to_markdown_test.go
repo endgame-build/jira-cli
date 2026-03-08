@@ -235,24 +235,36 @@ func TestToMarkdown(t *testing.T) {
 			want: "`**cmd**`",
 		},
 
+		// --- Table ---
+		{
+			name: "table with header and rows",
+			doc: mustMarshal(Document(
+				Table(
+					TableRow(
+						TableHeader(Paragraph(Text("Name"))),
+						TableHeader(Paragraph(Text("Value"))),
+					),
+					TableRow(
+						TableCell(Paragraph(Text("foo"))),
+						TableCell(Paragraph(Text("bar"))),
+					),
+					TableRow(
+						TableCell(Paragraph(Text("baz"))),
+						TableCell(Paragraph(Text("qux"))),
+					),
+				),
+			)),
+			want: "| Name | Value |\n|---|---|\n| foo | bar |\n| baz | qux |",
+		},
+
 		// --- Unknown node type fallback ---
 		{
 			name: "unknown node type extracts text",
 			doc: func() json.RawMessage {
 				n := &Node{
-					Type: "table",
+					Type: "panel",
 					Content: []*Node{
-						{
-							Type: "tableRow",
-							Content: []*Node{
-								{
-									Type: "tableCell",
-									Content: []*Node{
-										Paragraph(Text("cell content")),
-									},
-								},
-							},
-						},
+						Paragraph(Text("cell content")),
 					},
 				}
 				doc := Document(n)
