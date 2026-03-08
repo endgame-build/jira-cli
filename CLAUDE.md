@@ -75,7 +75,7 @@ All errors use `CLIError` (code, message, context, suggestion). Codes map to exi
 
 ### ADF
 
-`internal/adf`: Markdown → ADF (create/edit), ADF → plaintext via `ToPlaintext` (display).
+`internal/adf`: Markdown → ADF (create/edit), ADF → Markdown via `ToMarkdown` (display), ADF → plaintext via `ToPlaintext` (fallback).
 
 ### Shared utilities
 

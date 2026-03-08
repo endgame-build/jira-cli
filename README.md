@@ -18,6 +18,8 @@ jira search "project = PROJ AND status = Open" --limit 10
 - **Markdown input** — write descriptions and comments in Markdown; the CLI converts them to Atlassian Document Format
 - **JQL support** — raw JQL via `jira search` or flag-based filtering via `jira issue list`
 - **Inline filtering** — `--jq` flag extracts fields directly in the CLI
+- **Bulk export/import** — round-trip issues to markdown files with YAML frontmatter
+- **Aliases** — save frequently used commands as shortcuts
 
 ## Install
 
@@ -66,6 +68,109 @@ jira search "project = PROJ AND assignee = currentUser()" --json
 jira issue list --assignee @me
 ```
 
+## Commands
+
+### Issues
+
+```sh
+jira issue view <key-or-id>            # View issue details (--web to open in browser)
+jira issue create                      # Create an issue (--project, --type, --summary required)
+jira issue edit <key-or-id>            # Edit fields (--summary, --priority, --add-labels, etc.)
+jira issue delete <key-or-id> --yes    # Delete an issue (requires --yes to confirm)
+jira issue move <key-or-id> <status>   # Transition to a new status
+jira issue assign <key-or-id> <user>   # Assign (display name, account ID, or @me)
+jira issue assign <key-or-id> --unassign  # Remove assignee
+jira issue list                        # List issues (--project, --assignee, --status, --sort)
+jira issue transitions <key-or-id>     # Show available workflow transitions
+jira issue export                      # Export issues to markdown files (--project or --jql)
+jira issue import <files...>           # Create/update issues from markdown files (--dir)
+```
+
+### Search
+
+```sh
+jira search "<jql>"                    # Search with raw JQL (--limit, --fields)
+```
+
+### Comments
+
+```sh
+jira comment list <issue-key>          # List comments on an issue
+jira comment add <issue-key>           # Add a comment (--body or --body-file)
+jira comment edit <issue-key> <id>     # Edit a comment
+jira comment delete <issue-key> <id>   # Delete a comment (requires --yes)
+```
+
+### Projects
+
+```sh
+jira project list                      # List all projects
+jira project view <key-or-id>          # View project details
+```
+
+### Users
+
+```sh
+jira user me                           # Show authenticated user
+jira user search <query>               # Search for users by name or email
+```
+
+### Schema
+
+```sh
+jira schema fields                     # List all fields
+jira schema types                      # List issue types
+jira schema statuses                   # List statuses
+jira schema priorities                 # List priorities
+jira schema labels                     # List labels
+```
+
+### Config
+
+```sh
+jira config set <key> <value>          # Set a config value
+jira config get <key>                  # Get a config value
+jira config list                       # List all config values
+```
+
+### Aliases
+
+```sh
+jira alias set <name> <command>        # Create or update an alias
+jira alias list                        # List all aliases
+```
+
+### Auth
+
+```sh
+jira auth login                        # Store credentials (--instance, --user, --token)
+jira auth logout --yes                 # Remove stored credentials
+jira auth status                       # Show current authentication
+jira auth switch <profile>             # Switch active profile
+```
+
+### Meta
+
+```sh
+jira meta version                      # Show CLI version and build info
+jira meta commands                     # List all commands (machine-readable)
+```
+
+## Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output in JSON format |
+| `--jq <expr>` | Filter JSON output with a jq expression (implies `--json`) |
+| `--text` | Force text output (overrides `output.format` config) |
+| `--quiet` / `-q` | Suppress non-essential output |
+| `--dry-run` | Preview changes without executing |
+| `--no-color` | Disable color output |
+| `--profile <name>` | Use a named authentication profile |
+| `--instance <url>` | Override Jira instance URL |
+| `--user <email>` | Override Jira user email |
+| `--token <token>` | Override Jira API token |
+
 ## Configuration
 
 The CLI stores config at `$XDG_CONFIG_HOME/jira-cli/config.toml` (`~/.config/jira-cli/` on Linux, `~/Library/Application Support/jira-cli/` on macOS). Set defaults to avoid repeating flags:
@@ -84,6 +189,23 @@ export JIRA_TOKEN=$JIRA_API_TOKEN
 
 jira issue create --project PROJ --type Bug --summary "Build failed" --json
 ```
+
+## Export / Import
+
+Round-trip issues between Jira and local markdown files:
+
+```sh
+# Export all issues from a project
+jira issue export --project PROJ --output-dir ./issues
+
+# Edit markdown files locally, then push changes back
+jira issue import ./issues/PROJ/*.md
+
+# Import from a directory
+jira issue import --dir ./issues/PROJ
+```
+
+Exported files use YAML frontmatter for metadata (key, type, status, priority, labels, assignee) and Markdown body for the description. Files with temporary keys (`PROJ-NEW-1`) create new issues; files with real keys update existing ones.
 
 ## Error Codes
 
