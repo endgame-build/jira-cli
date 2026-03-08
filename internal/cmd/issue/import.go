@@ -25,20 +25,23 @@ type ImportOptions struct {
 	Force bool     // --force: overwrite on conflict
 }
 
+// importAction is a typed constant for import result actions.
+type importAction string
+
 // Import action constants for importResult.Action.
 const (
-	actionCreate  = "create"  // dry-run preview
-	actionUpdate  = "update"  // dry-run preview
-	actionCreated = "created" // real operation completed
-	actionUpdated = "updated" // real operation completed
+	actionCreate  importAction = "create"  // dry-run preview
+	actionUpdate  importAction = "update"  // dry-run preview
+	actionCreated importAction = "created" // real operation completed
+	actionUpdated importAction = "updated" // real operation completed
 )
 
 // importResult tracks the outcome of a single import operation.
 type importResult struct {
-	Action  string `json:"action"`             // one of the action* constants
-	Key     string `json:"key"`                // real issue key
-	TempKey string `json:"temp_key,omitempty"` // original temp key for creates
-	URL     string `json:"url"`                // browse URL
+	Action  importAction `json:"action"`             // one of the action* constants
+	Key     string       `json:"key"`                // real issue key
+	TempKey string       `json:"temp_key,omitempty"` // original temp key for creates
+	URL     string       `json:"url"`                // browse URL
 }
 
 // NewCmdImport creates the "issue import" command.
@@ -156,16 +159,8 @@ func runImport(opts *ImportOptions) error {
 
 		fields := buildCreateFields(issueFile)
 
-		// Description: Markdown → ADF.
-		if issueFile.Description != "" {
-			adfDoc, err := adf.Convert(issueFile.Description)
-			if err != nil {
-				return clierrors.NewValidationError(
-					fmt.Sprintf("failed to convert description to ADF for %s: %v",
-						issueFile.Frontmatter.Key, err),
-				)
-			}
-			fields["description"] = adfDoc
+		if err := setDescriptionADF(fields, issueFile.Description, issueFile.Frontmatter.Key); err != nil {
+			return err
 		}
 
 		input := &api.CreateIssueInput{
@@ -198,17 +193,16 @@ func runImport(opts *ImportOptions) error {
 			continue
 		}
 
-		// Fetch current issue for conflict check.
-		current, err := client.GetIssue(ctx, key, &api.GetIssueOptions{
-			Fields: []string{"updated"},
-		})
-		if err != nil {
-			emitPartialResults(f.IOStreams.Err, results)
-			return err
-		}
-
-		// Conflict check: compare updated timestamps.
+		// Conflict check: fetch current issue and compare timestamps (skipped with --force).
 		if !opts.Force {
+			current, err := client.GetIssue(ctx, key, &api.GetIssueOptions{
+				Fields: []string{"updated"},
+			})
+			if err != nil {
+				emitPartialResults(f.IOStreams.Err, results)
+				return err
+			}
+
 			if issueFile.Frontmatter.Updated == "" {
 				fmt.Fprintf(f.IOStreams.Err, "Warning: no 'updated' timestamp in %s; conflict detection skipped\n", issueFile.Path)
 			} else if current.Fields.Updated != "" && issueFile.Frontmatter.Updated != current.Fields.Updated {
@@ -221,15 +215,8 @@ func runImport(opts *ImportOptions) error {
 
 		fields := buildUpdateFields(issueFile)
 
-		// Description: Markdown → ADF.
-		if issueFile.Description != "" {
-			adfDoc, err := adf.Convert(issueFile.Description)
-			if err != nil {
-				return clierrors.NewValidationError(
-					fmt.Sprintf("failed to convert description to ADF for %s: %v", key, err),
-				)
-			}
-			fields["description"] = adfDoc
+		if err := setDescriptionADF(fields, issueFile.Description, key); err != nil {
+			return err
 		}
 
 		input := &api.EditIssueInput{
@@ -274,18 +261,9 @@ func runImport(opts *ImportOptions) error {
 	}
 
 	if formatter.IsJSON() {
-		created := 0
-		updated := 0
-		for _, r := range results {
-			if r.Action == actionCreated {
-				created++
-			} else {
-				updated++
-			}
-		}
 		extras := map[string]interface{}{
-			"created": created,
-			"updated": updated,
+			"created": len(creates),
+			"updated": len(updates),
 			"results": results,
 		}
 		return formatter.OutputMutation(extras, nil)
@@ -312,17 +290,10 @@ func buildCreateFields(issueFile *markdown.IssueFile) map[string]interface{} {
 		"summary":   fm.Summary,
 	}
 
-	if fm.Priority != "" {
-		fields["priority"] = map[string]interface{}{"name": fm.Priority}
-	}
-	if len(fm.Labels) > 0 {
-		fields["labels"] = fm.Labels
-	}
+	setCommonFields(fields, fm)
+
 	if fm.Parent != "" {
 		fields["parent"] = map[string]interface{}{"key": fm.Parent}
-	}
-	if fm.AssigneeID != "" {
-		fields["assignee"] = map[string]interface{}{"accountId": fm.AssigneeID}
 	}
 
 	return fields
@@ -336,6 +307,14 @@ func buildUpdateFields(issueFile *markdown.IssueFile) map[string]interface{} {
 		"summary": fm.Summary,
 	}
 
+	setCommonFields(fields, fm)
+
+	return fields
+}
+
+// setCommonFields sets fields shared between create and update operations.
+// Labels are sent when non-nil (including empty slice, to allow clearing labels on updates).
+func setCommonFields(fields map[string]interface{}, fm markdown.Frontmatter) {
 	if fm.Priority != "" {
 		fields["priority"] = map[string]interface{}{"name": fm.Priority}
 	}
@@ -345,8 +324,21 @@ func buildUpdateFields(issueFile *markdown.IssueFile) map[string]interface{} {
 	if fm.AssigneeID != "" {
 		fields["assignee"] = map[string]interface{}{"accountId": fm.AssigneeID}
 	}
+}
 
-	return fields
+// setDescriptionADF converts a Markdown description to ADF and sets it on fields.
+func setDescriptionADF(fields map[string]interface{}, description, key string) error {
+	if description == "" {
+		return nil
+	}
+	adfDoc, err := adf.Convert(description)
+	if err != nil {
+		return clierrors.NewValidationError(
+			fmt.Sprintf("failed to convert description to ADF for %s: %v", key, err),
+		)
+	}
+	fields["description"] = adfDoc
+	return nil
 }
 
 // writeResultLine writes a single import result line to w.

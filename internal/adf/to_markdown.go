@@ -75,7 +75,7 @@ func mdRenderNode(sb *strings.Builder, n *Node, depth int) {
 		}
 
 	case TypeListItem:
-		// Default bullet list item rendering
+		// Default bullet list item rendering (2 chars: "- ")
 		indent := strings.Repeat("  ", depth)
 		for i, child := range n.Content {
 			if i == 0 {
@@ -98,17 +98,16 @@ func mdRenderNode(sb *strings.Builder, n *Node, depth int) {
 		sb.WriteString("```")
 		sb.WriteString(lang)
 		sb.WriteString("\n")
+		endsWithNewline := true // fence line ends with \n
 		for _, child := range n.Content {
 			if child.Type == TypeText {
 				sb.WriteString(child.Text)
+				endsWithNewline = len(child.Text) > 0 && child.Text[len(child.Text)-1] == '\n'
 			}
 		}
 		// Ensure the closing fence is on its own line
-		if sb.Len() > 0 {
-			s := sb.String()
-			if s[len(s)-1] != '\n' {
-				sb.WriteString("\n")
-			}
+		if !endsWithNewline {
+			sb.WriteString("\n")
 		}
 		sb.WriteString("```\n")
 

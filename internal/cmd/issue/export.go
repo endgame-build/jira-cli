@@ -24,7 +24,6 @@ type ExportOptions struct {
 	JQL       string // --jql (overrides --project)
 	OutputDir string // --output-dir (default ".")
 	Limit     int    // --limit (0 = all)
-	NoPager   bool   // --no-pager
 }
 
 // exportFields are the issue fields requested from Jira for export.
@@ -44,9 +43,6 @@ func NewCmdExport(f *factory.Factory) *cobra.Command {
 		Short: "Export Jira issues to markdown files",
 		Long:  "Export Jira issues to local markdown files with YAML frontmatter. Each issue becomes a separate file organized by project.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if opts.NoPager {
-				f.IOStreams.NoPager = true
-			}
 			return runExport(opts)
 		},
 	}
@@ -55,7 +51,6 @@ func NewCmdExport(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.JQL, "jql", "", "Raw JQL query (overrides --project)")
 	cmd.Flags().StringVarP(&opts.OutputDir, "output-dir", "o", ".", "Root output directory")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 0, "Maximum issues to export (0 = all)")
-	cmd.Flags().BoolVar(&opts.NoPager, "no-pager", false, "Do not pipe output through a pager")
 
 	return cmd
 }

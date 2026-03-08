@@ -26,22 +26,23 @@ func IssuePath(issue api.Issue) string {
 	return filepath.Join(projectKey, filename)
 }
 
+// filenameReplacer replaces characters that are invalid in file names with dashes.
+var filenameReplacer = strings.NewReplacer(
+	"/", "-",
+	"\\", "-",
+	":", "-",
+	"*", "-",
+	"?", "-",
+	"\"", "-",
+	"<", "-",
+	">", "-",
+	"|", "-",
+)
+
 // SanitizeFilename replaces characters that are invalid in file names,
 // collapses multiple spaces, trims whitespace, and enforces a max length of 100 chars.
 func SanitizeFilename(name string) string {
-	// Replace invalid filename characters with dash
-	replacer := strings.NewReplacer(
-		"/", "-",
-		"\\", "-",
-		":", "-",
-		"*", "-",
-		"?", "-",
-		"\"", "-",
-		"<", "-",
-		">", "-",
-		"|", "-",
-	)
-	name = replacer.Replace(name)
+	name = filenameReplacer.Replace(name)
 
 	// Collapse multiple spaces into one
 	for strings.Contains(name, "  ") {
