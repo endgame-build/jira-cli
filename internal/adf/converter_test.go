@@ -128,6 +128,30 @@ func TestConvert(t *testing.T) {
 			},
 		},
 		{
+			name:     "GFM table",
+			markdown: "| Name | Value |\n|---|---|\n| foo | bar |\n| baz | qux |",
+			check: func(t *testing.T, doc *Node) {
+				assertDocNode(t, doc)
+				assertContentLen(t, doc, 1)
+				tbl := doc.Content[0]
+				assertNodeType(t, tbl, TypeTable)
+				assertContentLen(t, tbl, 3) // header + 2 data rows
+
+				// Header row
+				hdr := tbl.Content[0]
+				assertNodeType(t, hdr, TypeTableRow)
+				assertContentLen(t, hdr, 2)
+				assertNodeType(t, hdr.Content[0], TypeTableHeader)
+				assertNodeType(t, hdr.Content[1], TypeTableHeader)
+
+				// Data rows have tableCell
+				row1 := tbl.Content[1]
+				assertNodeType(t, row1, TypeTableRow)
+				assertContentLen(t, row1, 2)
+				assertNodeType(t, row1.Content[0], TypeTableCell)
+			},
+		},
+		{
 			name:     "bullet list",
 			markdown: "- Item 1\n- Item 2\n- Item 3",
 			check: func(t *testing.T, doc *Node) {

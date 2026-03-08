@@ -49,7 +49,8 @@ func extractNode(sb *strings.Builder, n *Node, isFirst bool) {
 	isBlock := n.Type == TypeParagraph || n.Type == TypeHeading ||
 		n.Type == TypeCodeBlock || n.Type == TypeBlockquote ||
 		n.Type == TypeBulletList || n.Type == TypeOrderedList ||
-		n.Type == TypeListItem || n.Type == TypeRule
+		n.Type == TypeListItem || n.Type == TypeRule ||
+		n.Type == TypeTable
 
 	if isBlock && !isFirst && sb.Len() > 0 {
 		sb.WriteString("\n")
@@ -162,6 +163,32 @@ func renderNode(sb *strings.Builder, n *Node, depth int, listPrefix string, inBl
 			renderNode(sb, child, depth, "", true)
 		}
 
+	case TypeTable:
+		for i, row := range n.Content {
+			if row.Type != TypeTableRow {
+				continue
+			}
+			sb.WriteString(indent)
+			for j, cell := range row.Content {
+				if j > 0 {
+					sb.WriteString(" | ")
+				}
+				renderCellInline(sb, cell)
+			}
+			sb.WriteString("\n")
+			// Separator after header row
+			if i == 0 {
+				sb.WriteString(indent)
+				for j := range row.Content {
+					if j > 0 {
+						sb.WriteString(" | ")
+					}
+					sb.WriteString("---")
+				}
+				sb.WriteString("\n")
+			}
+		}
+
 	case TypeRule:
 		sb.WriteString(indent)
 		sb.WriteString("---\n")
@@ -185,6 +212,17 @@ func renderInline(sb *strings.Builder, n *Node) {
 		default:
 			// Recurse for any unexpected inline structure
 			renderInline(sb, child)
+		}
+	}
+}
+
+// renderCellInline renders the inline content of a table cell for plaintext.
+func renderCellInline(sb *strings.Builder, cell *Node) {
+	for _, child := range cell.Content {
+		if child.Type == TypeParagraph {
+			renderInline(sb, child)
+		} else {
+			extractNode(sb, child, true)
 		}
 	}
 }

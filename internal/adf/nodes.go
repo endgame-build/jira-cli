@@ -17,6 +17,10 @@ const (
 	TypeRule        NodeType = "rule"
 	TypeText        NodeType = "text"
 	TypeHardBreak   NodeType = "hardBreak"
+	TypeTable       NodeType = "table"
+	TypeTableRow    NodeType = "tableRow"
+	TypeTableHeader NodeType = "tableHeader"
+	TypeTableCell   NodeType = "tableCell"
 )
 
 // MarkType identifies the type of an inline mark.
@@ -164,4 +168,36 @@ func Link(href string) Mark {
 // Strike creates a strikethrough mark.
 func Strike() Mark {
 	return Mark{Type: MarkStrike}
+}
+
+// Table creates a table node.
+func Table(rows ...*Node) *Node {
+	return &Node{
+		Type:    TypeTable,
+		Content: rows,
+	}
+}
+
+// TableRow creates a table row node.
+func TableRow(cells ...*Node) *Node {
+	return &Node{
+		Type:    TypeTableRow,
+		Content: cells,
+	}
+}
+
+// TableHeader creates a table header cell node.
+func TableHeader(content ...*Node) *Node {
+	return &Node{
+		Type:    TypeTableHeader,
+		Content: content,
+	}
+}
+
+// TableCell creates a table cell node.
+func TableCell(content ...*Node) *Node {
+	return &Node{
+		Type:    TypeTableCell,
+		Content: content,
+	}
 }

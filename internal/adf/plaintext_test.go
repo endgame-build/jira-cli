@@ -138,6 +138,22 @@ func TestToPlaintext(t *testing.T) {
 			want: "Above\n\n---\n\nBelow",
 		},
 		{
+			name: "table renders with separators",
+			doc: mustMarshal(Document(
+				Table(
+					TableRow(
+						TableHeader(Paragraph(Text("Name"))),
+						TableHeader(Paragraph(Text("Value"))),
+					),
+					TableRow(
+						TableCell(Paragraph(Text("foo"))),
+						TableCell(Paragraph(Text("bar"))),
+					),
+				),
+			)),
+			want: "Name | Value\n--- | ---\nfoo | bar",
+		},
+		{
 			name: "hard break",
 			doc: mustMarshal(Document(
 				Paragraph(Text("Line one"), HardBreak(), Text("Line two")),
