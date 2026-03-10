@@ -14,6 +14,8 @@ Converts implementation plans to the plan.json format that Ralph uses for autono
 
 Take an implementation plan (markdown file or text) and convert it to `plan.json` in your ralph directory.
 
+**Before generating:** Read `ralph/RALPH.md` and `CLAUDE.md` to understand project conventions, build commands, file structure, and test patterns. Task descriptions must use the actual project's terminology and file paths.
+
 ---
 
 ## Output Format
@@ -28,12 +30,12 @@ Take an implementation plan (markdown file or text) and convert it to `plan.json
       "id": "T-001",
       "title": "[Task title]",
       "description": "[What needs to be done and why]",
-      "type": "schema | backend | frontend | test | config | refactor",
+      "type": "backend | test | config | refactor | [project-specific types]",
       "complexity": "small | medium | large",
       "successCriteria": [
         "Criterion 1",
         "Criterion 2",
-        "Typecheck passes"
+        "Build passes"
       ],
       "dependsOn": [],
       "priority": 1,
@@ -53,15 +55,15 @@ Take an implementation plan (markdown file or text) and convert it to `plan.json
 Ralph spawns a fresh instance per iteration with no memory of previous work. If a task is too big, the LLM runs out of context before finishing and produces broken code.
 
 ### Right-sized tasks:
-- Add a database column and migration
-- Add a UI component to an existing page
-- Update a server action with new logic
-- Add a filter dropdown to a list
+- Add a new type/struct and its methods
+- Implement a single command or endpoint
+- Add tests for one module
+- Add a utility function to an existing package
 
 ### Too big (split these):
-- "Build the entire dashboard" — Split into: schema, queries, UI components, filters
-- "Add authentication" — Split into: schema, middleware, login UI, session handling
-- "Refactor the API" — Split into one task per endpoint or pattern
+- "Build the entire feature" — Split into: types, core logic, commands/routes, tests
+- "Add authentication" — Split into: config, storage, transport/middleware, commands
+- "Refactor the API layer" — Split into one task per method or pattern
 
 **Rule of thumb:** If you cannot describe the change in 2-3 sentences, it is too big.
 
@@ -80,7 +82,7 @@ Ralph spawns a fresh instance per iteration with no memory of previous work. If 
 > "Add a status column to persist task progress state in the database."
 
 ### Strong description (Ralph can execute immediately):
-> "Add a `status` column to the `tasks` table. Create a new migration in `db/migrations/` following the pattern in `0001_create_tasks.sql`. Column type: text enum with values 'pending', 'in_progress', 'done', default 'pending'. Update the Task model in `src/models/task.ts` to include the new field."
+> "Add a `status` column to the `tasks` table. Create a new migration in `db/migrations/` following the pattern in `0001_create_tasks.sql`. Column type: text enum with values 'pending', 'in_progress', 'done', default 'pending'. Update the Task model in the models module to include the new field."
 
 ### The test: Could a developer with no project context complete this task using ONLY the description? If not, add more detail.
 
@@ -92,28 +94,28 @@ When the implementation plan mentions specific files, functions, or patterns —
 
 Tasks execute in priority order. Earlier tasks must not depend on later ones. Use `dependsOn` to make dependencies explicit.
 
-**Correct order:**
-1. Schema/database changes (migrations)
-2. Server actions / backend logic
-3. UI components that use the backend
-4. Dashboard/summary views that aggregate data
+**Correct order:** lower-level dependencies before higher-level consumers:
+1. Types, models, schemas
+2. Core logic, services, API clients
+3. Commands, routes, controllers that use the core
+4. Integration tests that exercise the full stack
 
 **Wrong order:**
-1. UI component (depends on schema that does not exist yet)
-2. Schema change
+1. Command that calls a service method (depends on code that doesn't exist yet)
+2. Service method
 
 ### The `type` Field
 
-Categorize each task so Ralph knows what tools and patterns to reach for:
+Categorize each task so Ralph knows what tools and patterns to reach for. Use types that match the project — common examples:
 
 | Type | Description |
 |------|-------------|
-| `schema` | Database migrations, column additions, index changes |
-| `backend` | Server actions, API routes, business logic |
-| `frontend` | UI components, pages, client-side behavior |
+| `backend` | Core logic, API routes, services, business rules |
 | `test` | Test files, test utilities, fixtures. Create a separate test task when tests are non-trivial (new test infrastructure, complex fixtures, multiple test cases). For simple "does it work" verification, just add "Tests pass" as a success criterion on the feature task itself. |
-| `config` | Configuration files, environment setup |
+| `config` | Configuration files, environment setup, build changes |
 | `refactor` | Restructuring without behavior change |
+
+Add project-specific types as needed (e.g., `schema` for DB migrations, `frontend` for UI, `cli` for command-line commands).
 
 ### The `complexity` Field
 
@@ -146,7 +148,7 @@ Each criterion must be something Ralph can CHECK, not something vague.
 - "Add `status` column to tasks table with default 'pending'"
 - "Filter dropdown has options: All, Active, Completed"
 - "Clicking delete shows confirmation dialog"
-- "Typecheck passes"
+- "Build passes"
 - "Tests pass"
 
 ### Bad criteria (vague):
@@ -157,7 +159,7 @@ Each criterion must be something Ralph can CHECK, not something vague.
 
 ### Always include as final criterion:
 ```
-"Typecheck passes"
+"Build passes"
 ```
 
 For tasks with testable logic, also include:
@@ -165,12 +167,10 @@ For tasks with testable logic, also include:
 "Tests pass"
 ```
 
-### For tasks that change UI, also include:
-```
-"Verify in browser using dev-browser skill"
-```
-
-Frontend tasks are NOT complete until visually verified. Ralph will use the dev-browser skill to navigate to the page, interact with the UI, and confirm changes work.
+### For tasks with visible output (UI, CLI display, reports), also include verification criteria appropriate to the project:
+- UI tasks: "Verify in browser using dev-browser skill"
+- CLI tasks: "Verify output matches expected format"
+- Report tasks: "Verify generated output is correct"
 
 ---
 
@@ -180,12 +180,12 @@ Frontend tasks are NOT complete until visually verified. Ralph will use the dev-
 2. **IDs**: Sequential (T-001, T-002, etc.)
 3. **Priority**: Based on dependency order, then document order
 4. **dependsOn**: Populate from explicit or inferred dependencies in the plan
-5. **type**: Infer from the task's nature (schema, backend, frontend, test, config, refactor)
+5. **type**: Infer from the task's nature (backend, test, config, refactor, or project-specific types)
 6. **complexity**: Estimate from scope — small/medium/large
 7. **All tasks**: `passes: false` and empty `notes`
 8. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
-9. **project**: Use the repository or application name (e.g., from `package.json` `name`, `Cargo.toml` package name, or directory name)
-10. **Always add**: "Typecheck passes" to every task's success criteria
+9. **project**: Use the repository or application name (e.g., from `package.json`, `Cargo.toml`, `go.mod`, or directory name)
+10. **Always add**: "Build passes" to every task's success criteria
 11. **Descriptions**: Include file paths, function names, and pattern references from the plan (see "Writing Effective Descriptions")
 
 ---
@@ -211,39 +211,38 @@ Each is one focused change that can be completed and verified independently. Not
 
 ## Examples
 
-### Example 1: Simple Feature (single type chain)
+### Example 1: Linear dependency chain
 
 **Input Implementation Plan:**
 ```markdown
-# Task Status Feature
+# Export Feature
 
-Add ability to mark tasks with different statuses.
+Add ability to export items to markdown files.
 
 ## Implementation Steps
-- Add status column to database
-- Show status badge on each task in the list
-- Add toggle control to change status inline
-- Add filter dropdown to filter by status
-- Persist filter selection in URL params
+- Add markdown conversion utility
+- Add file-writing helper with atomic writes
+- Add export command with --dry-run and --limit flags
+- Add tests for export command
 ```
 
 **Output plan.json:**
 ```json
 {
-  "project": "TaskApp",
-  "branchName": "ralph/task-status",
-  "description": "Task Status Feature — Track task progress with status indicators",
+  "project": "MyApp",
+  "branchName": "ralph/export-feature",
+  "description": "Export Feature — Export items to markdown files",
   "tasks": [
     {
       "id": "T-001",
-      "title": "Add status field to tasks table",
-      "description": "Create a migration in `db/migrations/` following the pattern in `0001_create_tasks.sql`. Add a `status` text column to the `tasks` table with values 'pending' | 'in_progress' | 'done', default 'pending'. Update the Task model in `src/models/task.ts` to include the new field with its type union.",
-      "type": "schema",
+      "title": "Add markdown conversion utility",
+      "description": "Create a `toMarkdown()` function in the output/formatting module that converts internal data structures to markdown. Follow the pattern in the existing `toJSON()` formatter. Handle all field types: strings, dates, nested objects, lists.",
+      "type": "backend",
       "complexity": "small",
       "successCriteria": [
-        "Add status column: 'pending' | 'in_progress' | 'done' (default 'pending')",
-        "Generate and run migration successfully",
-        "Typecheck passes"
+        "toMarkdown() converts all field types correctly",
+        "Nil/empty input returns empty string",
+        "Build passes"
       ],
       "dependsOn": [],
       "priority": 1,
@@ -252,52 +251,50 @@ Add ability to mark tasks with different statuses.
     },
     {
       "id": "T-002",
-      "title": "Display status badge on task cards",
-      "description": "Add a StatusBadge component in `src/components/` that renders a colored pill for each status value. Integrate it into the existing TaskCard component in `src/components/TaskCard.tsx`. Color mapping: gray=pending, blue=in_progress, green=done.",
-      "type": "frontend",
+      "title": "Add file-writing helper with atomic writes",
+      "description": "Create a `writeFileAtomic()` helper that writes to a temp file then renames. Place it alongside existing file utilities. Accept output directory and filename as parameters. Create parent directories as needed.",
+      "type": "backend",
       "complexity": "small",
       "successCriteria": [
-        "Each task card shows colored status badge",
-        "Badge colors: gray=pending, blue=in_progress, green=done",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
+        "Writes use temp-then-rename pattern",
+        "Parent directories created automatically",
+        "Build passes"
       ],
-      "dependsOn": ["T-001"],
+      "dependsOn": [],
       "priority": 2,
       "passes": false,
       "notes": ""
     },
     {
       "id": "T-003",
-      "title": "Add status toggle to task list rows",
-      "description": "Add an inline status dropdown to each row in `src/components/TaskList.tsx`. On change, call the existing `updateTask` server action in `src/actions/tasks.ts` with the new status. Use optimistic UI update pattern from the existing edit-in-place title feature.",
-      "type": "frontend",
+      "title": "Add export command",
+      "description": "Create the export command following the project's command pattern. Flags: --output-dir (default '.'), --dry-run (list files without writing), --limit (max items). Use toMarkdown() from T-001 and writeFileAtomic() from T-002. Report progress to stderr.",
+      "type": "backend",
       "complexity": "medium",
       "successCriteria": [
-        "Each row has status dropdown or toggle",
-        "Changing status saves immediately",
-        "UI updates without page refresh",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
+        "Export command registered with correct flags and help text",
+        "--dry-run lists files without writing",
+        "--limit stops at specified count",
+        "Progress reported to stderr",
+        "Build passes"
       ],
-      "dependsOn": ["T-002"],
+      "dependsOn": ["T-001", "T-002"],
       "priority": 3,
       "passes": false,
       "notes": ""
     },
     {
       "id": "T-004",
-      "title": "Filter tasks by status",
-      "description": "Add a filter dropdown above the task list in `src/components/TaskList.tsx`. Read/write the `status` URL search param using the existing `useQueryParams` hook in `src/hooks/`. Filter the task query in `src/actions/tasks.ts` by adding an optional `status` WHERE clause.",
-      "type": "frontend",
+      "title": "Add tests for export command",
+      "description": "Create tests following the project's existing test patterns. Cover: basic export writes correct files, --dry-run prevents writes, --limit caps output, empty input handled gracefully. Use existing test helpers for mocking.",
+      "type": "test",
       "complexity": "medium",
       "successCriteria": [
-        "Filter dropdown: All | Pending | In Progress | Done",
-        "Filter persists in URL params",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
+        "Tests cover: basic export, dry-run, limit, empty input",
+        "All tests pass",
+        "Build passes"
       ],
-      "dependsOn": ["T-001"],
+      "dependsOn": ["T-003"],
       "priority": 4,
       "passes": false,
       "notes": ""
@@ -306,40 +303,38 @@ Add ability to mark tasks with different statuses.
 }
 ```
 
-### Example 2: Mixed types with diamond dependency
+### Example 2: Diamond dependency
 
 **Input Implementation Plan:**
 ```markdown
-# API Rate Limiting
+# Retry with Backoff
 
-Add per-user rate limiting to the public API.
+Add configurable retry logic with exponential backoff to the HTTP client.
 
 ## Implementation Steps
-- Add rate_limits table to track request counts
-- Add rate limit middleware that checks/increments counts
-- Add rate limit headers to API responses (X-RateLimit-Remaining, etc.)
-- Add admin endpoint to view/reset rate limits
-- Add integration tests for rate limit enforcement
+- Add retry configuration types
+- Add backoff calculator
+- Add retry middleware/wrapper for HTTP calls
+- Add circuit breaker to stop retrying after threshold
+- Add integration tests
 ```
 
 **Output plan.json:**
 ```json
 {
-  "project": "TaskApp",
-  "branchName": "ralph/api-rate-limiting",
-  "description": "API Rate Limiting — Per-user request throttling for the public API",
+  "project": "MyApp",
+  "branchName": "ralph/retry-backoff",
+  "description": "Retry with Backoff — Configurable retry logic for HTTP client",
   "tasks": [
     {
       "id": "T-001",
-      "title": "Add rate_limits table",
-      "description": "Create a migration in `db/migrations/` for a `rate_limits` table: columns `user_id` (FK to users), `endpoint` (text), `window_start` (timestamp), `request_count` (integer, default 0). Add composite unique index on (user_id, endpoint, window_start). Add the RateLimit model in `src/models/rateLimit.ts` following the pattern in `src/models/user.ts`.",
-      "type": "schema",
+      "title": "Add retry configuration types",
+      "description": "Add RetryConfig struct/type with fields: maxRetries (int, default 3), baseDelay (duration, default 1s), maxDelay (duration, default 30s), retryableStatuses (list of HTTP codes, default [429, 500, 502, 503]). Place in the HTTP client module alongside existing transport types.",
+      "type": "backend",
       "complexity": "small",
       "successCriteria": [
-        "rate_limits table created with user_id, endpoint, window_start, request_count columns",
-        "Composite unique index on (user_id, endpoint, window_start)",
-        "Migration runs successfully",
-        "Typecheck passes"
+        "RetryConfig type with all fields and sensible defaults",
+        "Build passes"
       ],
       "dependsOn": [],
       "priority": 1,
@@ -348,15 +343,14 @@ Add per-user rate limiting to the public API.
     },
     {
       "id": "T-002",
-      "title": "Add rate limit middleware",
-      "description": "Create `src/middleware/rateLimit.ts` that checks the rate_limits table for the current user+endpoint+window. If count >= limit (default 100/hour), return 429. Otherwise increment count. Plug into the middleware chain in `src/app.ts` after the auth middleware. Use the existing `getAuthUser()` helper from `src/middleware/auth.ts` to get the user ID.",
+      "title": "Add backoff calculator",
+      "description": "Add a `calculateBackoff(attempt, config)` function that returns the delay for a given attempt using exponential backoff with jitter. Formula: min(baseDelay * 2^attempt + random_jitter, maxDelay). Place alongside RetryConfig from T-001.",
       "type": "backend",
-      "complexity": "medium",
+      "complexity": "small",
       "successCriteria": [
-        "Middleware checks rate_limits table per user+endpoint",
-        "Returns 429 when limit exceeded",
-        "Increments count on each request",
-        "Typecheck passes"
+        "Exponential backoff with jitter",
+        "Respects maxDelay cap",
+        "Build passes"
       ],
       "dependsOn": ["T-001"],
       "priority": 2,
@@ -365,14 +359,15 @@ Add per-user rate limiting to the public API.
     },
     {
       "id": "T-003",
-      "title": "Add rate limit response headers",
-      "description": "Extend the rate limit middleware in `src/middleware/rateLimit.ts` to set response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` (Unix timestamp of window end). Headers should be added on ALL responses (not just 429s) so clients can track their usage.",
+      "title": "Add retry wrapper for HTTP calls",
+      "description": "Add a retry wrapper/middleware that wraps the existing HTTP transport. On retryable status codes, wait using calculateBackoff() from T-002, then retry. Pass through non-retryable responses immediately. Log retry attempts to debug output.",
       "type": "backend",
-      "complexity": "small",
+      "complexity": "medium",
       "successCriteria": [
-        "All API responses include X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset headers",
-        "Header values are accurate against the rate_limits table",
-        "Typecheck passes"
+        "Retries on configured status codes",
+        "Uses exponential backoff between retries",
+        "Passes through non-retryable responses immediately",
+        "Build passes"
       ],
       "dependsOn": ["T-002"],
       "priority": 3,
@@ -381,15 +376,15 @@ Add per-user rate limiting to the public API.
     },
     {
       "id": "T-004",
-      "title": "Add admin rate limit management endpoint",
-      "description": "Add GET `/api/admin/rate-limits` and DELETE `/api/admin/rate-limits/:userId` routes in `src/routes/admin.ts`. GET returns current counts for all users. DELETE resets a user's counts. Guard both with the existing `requireAdmin` middleware from `src/middleware/auth.ts`.",
+      "title": "Add circuit breaker",
+      "description": "Add a circuit breaker that wraps the HTTP transport independently of the retry wrapper. After N consecutive failures (configurable, default 5), return errors immediately for a cooldown period. Add `circuitBreakerThreshold` and `cooldownPeriod` fields to RetryConfig from T-001. The retry wrapper (T-003) and circuit breaker compose as separate layers.",
       "type": "backend",
       "complexity": "medium",
       "successCriteria": [
-        "GET /api/admin/rate-limits returns all user rate limit records",
-        "DELETE /api/admin/rate-limits/:userId resets that user's counts",
-        "Both endpoints require admin auth",
-        "Typecheck passes"
+        "Stops retrying after consecutive failure threshold",
+        "Returns errors immediately during cooldown",
+        "Resumes retrying after cooldown expires",
+        "Build passes"
       ],
       "dependsOn": ["T-002"],
       "priority": 4,
@@ -398,14 +393,14 @@ Add per-user rate limiting to the public API.
     },
     {
       "id": "T-005",
-      "title": "Add rate limit integration tests",
-      "description": "Create `tests/rateLimit.test.ts` following the test pattern in `tests/auth.test.ts`. Test cases: request under limit returns 200 with correct headers, request at limit returns 429, count resets after window expires, admin reset clears counts. Use the existing `createTestUser` and `asAdmin` helpers from `tests/helpers.ts`.",
+      "title": "Add retry integration tests",
+      "description": "Create tests using a mock HTTP server. Test cases: successful retry after transient error, max retries exceeded returns last error, non-retryable status passes through, circuit breaker opens after threshold, circuit breaker resets after cooldown. Follow existing test patterns in the project.",
       "type": "test",
       "complexity": "medium",
       "successCriteria": [
-        "Tests cover: under-limit, at-limit (429), window reset, admin reset",
+        "Tests cover: successful retry, max retries, non-retryable passthrough, circuit breaker open/reset",
         "All tests pass",
-        "Typecheck passes"
+        "Build passes"
       ],
       "dependsOn": ["T-003", "T-004"],
       "priority": 5,
@@ -416,7 +411,7 @@ Add per-user rate limiting to the public API.
 }
 ```
 
-Note the **diamond dependency**: T-003 and T-004 both depend on T-002, then T-005 depends on both T-003 and T-004. This captures the real graph — tests can't run until both the headers and admin endpoint exist.
+Note the **diamond dependency**: T-003 and T-004 both depend on T-002 (diverge), then T-005 depends on both T-003 and T-004 (converge). `dependsOn` captures the real dependency graph, not just a linear sequence.
 
 ---
 
@@ -442,11 +437,11 @@ Before writing plan.json, verify:
 - [ ] **Previous run archived** (if plan.json exists with different branchName, archive it first)
 - [ ] Each task is completable in one iteration (small enough)
 - [ ] No task marked "large" unless genuinely indivisible
-- [ ] Tasks are ordered by dependency (schema → backend → UI)
+- [ ] Tasks are ordered by dependency (lower-level before higher-level consumers)
 - [ ] `dependsOn` accurately reflects real dependencies
 - [ ] No circular dependencies in `dependsOn`
 - [ ] Every task has a `type` and `complexity`
-- [ ] Every task has "Typecheck passes" as criterion
-- [ ] UI tasks have "Verify in browser using dev-browser skill" as criterion
+- [ ] Every task has "Build passes" as criterion
+- [ ] Tasks with visible output have appropriate verification criteria
 - [ ] Success criteria are verifiable (not vague)
 - [ ] Descriptions include file paths and pattern references (not just "what")
