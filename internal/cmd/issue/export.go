@@ -24,6 +24,7 @@ type ExportOptions struct {
 	JQL       string // --jql (overrides --project)
 	OutputDir string // --output-dir (default ".")
 	Limit     int    // --limit (0 = all)
+	Tree      bool   // --tree (hierarchical layout)
 }
 
 // exportFields are the issue fields requested from Jira for export.
@@ -41,7 +42,7 @@ func NewCmdExport(f *factory.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "export",
 		Short: "Export Jira issues to markdown files",
-		Long:  "Export Jira issues to local markdown files with YAML frontmatter. Each issue becomes a separate file organized by project.",
+		Long:  "Export Jira issues to local markdown files with YAML frontmatter. Each issue becomes a separate file organized by project.\n\nWith --tree, epics become directories containing _epic.md and their child issues.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runExport(opts)
 		},
@@ -51,6 +52,7 @@ func NewCmdExport(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.JQL, "jql", "", "Raw JQL query (overrides --project)")
 	cmd.Flags().StringVarP(&opts.OutputDir, "output-dir", "o", ".", "Root output directory")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 0, "Maximum issues to export (0 = all)")
+	cmd.Flags().BoolVar(&opts.Tree, "tree", false, "Organize output hierarchically (epics as directories)")
 
 	return cmd
 }
@@ -103,7 +105,12 @@ func runExport(opts *ExportOptions) error {
 				break
 			}
 
-			relPath := markdown.IssuePath(issue)
+			var relPath string
+			if opts.Tree {
+				relPath = markdown.IssueTreePath(issue)
+			} else {
+				relPath = markdown.IssuePath(issue)
+			}
 			fullPath := filepath.Join(opts.OutputDir, relPath)
 
 			if !f.DryRun {

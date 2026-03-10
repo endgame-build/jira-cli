@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/endgame-build/jira-cli/internal/api"
@@ -130,18 +131,18 @@ func TestSanitizeFilename(t *testing.T) {
 		},
 		{
 			name:  "long name truncated to 100 chars",
-			input: repeat("a", 150),
-			want:  repeat("a", 100),
+			input: strings.Repeat("a", 150),
+			want:  strings.Repeat("a", 100),
 		},
 		{
 			name:  "exactly 100 chars kept",
-			input: repeat("x", 100),
-			want:  repeat("x", 100),
+			input: strings.Repeat("x", 100),
+			want:  strings.Repeat("x", 100),
 		},
 		{
 			name:  "101 chars truncated",
-			input: repeat("x", 101),
-			want:  repeat("x", 100),
+			input: strings.Repeat("x", 101),
+			want:  strings.Repeat("x", 100),
 		},
 		{
 			name:  "empty string",
@@ -172,21 +173,141 @@ func TestSanitizeFilename(t *testing.T) {
 
 func TestSanitizeFilenameLongTruncation(t *testing.T) {
 	// Verify trailing whitespace is trimmed after truncation
-	input := repeat("a", 99) + " b"
+	input := strings.Repeat("a", 99) + " b"
 	got := SanitizeFilename(input)
 	if len(got) > 100 {
 		t.Errorf("SanitizeFilename should truncate to max 100 chars, got %d", len(got))
 	}
 	// 99 'a' + " b" = 101 → truncated to 100 → "aaa...a " → TrimSpace → 99 'a's
-	if want := repeat("a", 99); got != want {
+	if want := strings.Repeat("a", 99); got != want {
 		t.Errorf("SanitizeFilename(%q) = %q, want %q", input, got, want)
 	}
 }
 
-func repeat(s string, n int) string {
-	result := ""
-	for i := 0; i < n; i++ {
-		result += s
+func TestIssueTreePath(t *testing.T) {
+	tests := []struct {
+		name  string
+		issue api.Issue
+		want  string
+	}{
+		{
+			name: "epic becomes directory with _epic.md",
+			issue: api.Issue{
+				Key: "PROJ-1",
+				Fields: api.IssueFields{
+					Summary:   "Epic Name",
+					IssueType: &api.IssueType{Name: "Epic"},
+					Project:   &api.Project{Key: "PROJ"},
+				},
+			},
+			want: "PROJ/PROJ-1 - Epic Name/_epic.md",
+		},
+		{
+			name: "story with epic parent nests under parent dir",
+			issue: api.Issue{
+				Key: "PROJ-10",
+				Fields: api.IssueFields{
+					Summary:   "Story One",
+					IssueType: &api.IssueType{Name: "Story"},
+					Project:   &api.Project{Key: "PROJ"},
+					Parent: &api.IssueParent{
+						Key:    "PROJ-1",
+						Fields: &api.ParentFields{Summary: "Epic Name"},
+					},
+				},
+			},
+			want: "PROJ/PROJ-1 - Epic Name/PROJ-10 - Story One.md",
+		},
+		{
+			name: "orphan issue stays flat",
+			issue: api.Issue{
+				Key: "PROJ-50",
+				Fields: api.IssueFields{
+					Summary:   "Orphan Issue",
+					IssueType: &api.IssueType{Name: "Bug"},
+					Project:   &api.Project{Key: "PROJ"},
+				},
+			},
+			want: "PROJ/PROJ-50 - Orphan Issue.md",
+		},
+		{
+			name: "parent with nil Fields uses key-only dir",
+			issue: api.Issue{
+				Key: "PROJ-10",
+				Fields: api.IssueFields{
+					Summary:   "Story",
+					IssueType: &api.IssueType{Name: "Story"},
+					Project:   &api.Project{Key: "PROJ"},
+					Parent: &api.IssueParent{
+						Key: "PROJ-1",
+					},
+				},
+			},
+			want: "PROJ/PROJ-1/PROJ-10 - Story.md",
+		},
+		{
+			name: "nil IssueType treated as non-epic, goes flat",
+			issue: api.Issue{
+				Key: "PROJ-99",
+				Fields: api.IssueFields{
+					Summary: "No Type",
+					Project: &api.Project{Key: "PROJ"},
+				},
+			},
+			want: "PROJ/PROJ-99 - No Type.md",
+		},
+		{
+			name: "epic with parent stays top-level epic",
+			issue: api.Issue{
+				Key: "PROJ-5",
+				Fields: api.IssueFields{
+					Summary:   "Child Epic",
+					IssueType: &api.IssueType{Name: "Epic"},
+					Project:   &api.Project{Key: "PROJ"},
+					Parent: &api.IssueParent{
+						Key:    "PROJ-1",
+						Fields: &api.ParentFields{Summary: "Parent Epic"},
+					},
+				},
+			},
+			want: "PROJ/PROJ-5 - Child Epic/_epic.md",
+		},
+		{
+			name: "subtask nests under its parent story",
+			issue: api.Issue{
+				Key: "PROJ-15",
+				Fields: api.IssueFields{
+					Summary:   "Subtask",
+					IssueType: &api.IssueType{Name: "Sub-task", Subtask: true},
+					Project:   &api.Project{Key: "PROJ"},
+					Parent: &api.IssueParent{
+						Key:    "PROJ-10",
+						Fields: &api.ParentFields{Summary: "Story One"},
+					},
+				},
+			},
+			want: "PROJ/PROJ-10 - Story One/PROJ-15 - Subtask.md",
+		},
+		{
+			name: "case-insensitive epic detection",
+			issue: api.Issue{
+				Key: "PROJ-3",
+				Fields: api.IssueFields{
+					Summary:   "My Epic",
+					IssueType: &api.IssueType{Name: "EPIC"},
+					Project:   &api.Project{Key: "PROJ"},
+				},
+			},
+			want: "PROJ/PROJ-3 - My Epic/_epic.md",
+		},
 	}
-	return result
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IssueTreePath(tt.issue)
+			if got != tt.want {
+				t.Errorf("IssueTreePath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }

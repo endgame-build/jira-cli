@@ -434,6 +434,140 @@ func TestExportEmpty(t *testing.T) {
 	}
 }
 
+// treeExportIssues returns issues for tree-mode tests:
+// 1 Epic, 2 Stories (parent = epic), 1 orphan Bug.
+func treeExportIssues() []api.Issue {
+	return []api.Issue{
+		{
+			ID:  "10001",
+			Key: "PROJ-1",
+			Fields: api.IssueFields{
+				Summary:   "Epic One",
+				IssueType: &api.IssueType{ID: "10000", Name: "Epic"},
+				Project:   &api.Project{ID: "1001", Key: "PROJ", Name: "Project"},
+				Status:    &api.Status{ID: "1", Name: "To Do"},
+				Created:   "2026-01-01T00:00:00.000+0000",
+				Updated:   "2026-01-02T00:00:00.000+0000",
+			},
+		},
+		{
+			ID:  "10010",
+			Key: "PROJ-10",
+			Fields: api.IssueFields{
+				Summary:   "Story One",
+				IssueType: &api.IssueType{ID: "10001", Name: "Story"},
+				Project:   &api.Project{ID: "1001", Key: "PROJ", Name: "Project"},
+				Status:    &api.Status{ID: "1", Name: "To Do"},
+				Parent: &api.IssueParent{
+					Key:    "PROJ-1",
+					Fields: &api.ParentFields{Summary: "Epic One"},
+				},
+				Created: "2026-01-01T00:00:00.000+0000",
+				Updated: "2026-01-02T00:00:00.000+0000",
+			},
+		},
+		{
+			ID:  "10011",
+			Key: "PROJ-11",
+			Fields: api.IssueFields{
+				Summary:   "Story Two",
+				IssueType: &api.IssueType{ID: "10001", Name: "Story"},
+				Project:   &api.Project{ID: "1001", Key: "PROJ", Name: "Project"},
+				Status:    &api.Status{ID: "1", Name: "To Do"},
+				Parent: &api.IssueParent{
+					Key:    "PROJ-1",
+					Fields: &api.ParentFields{Summary: "Epic One"},
+				},
+				Created: "2026-01-01T00:00:00.000+0000",
+				Updated: "2026-01-02T00:00:00.000+0000",
+			},
+		},
+		{
+			ID:  "10050",
+			Key: "PROJ-50",
+			Fields: api.IssueFields{
+				Summary:   "Orphan Bug",
+				IssueType: &api.IssueType{ID: "10002", Name: "Bug"},
+				Project:   &api.Project{ID: "1001", Key: "PROJ", Name: "Project"},
+				Status:    &api.Status{ID: "1", Name: "To Do"},
+				Created:   "2026-01-01T00:00:00.000+0000",
+				Updated:   "2026-01-02T00:00:00.000+0000",
+			},
+		},
+	}
+}
+
+func TestExportTree(t *testing.T) {
+	issues := treeExportIssues()
+	f, _, _ := newTestCreateFactory(t,
+		exportSearchHandler(t, [][]api.Issue{issues}, nil), nil)
+
+	outDir := t.TempDir()
+	opts := &ExportOptions{
+		Factory:   f,
+		Project:   "PROJ",
+		OutputDir: outDir,
+		Tree:      true,
+	}
+
+	if err := runExport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify hierarchical file paths.
+	wantPaths := []string{
+		"PROJ/PROJ-1 - Epic One/_epic.md",
+		"PROJ/PROJ-1 - Epic One/PROJ-10 - Story One.md",
+		"PROJ/PROJ-1 - Epic One/PROJ-11 - Story Two.md",
+		"PROJ/PROJ-50 - Orphan Bug.md",
+	}
+	for _, rel := range wantPaths {
+		full := filepath.Join(outDir, rel)
+		if _, err := os.Stat(full); os.IsNotExist(err) {
+			t.Errorf("expected file %s to exist", rel)
+		}
+	}
+}
+
+func TestExportTreeDefault(t *testing.T) {
+	issues := treeExportIssues()
+	f, _, _ := newTestCreateFactory(t,
+		exportSearchHandler(t, [][]api.Issue{issues}, nil), nil)
+
+	outDir := t.TempDir()
+	opts := &ExportOptions{
+		Factory:   f,
+		Project:   "PROJ",
+		OutputDir: outDir,
+		// Tree not set — should produce flat layout.
+	}
+
+	if err := runExport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify flat file paths (no epic directories).
+	for _, issue := range issues {
+		relPath := markdown.IssuePath(issue)
+		fullPath := filepath.Join(outDir, relPath)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			t.Errorf("expected flat file %s to exist", relPath)
+		}
+	}
+
+	// Verify no _epic.md exists.
+	found := false
+	filepath.Walk(outDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info.Name() == "_epic.md" {
+			found = true
+		}
+		return nil
+	})
+	if found {
+		t.Error("flat export should not produce _epic.md files")
+	}
+}
+
 func TestExportProgressStderr(t *testing.T) {
 	// Create 100 issues to trigger progress reporting (every 50).
 	issues := make([]api.Issue, 100)
