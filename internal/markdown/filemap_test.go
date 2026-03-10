@@ -54,7 +54,7 @@ func TestIssuePath(t *testing.T) {
 					Project: &api.Project{Key: "PROJ"},
 				},
 			},
-			want: "PROJ/PROJ-5 - .md",
+			want: "PROJ/PROJ-5.md",
 		},
 	}
 

@@ -19,14 +19,21 @@ func issueProjectKey(issue api.Issue) string {
 	return ""
 }
 
+// keySummarySegment returns "KEY - SanitizedSummary". If summary sanitizes to
+// empty, returns just the key.
+func keySummarySegment(key, summary string) string {
+	if name := SanitizeFilename(summary); name != "" {
+		return key + " - " + name
+	}
+	return key
+}
+
 // IssuePath returns the relative file path for an issue markdown file.
 // Format: {ProjectKey}/{IssueKey} - {SanitizedSummary}.md
 // If Project is nil, the project key is extracted from the issue key prefix.
 func IssuePath(issue api.Issue) string {
 	projectKey := issueProjectKey(issue)
-	name := SanitizeFilename(issue.Fields.Summary)
-	filename := issue.Key + " - " + name + ".md"
-	return filepath.Join(projectKey, filename)
+	return filepath.Join(projectKey, keySummarySegment(issue.Key, issue.Fields.Summary)+".md")
 }
 
 // IssueTreePath returns the relative file path for an issue in tree mode.
@@ -39,23 +46,16 @@ func IssueTreePath(issue api.Issue) string {
 		strings.EqualFold(issue.Fields.IssueType.Name, "epic")
 
 	if isEpic {
-		dirName := issue.Key
-		if name := SanitizeFilename(issue.Fields.Summary); name != "" {
-			dirName += " - " + name
-		}
-		return filepath.Join(projectKey, dirName, "_epic.md")
+		return filepath.Join(projectKey, keySummarySegment(issue.Key, issue.Fields.Summary), "_epic.md")
 	}
 
 	if issue.Fields.Parent != nil && issue.Fields.Parent.Key != "" {
 		parentSummary := ""
 		if issue.Fields.Parent.Fields != nil {
-			parentSummary = SanitizeFilename(issue.Fields.Parent.Fields.Summary)
+			parentSummary = issue.Fields.Parent.Fields.Summary
 		}
-		parentDir := issue.Fields.Parent.Key
-		if parentSummary != "" {
-			parentDir += " - " + parentSummary
-		}
-		filename := issue.Key + " - " + SanitizeFilename(issue.Fields.Summary) + ".md"
+		parentDir := keySummarySegment(issue.Fields.Parent.Key, parentSummary)
+		filename := keySummarySegment(issue.Key, issue.Fields.Summary) + ".md"
 		return filepath.Join(projectKey, parentDir, filename)
 	}
 
