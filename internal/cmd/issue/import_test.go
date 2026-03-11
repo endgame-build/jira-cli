@@ -831,6 +831,267 @@ project: PROJ
 	}
 }
 
+// customFieldTestFieldsImport returns field metadata for custom field import tests.
+var customFieldTestFieldsImport = []api.Field{
+	{ID: "summary", Name: "Summary"},
+	{ID: "status", Name: "Status"},
+	{ID: "customfield_10001", Name: "Team", Custom: true},
+	{ID: "customfield_10002", Name: "Story Points", Custom: true},
+}
+
+// customFieldImportHandler handles import requests with custom field metadata.
+func customFieldImportHandler(t *testing.T, captureCreateBody, captureEditBody *string) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		// GET /field — return custom field metadata.
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode(customFieldTestFieldsImport)
+			return
+		}
+
+		// POST /issue — create.
+		if r.Method == http.MethodPost && r.URL.Path == "/issue" {
+			if captureCreateBody != nil {
+				body, _ := io.ReadAll(r.Body)
+				*captureCreateBody = string(body)
+			}
+			w.WriteHeader(201)
+			json.NewEncoder(w).Encode(api.CreatedIssue{
+				ID:   "10042",
+				Key:  "PROJ-124",
+				Self: "https://test.atlassian.net/rest/api/3/issue/10042",
+			})
+			return
+		}
+
+		// GET /issue/{key} — get issue for conflict check.
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/issue/") {
+			key := strings.TrimPrefix(r.URL.Path, "/issue/")
+			json.NewEncoder(w).Encode(api.Issue{
+				ID:  "10001",
+				Key: key,
+				Fields: api.IssueFields{
+					Summary: "Existing issue",
+					Updated: "2026-01-01T00:00:00.000+0000",
+				},
+			})
+			return
+		}
+
+		// PUT /issue/{key} — edit.
+		if r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/issue/") {
+			if captureEditBody != nil {
+				body, _ := io.ReadAll(r.Body)
+				*captureEditBody = string(body)
+			}
+			w.WriteHeader(204)
+			return
+		}
+
+		w.WriteHeader(404)
+		w.Write([]byte(`{"errorMessages":["Not found"]}`))
+	}
+}
+
+func TestImportCustomFields(t *testing.T) {
+	var capturedBody string
+	f, _, _ := newTestImportFactory(t, customFieldImportHandler(t, &capturedBody, nil))
+
+	dir := t.TempDir()
+	path := writeImportFile(t, dir, "create.md", `---
+key: PROJ-NEW-1
+summary: New Issue
+type: Task
+project: PROJ
+team: Platform
+story_points: 5
+---
+`)
+
+	opts := &ImportOptions{
+		Factory: f,
+		Files:   []string{path},
+	}
+
+	if err := runImport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+
+	// Custom fields should be sent with Jira field IDs.
+	if fields["customfield_10001"] != "Platform" {
+		t.Errorf("customfield_10001 = %v, want Platform", fields["customfield_10001"])
+	}
+	// YAML unmarshals integers; JSON re-encodes as float64.
+	sp, ok := fields["customfield_10002"].(float64)
+	if !ok || sp != 5 {
+		t.Errorf("customfield_10002 = %v (%T), want 5", fields["customfield_10002"], fields["customfield_10002"])
+	}
+}
+
+func TestImportCustomFieldUpdate(t *testing.T) {
+	var capturedEditBody string
+	f, _, _ := newTestImportFactory(t, customFieldImportHandler(t, nil, &capturedEditBody))
+
+	dir := t.TempDir()
+	path := writeImportFile(t, dir, "update.md", `---
+key: PROJ-123
+summary: Updated Issue
+updated: "2026-01-01T00:00:00.000+0000"
+team: Backend
+story_points: 8
+---
+`)
+
+	opts := &ImportOptions{
+		Factory: f,
+		Files:   []string{path},
+	}
+
+	if err := runImport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedEditBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+
+	if fields["customfield_10001"] != "Backend" {
+		t.Errorf("customfield_10001 = %v, want Backend", fields["customfield_10001"])
+	}
+	sp, ok := fields["customfield_10002"].(float64)
+	if !ok || sp != 8 {
+		t.Errorf("customfield_10002 = %v (%T), want 8", fields["customfield_10002"], fields["customfield_10002"])
+	}
+}
+
+func TestImportUnresolvableKey(t *testing.T) {
+	f, _, _ := newTestImportFactory(t, customFieldImportHandler(t, nil, nil))
+
+	dir := t.TempDir()
+	path := writeImportFile(t, dir, "create.md", `---
+key: PROJ-NEW-1
+summary: Bad Field
+type: Task
+project: PROJ
+unknown_field: some value
+---
+`)
+
+	opts := &ImportOptions{
+		Factory: f,
+		Files:   []string{path},
+	}
+
+	err := runImport(opts)
+	if err == nil {
+		t.Fatal("expected error for unresolvable key, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != clierrors.VALIDATION_ERROR {
+		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+	if !strings.Contains(cliErr.Message, "unknown_field") {
+		t.Errorf("error message should mention unknown_field: %s", cliErr.Message)
+	}
+}
+
+func TestImportDryRunCustomFields(t *testing.T) {
+	apiCalled := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode(customFieldTestFieldsImport)
+			return
+		}
+		if r.Method == http.MethodPost || r.Method == http.MethodPut {
+			apiCalled = true
+		}
+		w.WriteHeader(404)
+	})
+
+	f, tio, _ := newTestImportFactory(t, handler)
+	f.DryRun = true
+
+	dir := t.TempDir()
+	writeImportFile(t, dir, "create.md", `---
+key: PROJ-NEW-1
+summary: New With Custom
+type: Task
+project: PROJ
+team: Platform
+---
+`)
+
+	opts := &ImportOptions{
+		Factory: f,
+		Dir:     dir,
+	}
+
+	if err := runImport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if apiCalled {
+		t.Error("dry-run should not make create/edit API calls")
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "DRY RUN") {
+		t.Errorf("output should contain 'DRY RUN', got: %s", out)
+	}
+	if !strings.Contains(out, "team") {
+		t.Errorf("output should mention custom field 'team', got: %s", out)
+	}
+}
+
+func TestImportNoCustomFields(t *testing.T) {
+	var capturedBody string
+	f, _, _ := newTestImportFactory(t, customFieldImportHandler(t, &capturedBody, nil))
+
+	dir := t.TempDir()
+	path := writeImportFile(t, dir, "create.md", `---
+key: PROJ-NEW-1
+summary: No Custom Fields
+type: Task
+project: PROJ
+---
+`)
+
+	opts := &ImportOptions{
+		Factory: f,
+		Files:   []string{path},
+	}
+
+	if err := runImport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+
+	// No custom field IDs should be present.
+	if _, ok := fields["customfield_10001"]; ok {
+		t.Error("customfield_10001 should not be in payload without custom fields")
+	}
+	if _, ok := fields["customfield_10002"]; ok {
+		t.Error("customfield_10002 should not be in payload without custom fields")
+	}
+}
+
 func TestImportFilesAndDirMutuallyExclusive(t *testing.T) {
 	f, _, _ := newTestImportFactory(t, importHandler(t, nil, ""))
 
