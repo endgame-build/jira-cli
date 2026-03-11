@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -168,5 +169,258 @@ func TestIssueToMarkdownStructure(t *testing.T) {
 	// parts[2] should be the markdown body
 	if !strings.Contains(parts[2], "Description text") {
 		t.Error("body section should contain description text")
+	}
+}
+
+func TestNormalizeFieldName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Story Points", "story_points"},
+		{"Team", "team"},
+		{"Custom Field (v2)", "custom_field_v2"},
+		{"!!!", ""},
+		{"Already_Normal", "already_normal"},
+		{"  spaces  ", "__spaces__"},
+		{"MixedCase123", "mixedcase123"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := NormalizeFieldName(tt.input)
+			if got != tt.want {
+				t.Errorf("NormalizeFieldName(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsBuiltinKey(t *testing.T) {
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		{"key", true},
+		{"summary", true},
+		{"status", true},
+		{"assignee_id", true},
+		{"team", false},
+		{"story_points", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			got := IsBuiltinKey(tt.key)
+			if got != tt.want {
+				t.Errorf("IsBuiltinKey(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractCustomFieldValue(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantVal interface{}
+		wantOK  bool
+	}{
+		{"string", `"hello"`, "hello", true},
+		{"number", `42.5`, 42.5, true},
+		{"bool", `true`, true, true},
+		{"null", `null`, nil, false},
+		{"object with value string", `{"value":"Critical"}`, "Critical", true},
+		{"object with value number", `{"value":10}`, float64(10), true},
+		{"object with name", `{"name":"Platform","id":"123"}`, "Platform", true},
+		{"object with neither", `{"id":"123","foo":"bar"}`, nil, false},
+		{"array", `["a","b"]`, nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val, ok := extractCustomFieldValue(json.RawMessage(tt.raw))
+			if ok != tt.wantOK {
+				t.Errorf("extractCustomFieldValue(%s) ok = %v, want %v", tt.raw, ok, tt.wantOK)
+			}
+			if ok && val != tt.wantVal {
+				t.Errorf("extractCustomFieldValue(%s) val = %v (%T), want %v (%T)", tt.raw, val, val, tt.wantVal, tt.wantVal)
+			}
+		})
+	}
+}
+
+func TestIssueToMarkdownWithCustomFields(t *testing.T) {
+	issue := api.Issue{
+		Key: "PROJ-1",
+		Fields: api.IssueFields{
+			Summary: "Test custom fields",
+			CustomFields: map[string]json.RawMessage{
+				"customfield_10001": json.RawMessage(`"Platform"`),
+				"customfield_10002": json.RawMessage(`5.0`),
+				"customfield_10003": json.RawMessage(`{"value":"Critical"}`),
+			},
+		},
+	}
+
+	fields := map[string]api.Field{
+		"customfield_10001": {ID: "customfield_10001", Name: "Team", Custom: true},
+		"customfield_10002": {ID: "customfield_10002", Name: "Story Points", Custom: true},
+		"customfield_10003": {ID: "customfield_10003", Name: "Severity", Custom: true},
+	}
+
+	got, err := IssueToMarkdown(issue, fields, nil)
+	if err != nil {
+		t.Fatalf("IssueToMarkdown() error = %v", err)
+	}
+
+	output := string(got)
+
+	// Custom fields should appear after built-in fields
+	for _, want := range []string{"team: Platform", "story_points: 5", "severity: Critical"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q\ngot:\n%s", want, output)
+		}
+	}
+
+	// Built-in fields should still be present
+	if !strings.Contains(output, "key: PROJ-1") {
+		t.Errorf("output missing built-in key field\ngot:\n%s", output)
+	}
+}
+
+func TestIssueToMarkdownBuiltinCollision(t *testing.T) {
+	issue := api.Issue{
+		Key: "PROJ-1",
+		Fields: api.IssueFields{
+			Summary: "Builtin collision test",
+			Status:  &api.Status{Name: "Open"},
+			CustomFields: map[string]json.RawMessage{
+				"customfield_10001": json.RawMessage(`"custom status value"`),
+			},
+		},
+	}
+
+	fields := map[string]api.Field{
+		"customfield_10001": {ID: "customfield_10001", Name: "Status", Custom: true},
+	}
+
+	var warnings bytes.Buffer
+	got, err := IssueToMarkdown(issue, fields, &warnings)
+	if err != nil {
+		t.Fatalf("IssueToMarkdown() error = %v", err)
+	}
+
+	output := string(got)
+
+	// Built-in status should be present
+	if !strings.Contains(output, "status: Open") {
+		t.Errorf("output missing built-in status\ngot:\n%s", output)
+	}
+
+	// Custom field value should NOT appear
+	if strings.Contains(output, "custom status value") {
+		t.Errorf("output should not contain custom field that collides with built-in\ngot:\n%s", output)
+	}
+
+	// Warning should be written
+	if !strings.Contains(warnings.String(), "collides with built-in key") {
+		t.Errorf("expected collision warning, got: %q", warnings.String())
+	}
+}
+
+func TestIssueToMarkdownNilFields(t *testing.T) {
+	issue := api.Issue{
+		Key: "PROJ-1",
+		Fields: api.IssueFields{
+			Summary: "No custom fields",
+			CustomFields: map[string]json.RawMessage{
+				"customfield_10001": json.RawMessage(`"value"`),
+			},
+		},
+	}
+
+	// nil fields map = no custom field processing (backward compat)
+	got, err := IssueToMarkdown(issue, nil, nil)
+	if err != nil {
+		t.Fatalf("IssueToMarkdown() error = %v", err)
+	}
+
+	output := string(got)
+	if !strings.Contains(output, "key: PROJ-1") {
+		t.Errorf("output missing key\ngot:\n%s", output)
+	}
+
+	// No custom fields should appear
+	if strings.Contains(output, "customfield") || strings.Contains(output, "value") {
+		// "value" could be in the raw field, but since fields=nil, nothing custom should appear.
+		// Actually "value" might appear in YAML literally — let's check more specifically.
+	}
+
+	// The output should only have built-in fields
+	parts := strings.SplitN(output, "---\n", 3)
+	if len(parts) < 3 {
+		t.Fatalf("expected frontmatter structure, got %d parts", len(parts))
+	}
+	yaml := parts[1]
+	lines := strings.Split(strings.TrimSpace(yaml), "\n")
+	for _, line := range lines {
+		key := strings.SplitN(line, ":", 2)[0]
+		key = strings.TrimSpace(key)
+		if key != "" && !IsBuiltinKey(key) {
+			t.Errorf("unexpected non-builtin key %q in output with nil fields map", key)
+		}
+	}
+}
+
+func TestIssueToMarkdownWarnWriter(t *testing.T) {
+	issue := api.Issue{
+		Key: "PROJ-1",
+		Fields: api.IssueFields{
+			Summary: "Warn test",
+			CustomFields: map[string]json.RawMessage{
+				"customfield_10001": json.RawMessage(`["array","value"]`),
+				"customfield_10002": json.RawMessage(`"good"`),
+				"customfield_10003": json.RawMessage(`"collision"`),
+			},
+		},
+	}
+
+	fields := map[string]api.Field{
+		"customfield_10001": {ID: "customfield_10001", Name: "Tags", Custom: true},
+		"customfield_10002": {ID: "customfield_10002", Name: "Team", Custom: true},
+		"customfield_10003": {ID: "customfield_10003", Name: "Status", Custom: true}, // built-in collision
+	}
+
+	// Test with warnWriter
+	var warnings bytes.Buffer
+	got, err := IssueToMarkdown(issue, fields, &warnings)
+	if err != nil {
+		t.Fatalf("IssueToMarkdown() error = %v", err)
+	}
+
+	output := string(got)
+	warnStr := warnings.String()
+
+	// Array value should be skipped with warning
+	if !strings.Contains(warnStr, "customfield_10001") {
+		t.Errorf("expected warning for array field, got: %q", warnStr)
+	}
+
+	// Built-in collision should warn
+	if !strings.Contains(warnStr, "collides with built-in") {
+		t.Errorf("expected builtin collision warning, got: %q", warnStr)
+	}
+
+	// Good field should be in output
+	if !strings.Contains(output, "team: good") {
+		t.Errorf("output missing valid custom field\ngot:\n%s", output)
+	}
+
+	// Test with nil warnWriter — should not panic
+	_, err = IssueToMarkdown(issue, fields, nil)
+	if err != nil {
+		t.Fatalf("IssueToMarkdown() with nil warnWriter error = %v", err)
 	}
 }
