@@ -54,11 +54,16 @@ func exportIssues() []api.Issue {
 }
 
 // exportSearchHandler returns an HTTP handler that serves POST /search/jql
-// responses, optionally capturing the JQL query.
+// and GET /field responses, optionally capturing the JQL query.
 func exportSearchHandler(t *testing.T, pages [][]api.Issue, capturedJQL *string) http.HandlerFunc {
 	t.Helper()
 	callCount := 0
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/field") {
+			json.NewEncoder(w).Encode([]api.Field{})
+			return
+		}
+
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/search/jql") {
 			var req searchRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

@@ -3,8 +3,10 @@ package issue
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -25,12 +27,7 @@ type ExportOptions struct {
 	OutputDir string // --output-dir (default ".")
 	Limit     int    // --limit (0 = all)
 	Tree      bool   // --tree (hierarchical layout)
-}
-
-// exportFields are the issue fields requested from Jira for export.
-var exportFields = []string{
-	"summary", "description", "status", "issuetype", "priority",
-	"labels", "parent", "assignee", "reporter", "project", "created", "updated",
+	Fields    string // --fields (comma-separated custom field names)
 }
 
 // NewCmdExport creates the "issue export" command.
@@ -53,6 +50,7 @@ func NewCmdExport(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.OutputDir, "output-dir", "o", ".", "Root output directory")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 0, "Maximum issues to export (0 = all)")
 	cmd.Flags().BoolVar(&opts.Tree, "tree", false, "Organize output hierarchically (epics as directories)")
+	cmd.Flags().StringVar(&opts.Fields, "fields", "", "Comma-separated custom field names to include (default: all)")
 
 	return cmd
 }
@@ -69,6 +67,12 @@ func runExport(opts *ExportOptions) error {
 
 	// Build JQL: --jql overrides --project.
 	jql, err := buildExportJQL(f, opts)
+	if err != nil {
+		return err
+	}
+
+	// Fetch field metadata for custom field resolution.
+	fieldMap, err := buildExportFieldMap(ctx, client, opts.Fields, f.IOStreams.Err)
 	if err != nil {
 		return err
 	}
@@ -92,7 +96,6 @@ func runExport(opts *ExportOptions) error {
 
 		results, err := client.SearchIssues(ctx, &api.SearchOptions{
 			JQL:           jql,
-			Fields:        exportFields,
 			MaxResults:    pageSize,
 			NextPageToken: token,
 		})
@@ -114,7 +117,7 @@ func runExport(opts *ExportOptions) error {
 			fullPath := filepath.Join(opts.OutputDir, relPath)
 
 			if !f.DryRun {
-				if err := writeFileAtomic(fullPath, issue); err != nil {
+				if err := writeFileAtomic(fullPath, issue, fieldMap, f.IOStreams.Err); err != nil {
 					return err
 				}
 			}
@@ -187,14 +190,63 @@ func buildExportJQL(f *factory.Factory, opts *ExportOptions) (string, error) {
 	return fmt.Sprintf("project = '%s' ORDER BY key ASC", project), nil
 }
 
+// buildExportFieldMap fetches field metadata from Jira and builds a map keyed
+// by field ID. If fieldsFlag is non-empty, only fields matching the
+// comma-separated normalized names are included; unmatched names warn to w.
+func buildExportFieldMap(ctx context.Context, client *api.Client, fieldsFlag string, w io.Writer) (map[string]api.Field, error) {
+	allFields, err := client.ListFields(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	fieldMap := make(map[string]api.Field, len(allFields))
+	for _, f := range allFields {
+		fieldMap[f.ID] = f
+	}
+
+	if fieldsFlag == "" {
+		return fieldMap, nil
+	}
+
+	// Parse requested names and normalize.
+	requested := make(map[string]bool)
+	for _, name := range strings.Split(fieldsFlag, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		requested[markdown.NormalizeFieldName(name)] = true
+	}
+
+	// Filter fieldMap to only include fields whose normalized name is requested.
+	filtered := make(map[string]api.Field)
+	matched := make(map[string]bool)
+	for id, f := range fieldMap {
+		norm := markdown.NormalizeFieldName(f.Name)
+		if requested[norm] {
+			filtered[id] = f
+			matched[norm] = true
+		}
+	}
+
+	// Warn about unmatched names.
+	for name := range requested {
+		if !matched[name] {
+			fmt.Fprintf(w, "warning: --fields: no Jira field matches %q\n", name)
+		}
+	}
+
+	return filtered, nil
+}
+
 // writeFileAtomic writes an issue to a markdown file using temp-then-rename.
-func writeFileAtomic(path string, issue api.Issue) error {
+func writeFileAtomic(path string, issue api.Issue, fields map[string]api.Field, warnWriter io.Writer) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return clierrors.NewGeneralError(fmt.Sprintf("create directory %s", dir)).WithErr(err)
 	}
 
-	data, err := markdown.IssueToMarkdown(issue, nil, nil)
+	data, err := markdown.IssueToMarkdown(issue, fields, warnWriter)
 	if err != nil {
 		return clierrors.NewGeneralError(fmt.Sprintf("convert issue %s to markdown", issue.Key)).WithErr(err)
 	}
