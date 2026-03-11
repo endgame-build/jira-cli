@@ -4,12 +4,50 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/endgame-build/jira-cli/internal/adf"
 	"github.com/endgame-build/jira-cli/internal/api"
 
 	"gopkg.in/yaml.v3"
 )
+
+var nonAlphanumUnderscore = regexp.MustCompile(`[^a-z0-9_]`)
+
+// NormalizeFieldName converts a Jira field display name to a YAML-safe key.
+// It lowercases, replaces spaces with underscores, and strips all characters
+// not in [a-z0-9_]. Returns empty string if nothing remains.
+func NormalizeFieldName(displayName string) string {
+	s := strings.ToLower(displayName)
+	s = strings.ReplaceAll(s, " ", "_")
+	s = nonAlphanumUnderscore.ReplaceAllString(s, "")
+	return s
+}
+
+// builtinFrontmatterKeys is the set of YAML keys used by the Frontmatter struct.
+var builtinFrontmatterKeys = map[string]bool{
+	"key":         true,
+	"id":          true,
+	"type":        true,
+	"summary":     true,
+	"status":      true,
+	"priority":    true,
+	"labels":      true,
+	"parent":      true,
+	"assignee":    true,
+	"assignee_id": true,
+	"reporter":    true,
+	"reporter_id": true,
+	"project":     true,
+	"created":     true,
+	"updated":     true,
+}
+
+// IsBuiltinKey returns true if key is a reserved frontmatter key.
+func IsBuiltinKey(key string) bool {
+	return builtinFrontmatterKeys[key]
+}
 
 // Frontmatter holds the YAML metadata for an issue markdown file.
 type Frontmatter struct {
