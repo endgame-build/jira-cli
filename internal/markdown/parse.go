@@ -70,6 +70,19 @@ func ParseFile(path string) (*IssueFile, error) {
 			WithErr(err)
 	}
 
+	// Second pass: capture unknown keys as custom fields.
+	var rawMap map[string]interface{}
+	if err := yaml.Unmarshal([]byte(yamlContent), &rawMap); err == nil {
+		for k, v := range rawMap {
+			if !IsBuiltinKey(k) {
+				if fm.CustomFields == nil {
+					fm.CustomFields = make(map[string]interface{})
+				}
+				fm.CustomFields[k] = v
+			}
+		}
+	}
+
 	if fm.Key == "" {
 		return nil, clierrors.NewValidationError("missing required field: key").
 			WithContext(map[string]interface{}{"path": path}).
