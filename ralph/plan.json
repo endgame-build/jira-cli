@@ -39,7 +39,7 @@
       ],
       "dependsOn": ["T-001"],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "This is at the limit of one context window. The MarshalYAML + extractCustomFieldValue + IssueToMarkdown changes are tightly coupled and can't be split without leaving the build broken."
     },
     {
