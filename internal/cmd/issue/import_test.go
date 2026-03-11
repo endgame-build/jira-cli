@@ -48,10 +48,16 @@ func newTestImportFactory(t *testing.T, handler http.Handler) (*factory.Factory,
 	return f, tio, srv
 }
 
-// importHandler handles create (POST /issue) and update (PUT /issue/{key}) and get (GET /issue/{key}).
+// importHandler handles create (POST /issue), update (PUT /issue/{key}), get (GET /issue/{key}), and field metadata (GET /field).
 func importHandler(t *testing.T, captureCreateBody *string, getIssueUpdated string) http.HandlerFunc {
 	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request) {
+		// GET /field — field metadata for custom field resolution.
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode([]api.Field{})
+			return
+		}
+
 		// POST /issue — create
 		if r.Method == http.MethodPost && r.URL.Path == "/issue" {
 			if captureCreateBody != nil {
@@ -463,6 +469,10 @@ updated: "2026-01-01T00:00:00.000+0000"
 func TestImportDryRun(t *testing.T) {
 	apiCalled := false
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode([]api.Field{})
+			return
+		}
 		if r.Method == http.MethodPost || r.Method == http.MethodPut {
 			apiCalled = true
 		}
@@ -508,6 +518,10 @@ summary: Existing Issue
 func TestImportStopOnFirstError(t *testing.T) {
 	callCount := 0
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode([]api.Field{})
+			return
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/issue" {
 			callCount++
 			// First create fails.
@@ -555,6 +569,10 @@ func TestImportMixed(t *testing.T) {
 	createCalls := 0
 	editCalls := 0
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode([]api.Field{})
+			return
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/issue" {
 			createCalls++
 			w.WriteHeader(201)
@@ -670,6 +688,10 @@ updated: "2026-01-01T00:00:00.000+0000"
 func TestImportUpdateFieldsExcluded(t *testing.T) {
 	var capturedBody string
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode([]api.Field{})
+			return
+		}
 		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/issue/") {
 			json.NewEncoder(w).Encode(api.Issue{
 				ID:  "10001",
