@@ -406,23 +406,12 @@ func buildImportFieldMap(ctx context.Context, client *api.Client) (map[string]st
 // Each custom field key (normalized name) is looked up in customFieldMap to
 // get the Jira field ID, and the value is sent as-is.
 func injectCustomFields(fields map[string]interface{}, customFields map[string]interface{}, customFieldMap map[string]string) {
-	if len(customFields) == 0 {
-		return
-	}
-
-	// Sort keys for deterministic output (helps testing).
-	keys := make([]string, 0, len(customFields))
-	for k := range customFields {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
+	for key, val := range customFields {
 		fieldID, ok := customFieldMap[key]
 		if !ok {
 			continue // already validated
 		}
-		fields[fieldID] = customFields[key]
+		fields[fieldID] = val
 	}
 }
 

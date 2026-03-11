@@ -611,14 +611,12 @@ func TestExportProgressStderr(t *testing.T) {
 	}
 }
 
-// customFieldTestFields returns field definitions for custom field export tests.
-func customFieldTestFields() []api.Field {
-	return []api.Field{
-		{ID: "summary", Name: "Summary"},
-		{ID: "status", Name: "Status"},
-		{ID: "customfield_10001", Name: "Team", Custom: true},
-		{ID: "customfield_10002", Name: "Story Points", Custom: true},
-	}
+// customFieldTestFields is shared field metadata for custom field tests (export + import).
+var customFieldTestFields = []api.Field{
+	{ID: "summary", Name: "Summary"},
+	{ID: "status", Name: "Status"},
+	{ID: "customfield_10001", Name: "Team", Custom: true},
+	{ID: "customfield_10002", Name: "Story Points", Custom: true},
 }
 
 // issueWithCustomFieldsJSON builds a raw JSON issue object that includes custom
@@ -689,7 +687,7 @@ func customFieldExportHandler(t *testing.T, fields []api.Field, rawIssuePages []
 }
 
 func TestExportCustomFields(t *testing.T) {
-	fields := customFieldTestFields()
+	fields := customFieldTestFields
 	baseIssue := exportIssues()[0]
 	rawIssue := issueWithCustomFieldsJSON(baseIssue, map[string]json.RawMessage{
 		"customfield_10001": json.RawMessage(`"Platform"`),
@@ -729,7 +727,7 @@ func TestExportCustomFields(t *testing.T) {
 }
 
 func TestExportFieldsFlag(t *testing.T) {
-	fields := customFieldTestFields()
+	fields := customFieldTestFields
 	baseIssue := exportIssues()[0]
 	rawIssue := issueWithCustomFieldsJSON(baseIssue, map[string]json.RawMessage{
 		"customfield_10001": json.RawMessage(`"Platform"`),
@@ -767,7 +765,7 @@ func TestExportFieldsFlag(t *testing.T) {
 }
 
 func TestExportFieldsFlagUnknown(t *testing.T) {
-	fields := customFieldTestFields()
+	fields := customFieldTestFields
 	baseIssue := exportIssues()[0]
 	rawIssue := issueWithCustomFieldsJSON(baseIssue, nil)
 
