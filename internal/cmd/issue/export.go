@@ -194,7 +194,7 @@ func writeFileAtomic(path string, issue api.Issue) error {
 		return clierrors.NewGeneralError(fmt.Sprintf("create directory %s", dir)).WithErr(err)
 	}
 
-	data, err := markdown.IssueToMarkdown(issue)
+	data, err := markdown.IssueToMarkdown(issue, nil, nil)
 	if err != nil {
 		return clierrors.NewGeneralError(fmt.Sprintf("convert issue %s to markdown", issue.Key)).WithErr(err)
 	}

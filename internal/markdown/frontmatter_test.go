@@ -113,7 +113,7 @@ func TestIssueToMarkdown(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := IssueToMarkdown(tt.issue)
+			got, err := IssueToMarkdown(tt.issue, nil, nil)
 			if err != nil {
 				t.Fatalf("IssueToMarkdown() error = %v", err)
 			}
@@ -142,7 +142,7 @@ func TestIssueToMarkdown(t *testing.T) {
 
 func TestIssueToMarkdownStructure(t *testing.T) {
 	issue := fullIssue()
-	got, err := IssueToMarkdown(issue)
+	got, err := IssueToMarkdown(issue, nil, nil)
 	if err != nil {
 		t.Fatalf("IssueToMarkdown() error = %v", err)
 	}

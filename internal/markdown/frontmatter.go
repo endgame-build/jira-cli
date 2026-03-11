@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/endgame-build/jira-cli/internal/adf"
@@ -66,9 +68,109 @@ type Frontmatter struct {
 	Project    string   `yaml:"project,omitempty"`
 	Created    string   `yaml:"created,omitempty"`
 	Updated    string   `yaml:"updated,omitempty"`
+
+	// CustomFields holds custom field values keyed by normalized name.
+	// Excluded from default YAML marshal; appended by MarshalYAML.
+	CustomFields map[string]interface{} `yaml:"-"`
+}
+
+// MarshalYAML marshals built-in fields first, then appends custom fields
+// in alphabetical order.
+func (fm Frontmatter) MarshalYAML() (interface{}, error) {
+	// Marshal built-in fields via alias to avoid infinite recursion.
+	type Alias Frontmatter
+	builtinBytes, err := yaml.Marshal(Alias(fm))
+	if err != nil {
+		return nil, err
+	}
+
+	var node yaml.Node
+	if err := yaml.Unmarshal(builtinBytes, &node); err != nil {
+		return nil, err
+	}
+
+	// node is a document node; the mapping is its first content child.
+	mapping := node.Content[0]
+
+	if len(fm.CustomFields) == 0 {
+		return mapping, nil
+	}
+
+	// Sort custom field keys for deterministic output.
+	keys := make([]string, 0, len(fm.CustomFields))
+	for k := range fm.CustomFields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		v := fm.CustomFields[k]
+
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: k}
+
+		var valNode yaml.Node
+		valBytes, err := yaml.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("marshal custom field %q: %w", k, err)
+		}
+		if err := yaml.Unmarshal(valBytes, &valNode); err != nil {
+			return nil, fmt.Errorf("unmarshal custom field %q node: %w", k, err)
+		}
+		// valNode is a document node; extract its content.
+		mapping.Content = append(mapping.Content, keyNode, valNode.Content[0])
+	}
+
+	return mapping, nil
+}
+
+// extractCustomFieldValue determines the YAML value from a json.RawMessage.
+// Returns the value and true if it should be included, or nil and false to skip.
+func extractCustomFieldValue(raw json.RawMessage) (interface{}, bool) {
+	var v interface{}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, false
+	}
+
+	switch val := v.(type) {
+	case string:
+		return val, true
+	case float64:
+		return val, true
+	case bool:
+		return val, true
+	case nil:
+		return nil, false
+	case map[string]interface{}:
+		// Try .value first, then .name
+		if value, ok := val["value"]; ok {
+			switch sv := value.(type) {
+			case string:
+				return sv, true
+			case float64:
+				return sv, true
+			}
+		}
+		if name, ok := val["name"]; ok {
+			switch sv := name.(type) {
+			case string:
+				return sv, true
+			case float64:
+				return sv, true
+			}
+		}
+		return nil, false
+	case []interface{}:
+		return nil, false
+	default:
+		return nil, false
+	}
 }
 
 // IssueToMarkdown converts an api.Issue to markdown bytes with YAML frontmatter.
+// The fields map (keyed by field ID, e.g. "customfield_10001") provides display
+// names for custom field resolution. Pass nil to omit custom fields.
+// Warnings (collisions, skipped values) are written to warnWriter; nil is safe.
+//
 // The output has the form:
 //
 //	---
@@ -77,7 +179,11 @@ type Frontmatter struct {
 //	...
 //	---
 //	Markdown description body
-func IssueToMarkdown(issue api.Issue) ([]byte, error) {
+func IssueToMarkdown(issue api.Issue, fields map[string]api.Field, warnWriter io.Writer) ([]byte, error) {
+	if warnWriter == nil {
+		warnWriter = io.Discard
+	}
+
 	fm := Frontmatter{
 		Key:     issue.Key,
 		ID:      issue.ID,
@@ -109,6 +215,48 @@ func IssueToMarkdown(issue api.Issue) ([]byte, error) {
 	if issue.Fields.Reporter != nil {
 		fm.Reporter = issue.Fields.Reporter.DisplayName
 		fm.ReporterID = issue.Fields.Reporter.AccountID
+	}
+
+	// Process custom fields if field metadata is provided.
+	if fields != nil && len(issue.Fields.CustomFields) > 0 {
+		fm.CustomFields = make(map[string]interface{})
+		seen := make(map[string]string) // normalizedName → fieldID (for collision detection)
+
+		for fieldID, raw := range issue.Fields.CustomFields {
+			field, ok := fields[fieldID]
+			if !ok {
+				continue
+			}
+
+			key := NormalizeFieldName(field.Name)
+			if key == "" {
+				fmt.Fprintf(warnWriter, "warning: field %q (%s) normalized to empty key, skipping\n", field.Name, fieldID)
+				continue
+			}
+
+			if IsBuiltinKey(key) {
+				fmt.Fprintf(warnWriter, "warning: field %q (%s) collides with built-in key %q, skipping\n", field.Name, fieldID, key)
+				continue
+			}
+
+			if prevID, exists := seen[key]; exists {
+				fmt.Fprintf(warnWriter, "warning: field %q (%s) collides with %s (both normalize to %q), keeping first\n", field.Name, fieldID, prevID, key)
+				continue
+			}
+
+			val, ok := extractCustomFieldValue(raw)
+			if !ok {
+				fmt.Fprintf(warnWriter, "warning: field %q (%s) has unsupported value type, skipping\n", field.Name, fieldID)
+				continue
+			}
+
+			seen[key] = fieldID
+			fm.CustomFields[key] = val
+		}
+
+		if len(fm.CustomFields) == 0 {
+			fm.CustomFields = nil
+		}
 	}
 
 	yamlBytes, err := yaml.Marshal(fm)
