@@ -90,6 +90,9 @@ func (fm Frontmatter) MarshalYAML() (interface{}, error) {
 	}
 
 	// node is a document node; the mapping is its first content child.
+	if len(node.Content) == 0 {
+		return nil, fmt.Errorf("unexpected empty YAML document node")
+	}
 	mapping := node.Content[0]
 
 	if len(fm.CustomFields) == 0 {
@@ -117,6 +120,9 @@ func (fm Frontmatter) MarshalYAML() (interface{}, error) {
 			return nil, fmt.Errorf("unmarshal custom field %q node: %w", k, err)
 		}
 		// valNode is a document node; extract its content.
+		if len(valNode.Content) == 0 {
+			return nil, fmt.Errorf("unexpected empty YAML node for custom field %q", k)
+		}
 		mapping.Content = append(mapping.Content, keyNode, valNode.Content[0])
 	}
 
@@ -124,45 +130,46 @@ func (fm Frontmatter) MarshalYAML() (interface{}, error) {
 }
 
 // extractCustomFieldValue determines the YAML value from a json.RawMessage.
-// Returns the value and true if it should be included, or nil and false to skip.
-func extractCustomFieldValue(raw json.RawMessage) (interface{}, bool) {
+// Returns (value, true, nil) if it should be included, (nil, false, nil) for
+// unsupported but valid types, or (nil, false, err) for invalid JSON.
+func extractCustomFieldValue(raw json.RawMessage) (interface{}, bool, error) {
 	var v interface{}
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return nil, false
+		return nil, false, err
 	}
 
 	switch val := v.(type) {
 	case string:
-		return val, true
+		return val, true, nil
 	case float64:
-		return val, true
+		return val, true, nil
 	case bool:
-		return val, true
+		return val, true, nil
 	case nil:
-		return nil, false
+		return nil, false, nil
 	case map[string]interface{}:
 		// Try .value first, then .name
 		if value, ok := val["value"]; ok {
 			switch sv := value.(type) {
 			case string:
-				return sv, true
+				return sv, true, nil
 			case float64:
-				return sv, true
+				return sv, true, nil
 			}
 		}
 		if name, ok := val["name"]; ok {
 			switch sv := name.(type) {
 			case string:
-				return sv, true
+				return sv, true, nil
 			case float64:
-				return sv, true
+				return sv, true, nil
 			}
 		}
-		return nil, false
+		return nil, false, nil
 	case []interface{}:
-		return nil, false
+		return nil, false, nil
 	default:
-		return nil, false
+		return nil, false, nil
 	}
 }
 
@@ -219,44 +226,7 @@ func IssueToMarkdown(issue api.Issue, fields map[string]api.Field, warnWriter io
 
 	// Process custom fields if field metadata is provided.
 	if fields != nil && len(issue.Fields.CustomFields) > 0 {
-		fm.CustomFields = make(map[string]interface{})
-		seen := make(map[string]string) // normalizedName → fieldID (for collision detection)
-
-		for fieldID, raw := range issue.Fields.CustomFields {
-			field, ok := fields[fieldID]
-			if !ok {
-				continue
-			}
-
-			key := NormalizeFieldName(field.Name)
-			if key == "" {
-				fmt.Fprintf(warnWriter, "warning: field %q (%s) normalized to empty key, skipping\n", field.Name, fieldID)
-				continue
-			}
-
-			if IsBuiltinKey(key) {
-				fmt.Fprintf(warnWriter, "warning: field %q (%s) collides with built-in key %q, skipping\n", field.Name, fieldID, key)
-				continue
-			}
-
-			if prevID, exists := seen[key]; exists {
-				fmt.Fprintf(warnWriter, "warning: field %q (%s) collides with %s (both normalize to %q), keeping first\n", field.Name, fieldID, prevID, key)
-				continue
-			}
-
-			val, ok := extractCustomFieldValue(raw)
-			if !ok {
-				fmt.Fprintf(warnWriter, "warning: field %q (%s) has unsupported value type, skipping\n", field.Name, fieldID)
-				continue
-			}
-
-			seen[key] = fieldID
-			fm.CustomFields[key] = val
-		}
-
-		if len(fm.CustomFields) == 0 {
-			fm.CustomFields = nil
-		}
+		fm.CustomFields = resolveCustomFields(issue.Fields.CustomFields, fields, warnWriter)
 	}
 
 	yamlBytes, err := yaml.Marshal(fm)
@@ -279,4 +249,59 @@ func IssueToMarkdown(issue api.Issue, fields map[string]api.Field, warnWriter io
 	}
 
 	return buf.Bytes(), nil
+}
+
+// resolveCustomFields maps raw JSON custom field values from the API to
+// normalized YAML key→value pairs, using the field catalog for name resolution.
+// Skips fields with empty keys, builtin collisions, duplicate names, invalid
+// JSON, and unsupported value types — writing a warning for each.
+// Returns nil if no custom fields survive.
+func resolveCustomFields(customFields map[string]json.RawMessage, fields map[string]api.Field, warnWriter io.Writer) map[string]interface{} {
+	result := make(map[string]interface{})
+	seen := make(map[string]string) // normalizedName → fieldID (for collision detection)
+
+	for fieldID, raw := range customFields {
+		field, ok := fields[fieldID]
+		if !ok {
+			continue
+		}
+
+		key := NormalizeFieldName(field.Name)
+		if key == "" {
+			fmt.Fprintf(warnWriter, "warning: field %q (%s) normalized to empty key, skipping\n", field.Name, fieldID)
+			continue
+		}
+
+		if IsBuiltinKey(key) {
+			fmt.Fprintf(warnWriter, "warning: field %q (%s) collides with built-in key %q, skipping\n", field.Name, fieldID, key)
+			continue
+		}
+
+		if prevID, exists := seen[key]; exists {
+			fmt.Fprintf(warnWriter, "warning: field %q (%s) collides with %s (both normalize to %q), keeping first\n", field.Name, fieldID, prevID, key)
+			continue
+		}
+
+		// Claim the slot before value extraction so a second field with the
+		// same normalized name always triggers the collision warning above,
+		// even if this field's value is unsupported.
+		seen[key] = fieldID
+
+		val, ok, err := extractCustomFieldValue(raw)
+		if err != nil {
+			fmt.Fprintf(warnWriter, "warning: field %q (%s) has invalid value: %v, skipping\n", field.Name, fieldID, err)
+			continue
+		}
+		if !ok {
+			fmt.Fprintf(warnWriter, "warning: field %q (%s) has unsupported value type, skipping\n", field.Name, fieldID)
+			continue
+		}
+
+		result[key] = val
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }

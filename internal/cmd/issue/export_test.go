@@ -764,12 +764,12 @@ func TestExportFieldsFlag(t *testing.T) {
 	}
 }
 
-func TestExportFieldsFlagUnknown(t *testing.T) {
+func TestExportFieldsFlagAllUnknown(t *testing.T) {
 	fields := customFieldTestFields
 	baseIssue := exportIssues()[0]
 	rawIssue := issueWithCustomFieldsJSON(baseIssue, nil)
 
-	f, tio, _ := newTestCreateFactory(t,
+	f, _, _ := newTestCreateFactory(t,
 		customFieldExportHandler(t, fields, [][]json.RawMessage{{rawIssue}}), nil)
 
 	outDir := t.TempDir()
@@ -780,6 +780,39 @@ func TestExportFieldsFlagUnknown(t *testing.T) {
 		Fields:    "nonexistent",
 	}
 
+	err := runExport(opts)
+	if err == nil {
+		t.Fatal("expected error when all --fields names are unmatched, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != clierrors.VALIDATION_ERROR {
+		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+}
+
+func TestExportFieldsFlagPartialMatch(t *testing.T) {
+	fields := customFieldTestFields
+	baseIssue := exportIssues()[0]
+	rawIssue := issueWithCustomFieldsJSON(baseIssue, map[string]json.RawMessage{
+		"customfield_10001": json.RawMessage(`"Platform"`),
+	})
+
+	f, tio, _ := newTestCreateFactory(t,
+		customFieldExportHandler(t, fields, [][]json.RawMessage{{rawIssue}}), nil)
+
+	outDir := t.TempDir()
+	opts := &ExportOptions{
+		Factory:   f,
+		Project:   "PROJ",
+		OutputDir: outDir,
+		Fields:    "team,nonexistent",
+	}
+
+	// Should succeed (some matched), but warn about unmatched.
 	if err := runExport(opts); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

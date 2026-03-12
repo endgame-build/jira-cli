@@ -236,6 +236,12 @@ func buildExportFieldMap(ctx context.Context, client *api.Client, fieldsFlag str
 		}
 	}
 
+	// Error if none of the requested fields matched — likely a typo.
+	if len(requested) > 0 && len(matched) == 0 {
+		return nil, clierrors.NewValidationError("--fields: no Jira fields match any of the requested names").
+			WithSuggestion("Check field names with 'jira schema fields'")
+	}
+
 	return filtered, nil
 }
 

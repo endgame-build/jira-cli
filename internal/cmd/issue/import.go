@@ -137,7 +137,7 @@ func runImport(opts *ImportOptions) error {
 	}
 
 	// Fetch field metadata for custom field resolution.
-	customFieldMap, err := buildImportFieldMap(ctx, client)
+	customFieldMap, err := buildImportFieldMap(ctx, client, f.IOStreams.Err)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,10 @@ func runImport(opts *ImportOptions) error {
 			continue
 		}
 
-		fields := buildCreateFields(issueFile, customFieldMap)
+		fields, err := buildCreateFields(issueFile, customFieldMap)
+		if err != nil {
+			return err
+		}
 
 		if err := setDescriptionADF(fields, issueFile.Description, issueFile.Frontmatter.Key); err != nil {
 			return err
@@ -232,7 +235,10 @@ func runImport(opts *ImportOptions) error {
 			}
 		}
 
-		fields := buildUpdateFields(issueFile, customFieldMap)
+		fields, err := buildUpdateFields(issueFile, customFieldMap)
+		if err != nil {
+			return err
+		}
 
 		if err := setDescriptionADF(fields, issueFile.Description, key); err != nil {
 			return err
@@ -308,7 +314,7 @@ func runImport(opts *ImportOptions) error {
 }
 
 // buildCreateFields builds the fields map for a create operation.
-func buildCreateFields(issueFile *markdown.IssueFile, customFieldMap map[string]string) map[string]interface{} {
+func buildCreateFields(issueFile *markdown.IssueFile, customFieldMap map[string]string) (map[string]interface{}, error) {
 	fm := issueFile.Frontmatter
 	fields := map[string]interface{}{
 		"project":   map[string]interface{}{"key": fm.Project},
@@ -322,14 +328,16 @@ func buildCreateFields(issueFile *markdown.IssueFile, customFieldMap map[string]
 		fields["parent"] = map[string]interface{}{"key": fm.Parent}
 	}
 
-	injectCustomFields(fields, fm.CustomFields, customFieldMap)
+	if err := injectCustomFields(fields, fm.CustomFields, customFieldMap); err != nil {
+		return nil, err
+	}
 
-	return fields
+	return fields, nil
 }
 
 // buildUpdateFields builds the fields map for an update operation.
 // Updates do NOT send type, project, parent, or status (read-only or out of MVP scope).
-func buildUpdateFields(issueFile *markdown.IssueFile, customFieldMap map[string]string) map[string]interface{} {
+func buildUpdateFields(issueFile *markdown.IssueFile, customFieldMap map[string]string) (map[string]interface{}, error) {
 	fm := issueFile.Frontmatter
 	fields := map[string]interface{}{
 		"summary": fm.Summary,
@@ -337,9 +345,11 @@ func buildUpdateFields(issueFile *markdown.IssueFile, customFieldMap map[string]
 
 	setCommonFields(fields, fm)
 
-	injectCustomFields(fields, fm.CustomFields, customFieldMap)
+	if err := injectCustomFields(fields, fm.CustomFields, customFieldMap); err != nil {
+		return nil, err
+	}
 
-	return fields
+	return fields, nil
 }
 
 // setCommonFields sets fields shared between create and update operations.
@@ -382,22 +392,27 @@ func writeResultLine(w io.Writer, r importResult) {
 
 // buildImportFieldMap fetches field metadata from Jira and builds a reverse
 // lookup map: normalizedName → fieldID for custom field resolution during import.
-func buildImportFieldMap(ctx context.Context, client *api.Client) (map[string]string, error) {
+// Warns to w when multiple fields normalize to the same key (first wins).
+func buildImportFieldMap(ctx context.Context, client *api.Client, w io.Writer) (map[string]string, error) {
 	allFields, err := client.ListFields(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	fieldMap := make(map[string]string)
+	fieldNames := make(map[string]string) // norm → display name (for warnings)
 	for _, f := range allFields {
 		norm := markdown.NormalizeFieldName(f.Name)
 		if norm == "" || markdown.IsBuiltinKey(norm) {
 			continue
 		}
-		// First field wins for duplicate normalized names.
-		if _, exists := fieldMap[norm]; !exists {
-			fieldMap[norm] = f.ID
+		if prevName, exists := fieldNames[norm]; exists {
+			fmt.Fprintf(w, "warning: field %q (%s) collides with %q (%s), both normalize to %q, keeping first\n",
+				f.Name, f.ID, prevName, fieldMap[norm], norm)
+			continue
 		}
+		fieldMap[norm] = f.ID
+		fieldNames[norm] = f.Name
 	}
 	return fieldMap, nil
 }
@@ -405,14 +420,17 @@ func buildImportFieldMap(ctx context.Context, client *api.Client) (map[string]st
 // injectCustomFields adds resolved custom fields to the API fields map.
 // Each custom field key (normalized name) is looked up in customFieldMap to
 // get the Jira field ID, and the value is sent as-is.
-func injectCustomFields(fields map[string]interface{}, customFields map[string]interface{}, customFieldMap map[string]string) {
+// Returns an error if a key is missing from customFieldMap (should not happen
+// if validation ran first, but guards against future refactors).
+func injectCustomFields(fields map[string]interface{}, customFields map[string]interface{}, customFieldMap map[string]string) error {
 	for key, val := range customFields {
 		fieldID, ok := customFieldMap[key]
 		if !ok {
-			continue // already validated
+			return clierrors.NewGeneralError(fmt.Sprintf("internal: custom field key %q not in field map", key))
 		}
 		fields[fieldID] = val
 	}
+	return nil
 }
 
 // collectCustomFieldNames gathers all unique custom field names across issue files.

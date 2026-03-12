@@ -3,10 +3,13 @@ package markdown
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/endgame-build/jira-cli/internal/api"
+
+	"gopkg.in/yaml.v3"
 )
 
 func fullIssue() api.Issue {
@@ -226,21 +229,34 @@ func TestExtractCustomFieldValue(t *testing.T) {
 		raw     string
 		wantVal interface{}
 		wantOK  bool
+		wantErr bool
 	}{
-		{"string", `"hello"`, "hello", true},
-		{"number", `42.5`, 42.5, true},
-		{"bool", `true`, true, true},
-		{"null", `null`, nil, false},
-		{"object with value string", `{"value":"Critical"}`, "Critical", true},
-		{"object with value number", `{"value":10}`, float64(10), true},
-		{"object with name", `{"name":"Platform","id":"123"}`, "Platform", true},
-		{"object with neither", `{"id":"123","foo":"bar"}`, nil, false},
-		{"array", `["a","b"]`, nil, false},
+		{"string", `"hello"`, "hello", true, false},
+		{"number", `42.5`, 42.5, true, false},
+		{"bool", `true`, true, true, false},
+		{"null", `null`, nil, false, false},
+		{"object with value string", `{"value":"Critical"}`, "Critical", true, false},
+		{"object with value number", `{"value":10}`, float64(10), true, false},
+		{"object with name", `{"name":"Platform","id":"123"}`, "Platform", true, false},
+		{"object with neither", `{"id":"123","foo":"bar"}`, nil, false, false},
+		{"array", `["a","b"]`, nil, false, false},
+		{"invalid json", `{broken`, nil, false, true},
+		{"empty bytes", ``, nil, false, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			val, ok := extractCustomFieldValue(json.RawMessage(tt.raw))
+			val, ok, err := extractCustomFieldValue(json.RawMessage(tt.raw))
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("extractCustomFieldValue(%s) expected error, got nil", tt.raw)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("extractCustomFieldValue(%s) unexpected error: %v", tt.raw, err)
+				return
+			}
 			if ok != tt.wantOK {
 				t.Errorf("extractCustomFieldValue(%s) ok = %v, want %v", tt.raw, ok, tt.wantOK)
 			}
@@ -422,5 +438,244 @@ func TestIssueToMarkdownWarnWriter(t *testing.T) {
 	_, err = IssueToMarkdown(issue, fields, nil)
 	if err != nil {
 		t.Fatalf("IssueToMarkdown() with nil warnWriter error = %v", err)
+	}
+}
+
+func TestIssueToMarkdownInvalidJSON(t *testing.T) {
+	issue := api.Issue{
+		Key: "PROJ-1",
+		Fields: api.IssueFields{
+			Summary: "Invalid JSON test",
+			CustomFields: map[string]json.RawMessage{
+				"customfield_10001": json.RawMessage(`{broken json`),
+				"customfield_10002": json.RawMessage(`"valid"`),
+			},
+		},
+	}
+
+	fields := map[string]api.Field{
+		"customfield_10001": {ID: "customfield_10001", Name: "Bad Field", Custom: true},
+		"customfield_10002": {ID: "customfield_10002", Name: "Good Field", Custom: true},
+	}
+
+	var warnings bytes.Buffer
+	got, err := IssueToMarkdown(issue, fields, &warnings)
+	if err != nil {
+		t.Fatalf("IssueToMarkdown() error = %v", err)
+	}
+
+	output := string(got)
+
+	// Valid field should be present.
+	if !strings.Contains(output, "good_field: valid") {
+		t.Errorf("output missing valid custom field\ngot:\n%s", output)
+	}
+
+	// Invalid JSON should warn with "invalid value" (not "unsupported type").
+	warnStr := warnings.String()
+	if !strings.Contains(warnStr, "invalid value") {
+		t.Errorf("expected 'invalid value' warning, got: %q", warnStr)
+	}
+}
+
+func TestMarshalYAML(t *testing.T) {
+	tests := []struct {
+		name       string
+		fm         Frontmatter
+		wantParts  []string
+		wantAbsent []string
+	}{
+		{
+			name: "builtin fields only",
+			fm: Frontmatter{
+				Key:     "PROJ-1",
+				Summary: "Test",
+			},
+			wantParts:  []string{"key: PROJ-1", "summary: Test"},
+			wantAbsent: []string{"custom"},
+		},
+		{
+			name: "custom fields sorted alphabetically",
+			fm: Frontmatter{
+				Key:     "PROJ-1",
+				Summary: "Test",
+				CustomFields: map[string]interface{}{
+					"zebra": "z-value",
+					"alpha": "a-value",
+				},
+			},
+			wantParts: []string{"key: PROJ-1", "alpha: a-value", "zebra: z-value"},
+		},
+		{
+			name: "custom field types",
+			fm: Frontmatter{
+				Key:     "PROJ-1",
+				Summary: "Test",
+				CustomFields: map[string]interface{}{
+					"string_field": "hello",
+					"number_field": 42.5,
+					"bool_field":   true,
+					"int_field":    5,
+				},
+			},
+			wantParts: []string{"string_field: hello", "number_field: 42.5", "bool_field: true", "int_field: 5"},
+		},
+		{
+			name: "empty custom fields map omitted",
+			fm: Frontmatter{
+				Key:          "PROJ-1",
+				Summary:      "Test",
+				CustomFields: map[string]interface{}{},
+			},
+			wantParts: []string{"key: PROJ-1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := yaml.Marshal(tt.fm)
+			if err != nil {
+				t.Fatalf("yaml.Marshal error = %v", err)
+			}
+			output := string(out)
+
+			for _, part := range tt.wantParts {
+				if !strings.Contains(output, part) {
+					t.Errorf("output missing %q\ngot:\n%s", part, output)
+				}
+			}
+			for _, absent := range tt.wantAbsent {
+				if strings.Contains(output, absent) {
+					t.Errorf("output should not contain %q\ngot:\n%s", absent, output)
+				}
+			}
+		})
+	}
+}
+
+func TestMarshalYAMLCustomFieldOrder(t *testing.T) {
+	fm := Frontmatter{
+		Key:     "PROJ-1",
+		Summary: "Test",
+		CustomFields: map[string]interface{}{
+			"charlie": "c",
+			"alpha":   "a",
+			"bravo":   "b",
+		},
+	}
+
+	out, err := yaml.Marshal(fm)
+	if err != nil {
+		t.Fatalf("yaml.Marshal error = %v", err)
+	}
+	output := string(out)
+
+	// Custom fields must appear in alphabetical order.
+	aIdx := strings.Index(output, "alpha:")
+	bIdx := strings.Index(output, "bravo:")
+	cIdx := strings.Index(output, "charlie:")
+	if aIdx < 0 || bIdx < 0 || cIdx < 0 {
+		t.Fatalf("missing custom fields in output:\n%s", output)
+	}
+	if !(aIdx < bIdx && bIdx < cIdx) {
+		t.Errorf("custom fields not in alphabetical order: alpha=%d, bravo=%d, charlie=%d\n%s", aIdx, bIdx, cIdx, output)
+	}
+
+	// Custom fields must appear after built-in fields.
+	summaryIdx := strings.Index(output, "summary:")
+	if summaryIdx < 0 || aIdx < summaryIdx {
+		t.Errorf("custom fields should appear after built-in fields\n%s", output)
+	}
+}
+
+func TestRoundTripExportImport(t *testing.T) {
+	issue := api.Issue{
+		Key: "PROJ-42",
+		Fields: api.IssueFields{
+			Summary:   "Round-trip test",
+			IssueType: &api.IssueType{Name: "Bug"},
+			Status:    &api.Status{Name: "Open"},
+			Priority:  &api.Priority{Name: "High"},
+			Project:   &api.Project{Key: "PROJ"},
+			Labels:    []string{"test"},
+			Created:   "2026-01-01T00:00:00.000+0000",
+			Updated:   "2026-01-02T00:00:00.000+0000",
+			CustomFields: map[string]json.RawMessage{
+				"customfield_10001": json.RawMessage(`"Platform"`),
+				"customfield_10002": json.RawMessage(`5`),
+				"customfield_10003": json.RawMessage(`42.5`),
+				"customfield_10004": json.RawMessage(`true`),
+				"customfield_10005": json.RawMessage(`{"value":"Critical"}`),
+			},
+		},
+	}
+
+	fields := map[string]api.Field{
+		"customfield_10001": {ID: "customfield_10001", Name: "Team", Custom: true},
+		"customfield_10002": {ID: "customfield_10002", Name: "Story Points", Custom: true},
+		"customfield_10003": {ID: "customfield_10003", Name: "Estimate", Custom: true},
+		"customfield_10004": {ID: "customfield_10004", Name: "Flagged", Custom: true},
+		"customfield_10005": {ID: "customfield_10005", Name: "Severity", Custom: true},
+	}
+
+	// Export: issue → markdown bytes.
+	data, err := IssueToMarkdown(issue, fields, nil)
+	if err != nil {
+		t.Fatalf("IssueToMarkdown() error = %v", err)
+	}
+
+	// Write to file and parse back.
+	dir := t.TempDir()
+	path := dir + "/test.md"
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+
+	parsed, err := ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+
+	fm := parsed.Frontmatter
+
+	// Verify built-in fields round-trip.
+	if fm.Key != "PROJ-42" {
+		t.Errorf("key = %q, want PROJ-42", fm.Key)
+	}
+	if fm.Summary != "Round-trip test" {
+		t.Errorf("summary = %q, want 'Round-trip test'", fm.Summary)
+	}
+	if fm.Type != "Bug" {
+		t.Errorf("type = %q, want Bug", fm.Type)
+	}
+	if fm.Project != "PROJ" {
+		t.Errorf("project = %q, want PROJ", fm.Project)
+	}
+
+	// Verify custom fields round-trip.
+	if fm.CustomFields == nil {
+		t.Fatal("CustomFields is nil after round-trip")
+	}
+
+	wantCustom := map[string]struct {
+		val    interface{}
+		altVal interface{} // YAML may parse numbers differently (int vs float64)
+	}{
+		"team":         {val: "Platform", altVal: nil},
+		"story_points": {val: 5, altVal: float64(5)},  // JSON float64 → YAML int (or float64)
+		"estimate":     {val: 42.5, altVal: nil},      // stays float64
+		"flagged":      {val: true, altVal: nil},      // bool
+		"severity":     {val: "Critical", altVal: nil}, // extracted from object
+	}
+
+	for k, want := range wantCustom {
+		got, ok := fm.CustomFields[k]
+		if !ok {
+			t.Errorf("CustomFields missing %q", k)
+			continue
+		}
+		if got != want.val && (want.altVal == nil || got != want.altVal) {
+			t.Errorf("CustomFields[%q] = %v (%T), want %v (%T)", k, got, got, want.val, want.val)
+		}
 	}
 }
