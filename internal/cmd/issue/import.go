@@ -2,8 +2,10 @@ package issue
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -160,6 +162,23 @@ func runImport(opts *ImportOptions) error {
 		}
 	}
 
+	// Load sidecar field values for object-type custom field wrapping.
+	var fieldValues markdown.FieldValueMap
+	importDir := opts.Dir
+	if importDir == "" && len(opts.Files) > 0 {
+		importDir = filepath.Dir(opts.Files[0])
+	}
+	if importDir != "" {
+		fvm, sidecarPath, err := markdown.FindFieldValues(importDir)
+		if err != nil {
+			return err
+		}
+		fieldValues = fvm
+		if sidecarPath != "" {
+			fmt.Fprintf(f.IOStreams.Err, "Loaded field value mappings from %s\n", sidecarPath)
+		}
+	}
+
 	// Separate creates and updates, preserving order.
 	var creates, updates []*markdown.IssueFile
 	for _, issueFile := range issueFiles {
@@ -183,7 +202,7 @@ func runImport(opts *ImportOptions) error {
 			continue
 		}
 
-		fields, err := buildCreateFields(issueFile, customFieldMap)
+		fields, err := buildCreateFields(issueFile, customFieldMap, fieldValues)
 		if err != nil {
 			return err
 		}
@@ -242,7 +261,7 @@ func runImport(opts *ImportOptions) error {
 			}
 		}
 
-		fields, err := buildUpdateFields(issueFile, customFieldMap)
+		fields, err := buildUpdateFields(issueFile, customFieldMap, fieldValues)
 		if err != nil {
 			return err
 		}
@@ -321,7 +340,7 @@ func runImport(opts *ImportOptions) error {
 }
 
 // buildCreateFields builds the fields map for a create operation.
-func buildCreateFields(issueFile *markdown.IssueFile, customFieldMap map[string]importFieldInfo) (map[string]interface{}, error) {
+func buildCreateFields(issueFile *markdown.IssueFile, customFieldMap map[string]importFieldInfo, fieldValues markdown.FieldValueMap) (map[string]interface{}, error) {
 	fm := issueFile.Frontmatter
 	fields := map[string]interface{}{
 		"project":   map[string]interface{}{"key": fm.Project},
@@ -335,7 +354,7 @@ func buildCreateFields(issueFile *markdown.IssueFile, customFieldMap map[string]
 		fields["parent"] = map[string]interface{}{"key": fm.Parent}
 	}
 
-	if err := injectCustomFields(fields, fm.CustomFields, customFieldMap); err != nil {
+	if err := injectCustomFields(fields, fm.CustomFields, customFieldMap, fieldValues); err != nil {
 		return nil, err
 	}
 
@@ -344,7 +363,7 @@ func buildCreateFields(issueFile *markdown.IssueFile, customFieldMap map[string]
 
 // buildUpdateFields builds the fields map for an update operation.
 // Updates do NOT send type, project, parent, or status (read-only or out of MVP scope).
-func buildUpdateFields(issueFile *markdown.IssueFile, customFieldMap map[string]importFieldInfo) (map[string]interface{}, error) {
+func buildUpdateFields(issueFile *markdown.IssueFile, customFieldMap map[string]importFieldInfo, fieldValues markdown.FieldValueMap) (map[string]interface{}, error) {
 	fm := issueFile.Frontmatter
 	fields := map[string]interface{}{
 		"summary": fm.Summary,
@@ -352,7 +371,7 @@ func buildUpdateFields(issueFile *markdown.IssueFile, customFieldMap map[string]
 
 	setCommonFields(fields, fm)
 
-	if err := injectCustomFields(fields, fm.CustomFields, customFieldMap); err != nil {
+	if err := injectCustomFields(fields, fm.CustomFields, customFieldMap, fieldValues); err != nil {
 		return nil, err
 	}
 
@@ -426,35 +445,43 @@ func buildImportFieldMap(ctx context.Context, client *api.Client, w io.Writer) (
 
 // injectCustomFields adds resolved custom fields to the API fields map.
 // Each custom field key (normalized name) is looked up in customFieldMap to
-// get the Jira field ID and schema. Scalar values are wrapped into the object
-// format Jira expects based on the field's schema type.
-// Returns an error if a key is missing from customFieldMap (should not happen
-// if validation ran first, but guards against future refactors).
-func injectCustomFields(fields map[string]interface{}, customFields map[string]interface{}, customFieldMap map[string]importFieldInfo) error {
+// get the Jira field ID and schema. Values are wrapped into the object format
+// Jira expects, using the sidecar field value map when available, falling back
+// to schema-based wrapping.
+func injectCustomFields(fields map[string]interface{}, customFields map[string]interface{}, customFieldMap map[string]importFieldInfo, fieldValues markdown.FieldValueMap) error {
 	for key, val := range customFields {
 		info, ok := customFieldMap[key]
 		if !ok {
 			return clierrors.NewGeneralError(fmt.Sprintf("internal: custom field key %q not in field map", key))
 		}
-		fields[info.ID] = wrapCustomFieldValue(val, info.Schema)
+		fields[info.ID] = wrapCustomFieldValue(val, info.Schema, key, fieldValues)
 	}
 	return nil
 }
 
-// wrapCustomFieldValue wraps a scalar value into the object format Jira expects
-// based on the field's schema type. Only string values are wrapped; numbers,
-// bools, and maps pass through unchanged.
-func wrapCustomFieldValue(val interface{}, schema api.FieldSchema) interface{} {
+// wrapCustomFieldValue wraps a scalar value into the object format Jira expects.
+// First checks the sidecar field value map for a pre-recorded raw API object.
+// Falls back to schema-based wrapping for option and user types.
+// Numbers, bools, and maps pass through unchanged.
+func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName string, fieldValues markdown.FieldValueMap) interface{} {
 	str, ok := val.(string)
 	if !ok {
 		return val
 	}
 
-	// Team fields use a specific custom URI.
-	if schema.Custom == "com.atlassian.teams:rm-teams-custom-field-team" {
-		return map[string]interface{}{"name": str}
+	// Check sidecar for a pre-recorded raw API object.
+	if fieldValues != nil {
+		if vals, ok := fieldValues[fieldName]; ok {
+			if raw, ok := vals[str]; ok {
+				var obj interface{}
+				if err := json.Unmarshal(raw, &obj); err == nil {
+					return obj
+				}
+			}
+		}
 	}
 
+	// Schema-based wrapping fallback.
 	switch schema.Type {
 	case "option":
 		return map[string]interface{}{"value": str}

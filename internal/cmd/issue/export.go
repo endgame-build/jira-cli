@@ -81,6 +81,7 @@ func runExport(opts *ExportOptions) error {
 	var exported int
 	files := []string{}
 	token := ""
+	allRawValues := make(markdown.FieldValueMap)
 
 	for {
 		pageSize := 50
@@ -117,9 +118,11 @@ func runExport(opts *ExportOptions) error {
 			fullPath := filepath.Join(opts.OutputDir, relPath)
 
 			if !f.DryRun {
-				if err := writeFileAtomic(fullPath, issue, fieldMap, f.IOStreams.Err); err != nil {
+				rawValues, err := writeFileAtomic(fullPath, issue, fieldMap, f.IOStreams.Err)
+				if err != nil {
 					return err
 				}
+				allRawValues.Merge(rawValues)
 			}
 
 			files = append(files, relPath)
@@ -137,6 +140,19 @@ func runExport(opts *ExportOptions) error {
 			break
 		}
 		token = results.NextPageToken
+	}
+
+	// Write sidecar with raw field values for import round-trip.
+	if !f.DryRun && len(allRawValues) > 0 {
+		sidecarPath := filepath.Join(opts.OutputDir, markdown.FieldValuesFileName)
+		existing, err := markdown.LoadFieldValues(sidecarPath)
+		if err != nil {
+			return err
+		}
+		existing.Merge(allRawValues)
+		if err := markdown.SaveFieldValues(sidecarPath, existing); err != nil {
+			return err
+		}
 	}
 
 	formatter := output.NewFormatter(f.IOStreams, f.OutputJSON, f.JQExpr)
@@ -246,26 +262,27 @@ func buildExportFieldMap(ctx context.Context, client *api.Client, fieldsFlag str
 }
 
 // writeFileAtomic writes an issue to a markdown file using temp-then-rename.
-func writeFileAtomic(path string, issue api.Issue, fields map[string]api.Field, warnWriter io.Writer) error {
+// Returns the raw field value map for sidecar accumulation.
+func writeFileAtomic(path string, issue api.Issue, fields map[string]api.Field, warnWriter io.Writer) (markdown.FieldValueMap, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return clierrors.NewGeneralError(fmt.Sprintf("create directory %s", dir)).WithErr(err)
+		return nil, clierrors.NewGeneralError(fmt.Sprintf("create directory %s", dir)).WithErr(err)
 	}
 
-	data, err := markdown.IssueToMarkdown(issue, fields, warnWriter)
+	data, rawValues, err := markdown.IssueToMarkdown(issue, fields, warnWriter)
 	if err != nil {
-		return clierrors.NewGeneralError(fmt.Sprintf("convert issue %s to markdown", issue.Key)).WithErr(err)
+		return nil, clierrors.NewGeneralError(fmt.Sprintf("convert issue %s to markdown", issue.Key)).WithErr(err)
 	}
 
 	tmpPath := path + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		return clierrors.NewGeneralError(fmt.Sprintf("write temp file %s", tmpPath)).WithErr(err)
+		return nil, clierrors.NewGeneralError(fmt.Sprintf("write temp file %s", tmpPath)).WithErr(err)
 	}
 
 	if err := os.Rename(tmpPath, path); err != nil {
 		os.Remove(tmpPath) // best-effort cleanup
-		return clierrors.NewGeneralError(fmt.Sprintf("rename %s to %s", tmpPath, path)).WithErr(err)
+		return nil, clierrors.NewGeneralError(fmt.Sprintf("rename %s to %s", tmpPath, path)).WithErr(err)
 	}
 
-	return nil
+	return rawValues, nil
 }

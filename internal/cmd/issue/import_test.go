@@ -17,6 +17,7 @@ import (
 	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/factory"
 	"github.com/endgame-build/jira-cli/internal/iostreams"
+	"github.com/endgame-build/jira-cli/internal/markdown"
 )
 
 // writeImportFile writes a markdown file with frontmatter to the given directory.
@@ -854,6 +855,17 @@ func TestImportCustomFields(t *testing.T) {
 	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{fields: customFieldTestFields, captureCreate: &capturedBody}))
 
 	dir := t.TempDir()
+
+	// Write sidecar with team value mapping.
+	sidecar := markdown.FieldValueMap{
+		"team": {
+			"Platform": json.RawMessage(`{"id":"team-123","name":"Platform"}`),
+		},
+	}
+	if err := markdown.SaveFieldValues(filepath.Join(dir, markdown.FieldValuesFileName), sidecar); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
+
 	path := writeImportFile(t, dir, "create.md", `---
 key: PROJ-NEW-1
 summary: New Issue
@@ -879,13 +891,16 @@ story_points: 5
 	}
 	fields := reqBody["fields"].(map[string]interface{})
 
-	// Team field should be wrapped as {"name": ...} based on schema.
+	// Team field should be the full raw object from sidecar.
 	teamVal, ok := fields["customfield_10001"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("customfield_10001 should be object, got %T: %v", fields["customfield_10001"], fields["customfield_10001"])
 	}
 	if teamVal["name"] != "Platform" {
 		t.Errorf("customfield_10001.name = %v, want Platform", teamVal["name"])
+	}
+	if teamVal["id"] != "team-123" {
+		t.Errorf("customfield_10001.id = %v, want team-123", teamVal["id"])
 	}
 	// Story Points is a number — passes through unchanged.
 	// YAML unmarshals integers; JSON re-encodes as float64.
@@ -900,6 +915,17 @@ func TestImportCustomFieldUpdate(t *testing.T) {
 	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{fields: customFieldTestFields, captureEdit: &capturedEditBody, getIssueUpdated: "2026-01-01T00:00:00.000+0000"}))
 
 	dir := t.TempDir()
+
+	// Write sidecar with team value mapping.
+	sidecar := markdown.FieldValueMap{
+		"team": {
+			"Backend": json.RawMessage(`{"id":"team-456","name":"Backend"}`),
+		},
+	}
+	if err := markdown.SaveFieldValues(filepath.Join(dir, markdown.FieldValuesFileName), sidecar); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
+
 	path := writeImportFile(t, dir, "update.md", `---
 key: PROJ-123
 summary: Updated Issue
@@ -924,13 +950,16 @@ story_points: 8
 	}
 	fields := reqBody["fields"].(map[string]interface{})
 
-	// Team field should be wrapped as {"name": ...} based on schema.
+	// Team field should be the full raw object from sidecar.
 	teamVal, ok := fields["customfield_10001"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("customfield_10001 should be object, got %T: %v", fields["customfield_10001"], fields["customfield_10001"])
 	}
 	if teamVal["name"] != "Backend" {
 		t.Errorf("customfield_10001.name = %v, want Backend", teamVal["name"])
+	}
+	if teamVal["id"] != "team-456" {
+		t.Errorf("customfield_10001.id = %v, want team-456", teamVal["id"])
 	}
 	sp, ok := fields["customfield_10002"].(float64)
 	if !ok || sp != 8 {
@@ -1082,26 +1111,32 @@ func TestImportCustomFieldWrapping(t *testing.T) {
 	tests := []struct {
 		name       string
 		schema     api.FieldSchema
+		sidecar    markdown.FieldValueMap // optional sidecar entries
 		input      interface{}
 		wantString string // JSON substring to match in the captured body
 	}{
 		{
-			name:       "option wraps as value",
+			name:       "option wraps as value via schema",
 			schema:     api.FieldSchema{Type: "option"},
 			input:      "Critical",
 			wantString: `"value":"Critical"`,
 		},
 		{
-			name:       "user wraps as accountId",
+			name:       "user wraps as accountId via schema",
 			schema:     api.FieldSchema{Type: "user"},
 			input:      "abc123",
 			wantString: `"accountId":"abc123"`,
 		},
 		{
-			name:       "team wraps as name",
-			schema:     api.FieldSchema{Type: "any", Custom: "com.atlassian.teams:rm-teams-custom-field-team"},
+			name:   "team wraps via sidecar",
+			schema: api.FieldSchema{Type: "team", Custom: "com.atlassian.jira.plugin.system.customfieldtypes:atlassian-team"},
+			sidecar: markdown.FieldValueMap{
+				"test_field": {
+					"Platform": json.RawMessage(`{"id":"team-123","name":"Platform"}`),
+				},
+			},
 			input:      "Platform",
-			wantString: `"name":"Platform"`,
+			wantString: `"id":"team-123"`,
 		},
 		{
 			name:       "number passes through",
@@ -1115,6 +1150,17 @@ func TestImportCustomFieldWrapping(t *testing.T) {
 			input:      "plain text",
 			wantString: `"customfield_99999":"plain text"`,
 		},
+		{
+			name:   "sidecar overrides schema wrapping",
+			schema: api.FieldSchema{Type: "option"},
+			sidecar: markdown.FieldValueMap{
+				"test_field": {
+					"Critical": json.RawMessage(`{"value":"Critical","id":"opt-99"}`),
+				},
+			},
+			input:      "Critical",
+			wantString: `"id":"opt-99"`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1126,6 +1172,13 @@ func TestImportCustomFieldWrapping(t *testing.T) {
 			f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{fields: fields, captureCreate: &capturedBody}))
 
 			dir := t.TempDir()
+
+			// Write sidecar if provided.
+			if tt.sidecar != nil {
+				if err := markdown.SaveFieldValues(filepath.Join(dir, markdown.FieldValuesFileName), tt.sidecar); err != nil {
+					t.Fatalf("write sidecar: %v", err)
+				}
+			}
 
 			// Build frontmatter with the custom field value inline.
 			var valStr string

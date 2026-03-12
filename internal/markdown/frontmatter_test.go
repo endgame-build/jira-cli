@@ -117,7 +117,7 @@ func TestIssueToMarkdown(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := IssueToMarkdown(tt.issue, nil, nil)
+			got, _, err := IssueToMarkdown(tt.issue, nil, nil)
 			if err != nil {
 				t.Fatalf("IssueToMarkdown() error = %v", err)
 			}
@@ -146,7 +146,7 @@ func TestIssueToMarkdown(t *testing.T) {
 
 func TestIssueToMarkdownStructure(t *testing.T) {
 	issue := fullIssue()
-	got, err := IssueToMarkdown(issue, nil, nil)
+	got, _, err := IssueToMarkdown(issue, nil, nil)
 	if err != nil {
 		t.Fatalf("IssueToMarkdown() error = %v", err)
 	}
@@ -246,7 +246,7 @@ func TestExtractCustomFieldValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			val, ok, err := extractCustomFieldValue(json.RawMessage(tt.raw))
+			val, _, ok, err := extractCustomFieldValue(json.RawMessage(tt.raw))
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("extractCustomFieldValue(%s) expected error, got nil", tt.raw)
@@ -286,7 +286,7 @@ func TestIssueToMarkdownWithCustomFields(t *testing.T) {
 		"customfield_10003": {ID: "customfield_10003", Name: "Severity", Custom: true},
 	}
 
-	got, err := IssueToMarkdown(issue, fields, nil)
+	got, _, err := IssueToMarkdown(issue, fields, nil)
 	if err != nil {
 		t.Fatalf("IssueToMarkdown() error = %v", err)
 	}
@@ -323,7 +323,7 @@ func TestIssueToMarkdownBuiltinCollision(t *testing.T) {
 	}
 
 	var warnings bytes.Buffer
-	got, err := IssueToMarkdown(issue, fields, &warnings)
+	got, _, err := IssueToMarkdown(issue, fields, &warnings)
 	if err != nil {
 		t.Fatalf("IssueToMarkdown() error = %v", err)
 	}
@@ -358,7 +358,7 @@ func TestIssueToMarkdownNilFields(t *testing.T) {
 	}
 
 	// nil fields map = no custom field processing (backward compat)
-	got, err := IssueToMarkdown(issue, nil, nil)
+	got, _, err := IssueToMarkdown(issue, nil, nil)
 	if err != nil {
 		t.Fatalf("IssueToMarkdown() error = %v", err)
 	}
@@ -411,7 +411,7 @@ func TestIssueToMarkdownWarnWriter(t *testing.T) {
 
 	// Test with warnWriter
 	var warnings bytes.Buffer
-	got, err := IssueToMarkdown(issue, fields, &warnings)
+	got, _, err := IssueToMarkdown(issue, fields, &warnings)
 	if err != nil {
 		t.Fatalf("IssueToMarkdown() error = %v", err)
 	}
@@ -435,7 +435,7 @@ func TestIssueToMarkdownWarnWriter(t *testing.T) {
 	}
 
 	// Test with nil warnWriter — should not panic
-	_, err = IssueToMarkdown(issue, fields, nil)
+	_, _, err = IssueToMarkdown(issue, fields, nil)
 	if err != nil {
 		t.Fatalf("IssueToMarkdown() with nil warnWriter error = %v", err)
 	}
@@ -459,7 +459,7 @@ func TestIssueToMarkdownInvalidJSON(t *testing.T) {
 	}
 
 	var warnings bytes.Buffer
-	got, err := IssueToMarkdown(issue, fields, &warnings)
+	got, _, err := IssueToMarkdown(issue, fields, &warnings)
 	if err != nil {
 		t.Fatalf("IssueToMarkdown() error = %v", err)
 	}
@@ -619,7 +619,7 @@ func TestRoundTripExportImport(t *testing.T) {
 	}
 
 	// Export: issue → markdown bytes.
-	data, err := IssueToMarkdown(issue, fields, nil)
+	data, _, err := IssueToMarkdown(issue, fields, nil)
 	if err != nil {
 		t.Fatalf("IssueToMarkdown() error = %v", err)
 	}
