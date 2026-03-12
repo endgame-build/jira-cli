@@ -3,6 +3,7 @@ package issue
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -878,10 +879,15 @@ story_points: 5
 	}
 	fields := reqBody["fields"].(map[string]interface{})
 
-	// Custom fields should be sent with Jira field IDs.
-	if fields["customfield_10001"] != "Platform" {
-		t.Errorf("customfield_10001 = %v, want Platform", fields["customfield_10001"])
+	// Team field should be wrapped as {"name": ...} based on schema.
+	teamVal, ok := fields["customfield_10001"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("customfield_10001 should be object, got %T: %v", fields["customfield_10001"], fields["customfield_10001"])
 	}
+	if teamVal["name"] != "Platform" {
+		t.Errorf("customfield_10001.name = %v, want Platform", teamVal["name"])
+	}
+	// Story Points is a number — passes through unchanged.
 	// YAML unmarshals integers; JSON re-encodes as float64.
 	sp, ok := fields["customfield_10002"].(float64)
 	if !ok || sp != 5 {
@@ -918,8 +924,13 @@ story_points: 8
 	}
 	fields := reqBody["fields"].(map[string]interface{})
 
-	if fields["customfield_10001"] != "Backend" {
-		t.Errorf("customfield_10001 = %v, want Backend", fields["customfield_10001"])
+	// Team field should be wrapped as {"name": ...} based on schema.
+	teamVal, ok := fields["customfield_10001"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("customfield_10001 should be object, got %T: %v", fields["customfield_10001"], fields["customfield_10001"])
+	}
+	if teamVal["name"] != "Backend" {
+		t.Errorf("customfield_10001.name = %v, want Backend", teamVal["name"])
 	}
 	sp, ok := fields["customfield_10002"].(float64)
 	if !ok || sp != 8 {
@@ -1064,5 +1075,82 @@ func TestImportFilesAndDirMutuallyExclusive(t *testing.T) {
 	}
 	if cliErr.Code != clierrors.VALIDATION_ERROR {
 		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+}
+
+func TestImportCustomFieldWrapping(t *testing.T) {
+	tests := []struct {
+		name       string
+		schema     api.FieldSchema
+		input      interface{}
+		wantString string // JSON substring to match in the captured body
+	}{
+		{
+			name:       "option wraps as value",
+			schema:     api.FieldSchema{Type: "option"},
+			input:      "Critical",
+			wantString: `"value":"Critical"`,
+		},
+		{
+			name:       "user wraps as accountId",
+			schema:     api.FieldSchema{Type: "user"},
+			input:      "abc123",
+			wantString: `"accountId":"abc123"`,
+		},
+		{
+			name:       "team wraps as name",
+			schema:     api.FieldSchema{Type: "any", Custom: "com.atlassian.teams:rm-teams-custom-field-team"},
+			input:      "Platform",
+			wantString: `"name":"Platform"`,
+		},
+		{
+			name:       "number passes through",
+			schema:     api.FieldSchema{Type: "number"},
+			input:      float64(42),
+			wantString: `"customfield_99999":42`,
+		},
+		{
+			name:       "string with unknown type passes through",
+			schema:     api.FieldSchema{Type: "string"},
+			input:      "plain text",
+			wantString: `"customfield_99999":"plain text"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedBody string
+			fields := []api.Field{
+				{ID: "customfield_99999", Name: "Test Field", Custom: true, Schema: tt.schema},
+			}
+			f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{fields: fields, captureCreate: &capturedBody}))
+
+			dir := t.TempDir()
+
+			// Build frontmatter with the custom field value inline.
+			var valStr string
+			switch v := tt.input.(type) {
+			case string:
+				valStr = v
+			case float64:
+				valStr = fmt.Sprintf("%g", v)
+			}
+
+			content := fmt.Sprintf("---\nkey: PROJ-NEW-1\nsummary: Test\ntype: Task\nproject: PROJ\ntest_field: %s\n---\n", valStr)
+			path := writeImportFile(t, dir, "create.md", content)
+
+			opts := &ImportOptions{
+				Factory: f,
+				Files:   []string{path},
+			}
+
+			if err := runImport(opts); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if !strings.Contains(capturedBody, tt.wantString) {
+				t.Errorf("expected %q in body, got: %s", tt.wantString, capturedBody)
+			}
+		})
 	}
 }

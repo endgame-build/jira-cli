@@ -18,6 +18,13 @@ import (
 	"github.com/endgame-build/jira-cli/internal/output"
 )
 
+// importFieldInfo holds the Jira field ID and schema for a custom field,
+// used to wrap scalar values back into the object format Jira expects.
+type importFieldInfo struct {
+	ID     string
+	Schema api.FieldSchema
+}
+
 // ImportOptions holds all resolved inputs for the issue import command.
 type ImportOptions struct {
 	Factory *factory.Factory
@@ -314,7 +321,7 @@ func runImport(opts *ImportOptions) error {
 }
 
 // buildCreateFields builds the fields map for a create operation.
-func buildCreateFields(issueFile *markdown.IssueFile, customFieldMap map[string]string) (map[string]interface{}, error) {
+func buildCreateFields(issueFile *markdown.IssueFile, customFieldMap map[string]importFieldInfo) (map[string]interface{}, error) {
 	fm := issueFile.Frontmatter
 	fields := map[string]interface{}{
 		"project":   map[string]interface{}{"key": fm.Project},
@@ -337,7 +344,7 @@ func buildCreateFields(issueFile *markdown.IssueFile, customFieldMap map[string]
 
 // buildUpdateFields builds the fields map for an update operation.
 // Updates do NOT send type, project, parent, or status (read-only or out of MVP scope).
-func buildUpdateFields(issueFile *markdown.IssueFile, customFieldMap map[string]string) (map[string]interface{}, error) {
+func buildUpdateFields(issueFile *markdown.IssueFile, customFieldMap map[string]importFieldInfo) (map[string]interface{}, error) {
 	fm := issueFile.Frontmatter
 	fields := map[string]interface{}{
 		"summary": fm.Summary,
@@ -391,15 +398,15 @@ func writeResultLine(w io.Writer, r importResult) {
 }
 
 // buildImportFieldMap fetches field metadata from Jira and builds a reverse
-// lookup map: normalizedName → fieldID for custom field resolution during import.
+// lookup map: normalizedName → importFieldInfo for custom field resolution during import.
 // Warns to w when multiple fields normalize to the same key (first wins).
-func buildImportFieldMap(ctx context.Context, client *api.Client, w io.Writer) (map[string]string, error) {
+func buildImportFieldMap(ctx context.Context, client *api.Client, w io.Writer) (map[string]importFieldInfo, error) {
 	allFields, err := client.ListFields(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	fieldMap := make(map[string]string)
+	fieldMap := make(map[string]importFieldInfo)
 	fieldNames := make(map[string]string) // norm → display name (for warnings)
 	for _, f := range allFields {
 		norm := markdown.NormalizeFieldName(f.Name)
@@ -408,10 +415,10 @@ func buildImportFieldMap(ctx context.Context, client *api.Client, w io.Writer) (
 		}
 		if prevName, exists := fieldNames[norm]; exists {
 			fmt.Fprintf(w, "warning: field %q (%s) collides with %q (%s), both normalize to %q, keeping first\n",
-				f.Name, f.ID, prevName, fieldMap[norm], norm)
+				f.Name, f.ID, prevName, fieldMap[norm].ID, norm)
 			continue
 		}
-		fieldMap[norm] = f.ID
+		fieldMap[norm] = importFieldInfo{ID: f.ID, Schema: f.Schema}
 		fieldNames[norm] = f.Name
 	}
 	return fieldMap, nil
@@ -419,18 +426,43 @@ func buildImportFieldMap(ctx context.Context, client *api.Client, w io.Writer) (
 
 // injectCustomFields adds resolved custom fields to the API fields map.
 // Each custom field key (normalized name) is looked up in customFieldMap to
-// get the Jira field ID, and the value is sent as-is.
+// get the Jira field ID and schema. Scalar values are wrapped into the object
+// format Jira expects based on the field's schema type.
 // Returns an error if a key is missing from customFieldMap (should not happen
 // if validation ran first, but guards against future refactors).
-func injectCustomFields(fields map[string]interface{}, customFields map[string]interface{}, customFieldMap map[string]string) error {
+func injectCustomFields(fields map[string]interface{}, customFields map[string]interface{}, customFieldMap map[string]importFieldInfo) error {
 	for key, val := range customFields {
-		fieldID, ok := customFieldMap[key]
+		info, ok := customFieldMap[key]
 		if !ok {
 			return clierrors.NewGeneralError(fmt.Sprintf("internal: custom field key %q not in field map", key))
 		}
-		fields[fieldID] = val
+		fields[info.ID] = wrapCustomFieldValue(val, info.Schema)
 	}
 	return nil
+}
+
+// wrapCustomFieldValue wraps a scalar value into the object format Jira expects
+// based on the field's schema type. Only string values are wrapped; numbers,
+// bools, and maps pass through unchanged.
+func wrapCustomFieldValue(val interface{}, schema api.FieldSchema) interface{} {
+	str, ok := val.(string)
+	if !ok {
+		return val
+	}
+
+	// Team fields use a specific custom URI.
+	if schema.Custom == "com.atlassian.teams:rm-teams-custom-field-team" {
+		return map[string]interface{}{"name": str}
+	}
+
+	switch schema.Type {
+	case "option":
+		return map[string]interface{}{"value": str}
+	case "user":
+		return map[string]interface{}{"accountId": str}
+	default:
+		return val
+	}
 }
 
 // collectCustomFieldNames gathers all unique custom field names across issue files.

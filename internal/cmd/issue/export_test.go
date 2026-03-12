@@ -615,8 +615,13 @@ func TestExportProgressStderr(t *testing.T) {
 var customFieldTestFields = []api.Field{
 	{ID: "summary", Name: "Summary"},
 	{ID: "status", Name: "Status"},
-	{ID: "customfield_10001", Name: "Team", Custom: true},
-	{ID: "customfield_10002", Name: "Story Points", Custom: true},
+	{ID: "customfield_10001", Name: "Team", Custom: true, Schema: api.FieldSchema{
+		Type:   "any",
+		Custom: "com.atlassian.teams:rm-teams-custom-field-team",
+	}},
+	{ID: "customfield_10002", Name: "Story Points", Custom: true, Schema: api.FieldSchema{
+		Type: "number",
+	}},
 }
 
 // issueWithCustomFieldsJSON builds a raw JSON issue object that includes custom
