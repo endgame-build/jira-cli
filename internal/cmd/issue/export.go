@@ -149,9 +149,10 @@ func runExport(opts *ExportOptions) error {
 		if err != nil {
 			return err
 		}
-		existing.Merge(allRawValues)
-		if err := markdown.SaveFieldValues(sidecarPath, existing); err != nil {
-			return err
+		if existing.Merge(allRawValues) {
+			if err := markdown.SaveFieldValues(sidecarPath, existing); err != nil {
+				return err
+			}
 		}
 	}
 

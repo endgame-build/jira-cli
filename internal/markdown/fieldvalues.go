@@ -65,7 +65,9 @@ func SaveFieldValues(path string, fvm FieldValueMap) error {
 
 // Merge adds entries from other into fvm. Existing entries are preserved
 // (first-write wins), so earlier exports don't lose values.
-func (fvm FieldValueMap) Merge(other FieldValueMap) {
+// Returns true if any new entries were added.
+func (fvm FieldValueMap) Merge(other FieldValueMap) bool {
+	changed := false
 	for field, vals := range other {
 		if fvm[field] == nil {
 			fvm[field] = make(map[string]json.RawMessage)
@@ -73,9 +75,11 @@ func (fvm FieldValueMap) Merge(other FieldValueMap) {
 		for display, raw := range vals {
 			if _, exists := fvm[field][display]; !exists {
 				fvm[field][display] = raw
+				changed = true
 			}
 		}
 	}
+	return changed
 }
 
 // FindFieldValues searches for a .jira-field-values.json file starting from
@@ -84,10 +88,21 @@ func (fvm FieldValueMap) Merge(other FieldValueMap) {
 func FindFieldValues(dir string) (FieldValueMap, string, error) {
 	for _, d := range []string{dir, filepath.Dir(dir)} {
 		path := filepath.Join(d, FieldValuesFileName)
-		if _, err := os.Stat(path); err == nil {
-			fvm, err := LoadFieldValues(path)
-			return fvm, path, err
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
 		}
+		if err != nil {
+			return nil, "", fmt.Errorf("read field values: %w", err)
+		}
+		var fvm FieldValueMap
+		if err := json.Unmarshal(data, &fvm); err != nil {
+			return nil, "", fmt.Errorf("parse field values %s: %w", path, err)
+		}
+		if fvm == nil {
+			fvm = make(FieldValueMap)
+		}
+		return fvm, path, nil
 	}
 	return make(FieldValueMap), "", nil
 }

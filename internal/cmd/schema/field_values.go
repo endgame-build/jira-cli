@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -96,24 +95,9 @@ func runFieldValues(opts *FieldValuesOptions) error {
 					continue
 				}
 
-				// Try to extract a display value and raw object.
-				var v interface{}
-				if err := json.Unmarshal(raw, &v); err != nil {
-					continue
-				}
-
-				objMap, isObj := v.(map[string]interface{})
-				if !isObj {
-					continue // Only collect object-type values.
-				}
-
-				// Determine display value (same logic as extractCustomFieldValue).
-				var display string
-				if value, ok := objMap["value"]; ok {
-					display = fmt.Sprintf("%v", value)
-				} else if name, ok := objMap["name"]; ok {
-					display = fmt.Sprintf("%v", name)
-				} else {
+				// Extract display value from object-type fields only.
+				display, ok := markdown.ExtractObjectDisplay(raw)
+				if !ok {
 					continue
 				}
 
@@ -143,17 +127,13 @@ func runFieldValues(opts *FieldValuesOptions) error {
 	}
 
 	// Merge with existing sidecar if present.
-	outputPath := opts.Output
-	if !filepath.IsAbs(outputPath) {
-		// Keep relative path as-is.
-	}
-	existing, err := markdown.LoadFieldValues(outputPath)
+	existing, err := markdown.LoadFieldValues(opts.Output)
 	if err != nil {
 		return err
 	}
 	existing.Merge(allRawValues)
 
-	if err := markdown.SaveFieldValues(outputPath, existing); err != nil {
+	if err := markdown.SaveFieldValues(opts.Output, existing); err != nil {
 		return err
 	}
 
@@ -164,7 +144,7 @@ func runFieldValues(opts *FieldValuesOptions) error {
 	}
 	fmt.Fprintf(f.IOStreams.Out, "Scanned %d issues, collected %d unique values across %d fields\n",
 		scanned, totalValues, len(existing))
-	fmt.Fprintf(f.IOStreams.Out, "Written to %s\n", outputPath)
+	fmt.Fprintf(f.IOStreams.Out, "Written to %s\n", opts.Output)
 
 	return nil
 }

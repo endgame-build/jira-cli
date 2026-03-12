@@ -129,6 +129,27 @@ func (fm Frontmatter) MarshalYAML() (interface{}, error) {
 	return mapping, nil
 }
 
+// ExtractObjectDisplay extracts a display value from a JSON object field value.
+// Returns the display string and true if the value is an object with a .value or
+// .name key. Returns "", false for non-objects, nil, or objects without displayable keys.
+func ExtractObjectDisplay(raw json.RawMessage) (string, bool) {
+	var v interface{}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return "", false
+	}
+	objMap, ok := v.(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+	if value, ok := objMap["value"]; ok {
+		return fmt.Sprintf("%v", value), true
+	}
+	if name, ok := objMap["name"]; ok {
+		return fmt.Sprintf("%v", name), true
+	}
+	return "", false
+}
+
 // extractCustomFieldValue determines the YAML value from a json.RawMessage.
 // Returns (displayValue, rawObject, true, nil) if it should be included.
 // rawObject is non-nil only when the value was extracted from a JSON object
