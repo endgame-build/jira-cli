@@ -1,0 +1,171 @@
+# Sync Jira → GitHub
+#
+# Exports Jira issues to markdown files and creates a PR.
+# Jira owns status; this workflow pulls status/field changes back to GitHub.
+#
+# Auto-merge logic:
+#   - Frontmatter-only changes (status, priority, etc.) → auto-merge
+#   - Body/content changes or new/deleted files → needs-review label
+#   - Set auto_merge=false on dispatch to always require review
+#
+# Configuration:
+#   Set ISSUES_DIR to your issues directory (default: issues)
+#
+# Required secrets:
+#   JIRA_CLI_APP_ID          - GitHub App ID for jira-cli binary download
+#   JIRA_CLI_APP_PRIVATE_KEY - GitHub App private key
+#   JIRA_INSTANCE            - Jira Cloud instance
+#   JIRA_USER                - Jira user email
+#   JIRA_TOKEN               - Jira API token
+#   SYNC_PAT                 - PAT with push + bypass branch protection
+#
+# Copy this file to <your-repo>/.github/workflows/sync-from-jira.yml
+
+name: Sync from Jira
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+    inputs:
+      auto_merge:
+        description: 'Auto-merge if only frontmatter changed'
+        type: boolean
+        default: true
+      jql:
+        description: 'Override JQL query'
+        type: string
+
+env:
+  ISSUES_DIR: issues
+  DEFAULT_JQL: 'project = MYPROJECT ORDER BY key ASC'
+  SYNC_BRANCH: jira-sync/auto
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.SYNC_PAT }}
+          ref: main
+
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.JIRA_CLI_APP_ID }}
+          private-key: ${{ secrets.JIRA_CLI_APP_PRIVATE_KEY }}
+          owner: endgame-build
+
+      - uses: endgame-build/actions/setup-jira@v1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Export issues from Jira
+        env:
+          JIRA_INSTANCE: ${{ secrets.JIRA_INSTANCE }}
+          JIRA_USER: ${{ secrets.JIRA_USER }}
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+          JQL: ${{ inputs.jql || env.DEFAULT_JQL }}
+        run: jira issue export --jql "$JQL" --output-dir "$ISSUES_DIR" --tree
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet; then
+            echo "No changes detected"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Analyze diff
+        if: steps.diff.outputs.changed == 'true'
+        id: analyze
+        run: |
+          auto_merge=true
+
+          while IFS=$'\t' read -r status file; do
+            # New or deleted files always need review
+            if [[ "$status" == "A" || "$status" == "D" ]]; then
+              echo "New/deleted file: $file → needs review"
+              auto_merge=false
+              continue
+            fi
+
+            # Sidecar field-values files are always safe
+            if [[ "$file" == *".jira-field-values.json" ]]; then
+              continue
+            fi
+
+            # For modified markdown files, check if body changed
+            if [[ "$status" == "M" && "$file" == *.md ]]; then
+              # Extract body (after second ---) from old and new versions
+              old_body=$(git show HEAD:"$file" | awk 'BEGIN{n=0} /^---$/{n++; if(n==2){found=1; next}} found{print}')
+              new_body=$(awk 'BEGIN{n=0} /^---$/{n++; if(n==2){found=1; next}} found{print}' "$file")
+
+              if [[ "$old_body" != "$new_body" ]]; then
+                echo "Body changed: $file → needs review"
+                auto_merge=false
+              fi
+            fi
+          done < <(git diff --name-status)
+
+          echo "auto_merge=$auto_merge" >> "$GITHUB_OUTPUT"
+          echo "Auto-merge: $auto_merge"
+
+      - name: Create branch and commit
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "jira-sync[bot]"
+          git config user.email "jira-sync[bot]@users.noreply.github.com"
+          git checkout -B "$SYNC_BRANCH"
+          git add "$ISSUES_DIR/"
+          git commit -m "chore: sync statuses from Jira [automated]"
+          git push --force origin "$SYNC_BRANCH"
+
+      - name: Close existing PR
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
+        run: |
+          existing=$(gh pr list --head "$SYNC_BRANCH" --state open --json number -q '.[0].number' || true)
+          if [[ -n "$existing" ]]; then
+            echo "Closing existing PR #$existing"
+            gh pr close "$existing" --delete-branch=false
+          fi
+
+      - name: Create PR
+        if: steps.diff.outputs.changed == 'true'
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
+        run: |
+          url=$(gh pr create \
+            --base main \
+            --head "$SYNC_BRANCH" \
+            --title "chore: sync statuses from Jira" \
+            --body "Automated sync of Jira field/status changes to markdown files.
+
+          Auto-merge eligible: ${{ steps.analyze.outputs.auto_merge }}")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Created PR: $url"
+
+      - name: Auto-merge or label
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
+          AUTO_MERGE_INPUT: ${{ inputs.auto_merge != 'false' }}
+          AUTO_MERGE_SAFE: ${{ steps.analyze.outputs.auto_merge }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: |
+          if [[ "$AUTO_MERGE_INPUT" == "true" && "$AUTO_MERGE_SAFE" == "true" ]]; then
+            echo "Auto-merging PR"
+            gh pr merge "$PR_URL" --merge
+          else
+            echo "Adding needs-review label"
+            gh pr edit "$PR_URL" --add-label "needs-review"
+          fi
