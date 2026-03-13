@@ -662,9 +662,9 @@ func TestRoundTripExportImport(t *testing.T) {
 		altVal interface{} // YAML may parse numbers differently (int vs float64)
 	}{
 		"team":         {val: "Platform", altVal: nil},
-		"story_points": {val: 5, altVal: float64(5)},  // JSON float64 → YAML int (or float64)
-		"estimate":     {val: 42.5, altVal: nil},      // stays float64
-		"flagged":      {val: true, altVal: nil},      // bool
+		"story_points": {val: 5, altVal: float64(5)},   // JSON float64 → YAML int (or float64)
+		"estimate":     {val: 42.5, altVal: nil},       // stays float64
+		"flagged":      {val: true, altVal: nil},       // bool
 		"severity":     {val: "Critical", altVal: nil}, // extracted from object
 	}
 

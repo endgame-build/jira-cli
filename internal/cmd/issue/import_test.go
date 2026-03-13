@@ -849,7 +849,6 @@ project: PROJ
 	}
 }
 
-
 func TestImportCustomFields(t *testing.T) {
 	var capturedBody string
 	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{fields: customFieldTestFields, captureCreate: &capturedBody}))
