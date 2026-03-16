@@ -493,7 +493,7 @@ func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName str
 			if raw, ok := vals[str]; ok {
 				var obj map[string]interface{}
 				if err := json.Unmarshal(raw, &obj); err == nil {
-					return toWriteObject(obj, schema)
+					return toWriteValue(obj, schema)
 				}
 			}
 		}
@@ -507,11 +507,21 @@ func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName str
 	return val
 }
 
-// toWriteObject trims a full API read object to the minimal identifier
+// toWriteValue trims a full API read object to the minimal value
 // that Jira accepts on create/update. Jira returns rich objects on read
 // (e.g. {"id":"...","name":"...","avatarUrl":"..."}) but only accepts
 // a subset on write.
-func toWriteObject(obj map[string]interface{}, schema api.FieldSchema) map[string]interface{} {
+//
+// Most types expect an object with a single identifier key (e.g. {"value": "Critical"}).
+// Team fields are special: Jira expects just the bare UUID string, not an object.
+func toWriteValue(obj map[string]interface{}, schema api.FieldSchema) interface{} {
+	// Team fields take a bare UUID string, not an object.
+	if schema.Type == "team" || schema.Type == "any" {
+		if id, ok := obj["id"]; ok {
+			return id // Return the UUID string directly.
+		}
+	}
+
 	key := writeKeyForSchema(schema.Type)
 	if v, ok := obj[key]; ok {
 		return map[string]interface{}{key: v}
