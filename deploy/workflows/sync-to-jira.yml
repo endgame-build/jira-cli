@@ -1,0 +1,72 @@
+# Sync GitHub → Jira
+#
+# On push to main, imports markdown issue files into Jira.
+# GitHub owns content; this workflow pushes content changes to Jira.
+#
+# Configuration:
+#   Set ISSUES_DIR to your issues directory (default: issues)
+#   Use workflow_dispatch with dir input to sync a specific subfolder
+#
+# Required secrets:
+#   JIRA_CLI_APP_ID          - GitHub App ID for jira-cli binary download
+#   JIRA_CLI_APP_PRIVATE_KEY - GitHub App private key
+#   JIRA_INSTANCE            - Jira Cloud instance (e.g., myorg.atlassian.net)
+#   JIRA_USER                - Jira user email
+#   JIRA_TOKEN               - Jira API token
+#
+# Copy this file to <your-repo>/.github/workflows/sync-to-jira.yml
+
+name: Sync to Jira
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dir:
+        description: 'Directory to import (e.g., issues/EPIC-123)'
+        type: string
+
+env:
+  ISSUES_DIR: issues
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for issue changes
+        if: github.event_name == 'push'
+        id: changes
+        run: |
+          if git diff --quiet HEAD~1 -- "$ISSUES_DIR/"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/create-github-app-token@v1
+        if: steps.changes.outputs.skip != 'true'
+        id: app-token
+        with:
+          app-id: ${{ secrets.JIRA_CLI_APP_ID }}
+          private-key: ${{ secrets.JIRA_CLI_APP_PRIVATE_KEY }}
+          owner: endgame-build
+
+      - uses: endgame-build/actions/setup-jira@v1
+        if: steps.changes.outputs.skip != 'true'
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Import issues to Jira
+        if: steps.changes.outputs.skip != 'true'
+        env:
+          JIRA_INSTANCE: ${{ secrets.JIRA_INSTANCE }}
+          JIRA_USER: ${{ secrets.JIRA_USER }}
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+          DIR: ${{ inputs.dir || env.ISSUES_DIR }}
+        run: jira issue import --dir "$DIR" --force

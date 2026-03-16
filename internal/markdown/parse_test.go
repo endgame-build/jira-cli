@@ -284,3 +284,189 @@ func TestParseDirInvalidFile(t *testing.T) {
 		t.Fatalf("expected CLIError, got %T", err)
 	}
 }
+
+func TestParseFileCustomFields(t *testing.T) {
+	content := `---
+key: PROJ-123
+summary: Fix login bug
+type: Bug
+status: In Progress
+priority: High
+project: PROJ
+team: Platform
+story_points: 5
+severity: Critical
+---
+Description body.
+`
+	dir := t.TempDir()
+	path := writeTestFile(t, dir, "test.md", content)
+
+	got, err := ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+
+	// Built-in fields populated correctly
+	if got.Frontmatter.Key != "PROJ-123" {
+		t.Errorf("key = %q, want %q", got.Frontmatter.Key, "PROJ-123")
+	}
+	if got.Frontmatter.Summary != "Fix login bug" {
+		t.Errorf("summary = %q, want %q", got.Frontmatter.Summary, "Fix login bug")
+	}
+	if got.Frontmatter.Status != "In Progress" {
+		t.Errorf("status = %q, want %q", got.Frontmatter.Status, "In Progress")
+	}
+
+	// Custom fields captured
+	if got.Frontmatter.CustomFields == nil {
+		t.Fatal("CustomFields is nil, want non-nil")
+	}
+	if len(got.Frontmatter.CustomFields) != 3 {
+		t.Fatalf("CustomFields has %d entries, want 3", len(got.Frontmatter.CustomFields))
+	}
+
+	wantCustom := map[string]interface{}{
+		"team":         "Platform",
+		"story_points": 5,
+		"severity":     "Critical",
+	}
+	for k, wantVal := range wantCustom {
+		gotVal, ok := got.Frontmatter.CustomFields[k]
+		if !ok {
+			t.Errorf("CustomFields missing key %q", k)
+			continue
+		}
+		// YAML unmarshals integers as int, so compare with type flexibility.
+		switch wv := wantVal.(type) {
+		case int:
+			if gi, ok := gotVal.(int); !ok || gi != wv {
+				t.Errorf("CustomFields[%q] = %v (%T), want %v", k, gotVal, gotVal, wv)
+			}
+		case string:
+			if gs, ok := gotVal.(string); !ok || gs != wv {
+				t.Errorf("CustomFields[%q] = %v (%T), want %q", k, gotVal, gotVal, wv)
+			}
+		}
+	}
+
+	// Built-in keys must NOT appear in CustomFields
+	for _, builtin := range []string{"key", "summary", "type", "status", "priority", "project"} {
+		if _, exists := got.Frontmatter.CustomFields[builtin]; exists {
+			t.Errorf("built-in key %q found in CustomFields", builtin)
+		}
+	}
+}
+
+func TestParseFileNoCustomFields(t *testing.T) {
+	content := `---
+key: PROJ-456
+summary: Standard issue
+type: Task
+status: Open
+priority: Medium
+---
+Body text.
+`
+	dir := t.TempDir()
+	path := writeTestFile(t, dir, "test.md", content)
+
+	got, err := ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+
+	if got.Frontmatter.CustomFields != nil {
+		t.Errorf("CustomFields = %v, want nil", got.Frontmatter.CustomFields)
+	}
+}
+
+func TestParseFileOnlyCustomFields(t *testing.T) {
+	content := `---
+key: PROJ-789
+team: Backend
+velocity: 42
+---
+Body.
+`
+	dir := t.TempDir()
+	path := writeTestFile(t, dir, "test.md", content)
+
+	got, err := ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+
+	if got.Frontmatter.Key != "PROJ-789" {
+		t.Errorf("key = %q, want %q", got.Frontmatter.Key, "PROJ-789")
+	}
+
+	if got.Frontmatter.CustomFields == nil {
+		t.Fatal("CustomFields is nil, want non-nil")
+	}
+	if len(got.Frontmatter.CustomFields) != 2 {
+		t.Fatalf("CustomFields has %d entries, want 2", len(got.Frontmatter.CustomFields))
+	}
+
+	if v, ok := got.Frontmatter.CustomFields["team"]; !ok || v != "Backend" {
+		t.Errorf("CustomFields[team] = %v, want %q", v, "Backend")
+	}
+	if v, ok := got.Frontmatter.CustomFields["velocity"]; !ok {
+		t.Error("CustomFields missing key \"velocity\"")
+	} else if vi, ok := v.(int); !ok || vi != 42 {
+		t.Errorf("CustomFields[velocity] = %v (%T), want 42", v, v)
+	}
+}
+
+func TestParseDirWithCustomFields(t *testing.T) {
+	dir := t.TempDir()
+
+	writeTestFile(t, dir, "PROJ/PROJ-001.md", `---
+key: PROJ-001
+summary: First
+team: Alpha
+---
+First body
+`)
+	writeTestFile(t, dir, "PROJ/PROJ-002.md", `---
+key: PROJ-002
+summary: Second
+story_points: 8
+environment: Production
+---
+Second body
+`)
+	writeTestFile(t, dir, "PROJ/PROJ-003.md", `---
+key: PROJ-003
+summary: Third
+---
+No custom fields
+`)
+
+	files, err := ParseDir(dir)
+	if err != nil {
+		t.Fatalf("ParseDir() error = %v", err)
+	}
+
+	if len(files) != 3 {
+		t.Fatalf("expected 3 files, got %d", len(files))
+	}
+
+	// File 1: one custom field
+	if files[0].Frontmatter.CustomFields == nil || len(files[0].Frontmatter.CustomFields) != 1 {
+		t.Errorf("file[0] CustomFields = %v, want 1 entry", files[0].Frontmatter.CustomFields)
+	}
+	if v := files[0].Frontmatter.CustomFields["team"]; v != "Alpha" {
+		t.Errorf("file[0] CustomFields[team] = %v, want %q", v, "Alpha")
+	}
+
+	// File 2: two custom fields
+	if files[1].Frontmatter.CustomFields == nil || len(files[1].Frontmatter.CustomFields) != 2 {
+		t.Errorf("file[1] CustomFields = %v, want 2 entries", files[1].Frontmatter.CustomFields)
+	}
+
+	// File 3: no custom fields
+	if files[2].Frontmatter.CustomFields != nil {
+		t.Errorf("file[2] CustomFields = %v, want nil", files[2].Frontmatter.CustomFields)
+	}
+}

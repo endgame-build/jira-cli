@@ -3,8 +3,10 @@ package issue
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -25,12 +27,7 @@ type ExportOptions struct {
 	OutputDir string // --output-dir (default ".")
 	Limit     int    // --limit (0 = all)
 	Tree      bool   // --tree (hierarchical layout)
-}
-
-// exportFields are the issue fields requested from Jira for export.
-var exportFields = []string{
-	"summary", "description", "status", "issuetype", "priority",
-	"labels", "parent", "assignee", "reporter", "project", "created", "updated",
+	Fields    string // --fields (comma-separated custom field names)
 }
 
 // NewCmdExport creates the "issue export" command.
@@ -53,6 +50,7 @@ func NewCmdExport(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.OutputDir, "output-dir", "o", ".", "Root output directory")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 0, "Maximum issues to export (0 = all)")
 	cmd.Flags().BoolVar(&opts.Tree, "tree", false, "Organize output hierarchically (epics as directories)")
+	cmd.Flags().StringVar(&opts.Fields, "fields", "", "Comma-separated custom field names to include (default: all)")
 
 	return cmd
 }
@@ -73,10 +71,17 @@ func runExport(opts *ExportOptions) error {
 		return err
 	}
 
+	// Fetch field metadata for custom field resolution.
+	fieldMap, err := buildExportFieldMap(ctx, client, opts.Fields, f.IOStreams.Err)
+	if err != nil {
+		return err
+	}
+
 	// Iterate pages, writing files as we go.
 	var exported int
 	files := []string{}
 	token := ""
+	allRawValues := make(markdown.FieldValueMap)
 
 	for {
 		pageSize := 50
@@ -92,7 +97,6 @@ func runExport(opts *ExportOptions) error {
 
 		results, err := client.SearchIssues(ctx, &api.SearchOptions{
 			JQL:           jql,
-			Fields:        exportFields,
 			MaxResults:    pageSize,
 			NextPageToken: token,
 		})
@@ -114,9 +118,11 @@ func runExport(opts *ExportOptions) error {
 			fullPath := filepath.Join(opts.OutputDir, relPath)
 
 			if !f.DryRun {
-				if err := writeFileAtomic(fullPath, issue); err != nil {
+				rawValues, err := writeFileAtomic(fullPath, issue, fieldMap, f.IOStreams.Err)
+				if err != nil {
 					return err
 				}
+				allRawValues.Merge(rawValues)
 			}
 
 			files = append(files, relPath)
@@ -134,6 +140,20 @@ func runExport(opts *ExportOptions) error {
 			break
 		}
 		token = results.NextPageToken
+	}
+
+	// Write sidecar with raw field values for import round-trip.
+	if !f.DryRun && len(allRawValues) > 0 {
+		sidecarPath := filepath.Join(opts.OutputDir, markdown.FieldValuesFileName)
+		existing, err := markdown.LoadFieldValues(sidecarPath)
+		if err != nil {
+			return err
+		}
+		if existing.Merge(allRawValues) {
+			if err := markdown.SaveFieldValues(sidecarPath, existing); err != nil {
+				return err
+			}
+		}
 	}
 
 	formatter := output.NewFormatter(f.IOStreams, f.OutputJSON, f.JQExpr)
@@ -187,27 +207,83 @@ func buildExportJQL(f *factory.Factory, opts *ExportOptions) (string, error) {
 	return fmt.Sprintf("project = '%s' ORDER BY key ASC", project), nil
 }
 
-// writeFileAtomic writes an issue to a markdown file using temp-then-rename.
-func writeFileAtomic(path string, issue api.Issue) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return clierrors.NewGeneralError(fmt.Sprintf("create directory %s", dir)).WithErr(err)
+// buildExportFieldMap fetches field metadata from Jira and builds a map keyed
+// by field ID. If fieldsFlag is non-empty, only fields matching the
+// comma-separated normalized names are included; unmatched names warn to w.
+func buildExportFieldMap(ctx context.Context, client *api.Client, fieldsFlag string, w io.Writer) (map[string]api.Field, error) {
+	allFields, err := client.ListFields(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	data, err := markdown.IssueToMarkdown(issue)
+	fieldMap := make(map[string]api.Field, len(allFields))
+	for _, f := range allFields {
+		fieldMap[f.ID] = f
+	}
+
+	if fieldsFlag == "" {
+		return fieldMap, nil
+	}
+
+	// Parse requested names and normalize.
+	requested := make(map[string]bool)
+	for _, name := range strings.Split(fieldsFlag, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		requested[markdown.NormalizeFieldName(name)] = true
+	}
+
+	// Filter fieldMap to only include fields whose normalized name is requested.
+	filtered := make(map[string]api.Field)
+	matched := make(map[string]bool)
+	for id, f := range fieldMap {
+		norm := markdown.NormalizeFieldName(f.Name)
+		if requested[norm] {
+			filtered[id] = f
+			matched[norm] = true
+		}
+	}
+
+	// Warn about unmatched names.
+	for name := range requested {
+		if !matched[name] {
+			fmt.Fprintf(w, "warning: --fields: no Jira field matches %q\n", name)
+		}
+	}
+
+	// Error if none of the requested fields matched — likely a typo.
+	if len(requested) > 0 && len(matched) == 0 {
+		return nil, clierrors.NewValidationError("--fields: no Jira fields match any of the requested names").
+			WithSuggestion("Check field names with 'jira schema fields'")
+	}
+
+	return filtered, nil
+}
+
+// writeFileAtomic writes an issue to a markdown file using temp-then-rename.
+// Returns the raw field value map for sidecar accumulation.
+func writeFileAtomic(path string, issue api.Issue, fields map[string]api.Field, warnWriter io.Writer) (markdown.FieldValueMap, error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, clierrors.NewGeneralError(fmt.Sprintf("create directory %s", dir)).WithErr(err)
+	}
+
+	data, rawValues, err := markdown.IssueToMarkdown(issue, fields, warnWriter)
 	if err != nil {
-		return clierrors.NewGeneralError(fmt.Sprintf("convert issue %s to markdown", issue.Key)).WithErr(err)
+		return nil, clierrors.NewGeneralError(fmt.Sprintf("convert issue %s to markdown", issue.Key)).WithErr(err)
 	}
 
 	tmpPath := path + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		return clierrors.NewGeneralError(fmt.Sprintf("write temp file %s", tmpPath)).WithErr(err)
+		return nil, clierrors.NewGeneralError(fmt.Sprintf("write temp file %s", tmpPath)).WithErr(err)
 	}
 
 	if err := os.Rename(tmpPath, path); err != nil {
 		os.Remove(tmpPath) // best-effort cleanup
-		return clierrors.NewGeneralError(fmt.Sprintf("rename %s to %s", tmpPath, path)).WithErr(err)
+		return nil, clierrors.NewGeneralError(fmt.Sprintf("rename %s to %s", tmpPath, path)).WithErr(err)
 	}
 
-	return nil
+	return rawValues, nil
 }

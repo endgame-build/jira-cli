@@ -3,6 +3,7 @@ package issue
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/factory"
 	"github.com/endgame-build/jira-cli/internal/iostreams"
+	"github.com/endgame-build/jira-cli/internal/markdown"
 )
 
 // writeImportFile writes a markdown file with frontmatter to the given directory.
@@ -48,15 +50,33 @@ func newTestImportFactory(t *testing.T, handler http.Handler) (*factory.Factory,
 	return f, tio, srv
 }
 
-// importHandler handles create (POST /issue) and update (PUT /issue/{key}) and get (GET /issue/{key}).
-func importHandler(t *testing.T, captureCreateBody *string, getIssueUpdated string) http.HandlerFunc {
+// importHandlerConfig configures the shared import test HTTP handler.
+type importHandlerConfig struct {
+	fields          []api.Field // GET /field response (nil = empty array)
+	captureCreate   *string     // capture POST /issue body
+	captureEdit     *string     // capture PUT /issue/{key} body
+	getIssueUpdated string      // Updated value in GET /issue/{key} response
+}
+
+// importHandler handles create (POST /issue), update (PUT /issue/{key}), get (GET /issue/{key}), and field metadata (GET /field).
+func importHandler(t *testing.T, cfg importHandlerConfig) http.HandlerFunc {
 	t.Helper()
+	fields := cfg.fields
+	if fields == nil {
+		fields = []api.Field{}
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
+		// GET /field — field metadata for custom field resolution.
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode(fields)
+			return
+		}
+
 		// POST /issue — create
 		if r.Method == http.MethodPost && r.URL.Path == "/issue" {
-			if captureCreateBody != nil {
+			if cfg.captureCreate != nil {
 				body, _ := io.ReadAll(r.Body)
-				*captureCreateBody = string(body)
+				*cfg.captureCreate = string(body)
 			}
 			w.WriteHeader(201)
 			json.NewEncoder(w).Encode(api.CreatedIssue{
@@ -75,7 +95,7 @@ func importHandler(t *testing.T, captureCreateBody *string, getIssueUpdated stri
 				Key: key,
 				Fields: api.IssueFields{
 					Summary: "Existing issue",
-					Updated: getIssueUpdated,
+					Updated: cfg.getIssueUpdated,
 				},
 			})
 			return
@@ -83,6 +103,10 @@ func importHandler(t *testing.T, captureCreateBody *string, getIssueUpdated stri
 
 		// PUT /issue/{key} — edit
 		if r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/issue/") {
+			if cfg.captureEdit != nil {
+				body, _ := io.ReadAll(r.Body)
+				*cfg.captureEdit = string(body)
+			}
 			w.WriteHeader(204)
 			return
 		}
@@ -94,7 +118,7 @@ func importHandler(t *testing.T, captureCreateBody *string, getIssueUpdated stri
 
 func TestImportCreate(t *testing.T) {
 	var capturedBody string
-	f, tio, _ := newTestImportFactory(t, importHandler(t, &capturedBody, ""))
+	f, tio, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{captureCreate: &capturedBody}))
 
 	dir := t.TempDir()
 	path := writeImportFile(t, dir, "PROJ-NEW-1 - Test Issue.md", `---
@@ -176,7 +200,7 @@ Some **bold** description
 
 func TestImportCreateWithAssignee(t *testing.T) {
 	var capturedBody string
-	f, _, _ := newTestImportFactory(t, importHandler(t, &capturedBody, ""))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{captureCreate: &capturedBody}))
 
 	dir := t.TempDir()
 	path := writeImportFile(t, dir, "create.md", `---
@@ -211,7 +235,7 @@ assignee_id: abc123def456
 
 func TestImportCreateWithoutAssignee(t *testing.T) {
 	var capturedBody string
-	f, _, _ := newTestImportFactory(t, importHandler(t, &capturedBody, ""))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{captureCreate: &capturedBody}))
 
 	dir := t.TempDir()
 	path := writeImportFile(t, dir, "create.md", `---
@@ -243,7 +267,7 @@ project: PROJ
 }
 
 func TestImportTempToTempParent(t *testing.T) {
-	f, _, _ := newTestImportFactory(t, importHandler(t, nil, ""))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{}))
 
 	dir := t.TempDir()
 	path := writeImportFile(t, dir, "child.md", `---
@@ -278,7 +302,7 @@ parent: PROJ-NEW-1
 }
 
 func TestImportCreateMissingProject(t *testing.T) {
-	f, _, _ := newTestImportFactory(t, importHandler(t, nil, ""))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{}))
 
 	dir := t.TempDir()
 	path := writeImportFile(t, dir, "create.md", `---
@@ -311,7 +335,7 @@ type: Task
 }
 
 func TestImportCreateMissingType(t *testing.T) {
-	f, _, _ := newTestImportFactory(t, importHandler(t, nil, ""))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{}))
 
 	dir := t.TempDir()
 	path := writeImportFile(t, dir, "create.md", `---
@@ -344,7 +368,7 @@ project: PROJ
 }
 
 func TestImportNoArgsNoDir(t *testing.T) {
-	f, _, _ := newTestImportFactory(t, importHandler(t, nil, ""))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{}))
 
 	cmd := NewCmdImport(f)
 	cmd.SetArgs([]string{})
@@ -365,7 +389,7 @@ func TestImportNoArgsNoDir(t *testing.T) {
 
 func TestImportConflictMismatch(t *testing.T) {
 	// Server returns updated="2026-01-02", file has updated="2026-01-01" — mismatch.
-	f, _, _ := newTestImportFactory(t, importHandler(t, nil, "2026-01-02T00:00:00.000+0000"))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{getIssueUpdated: "2026-01-02T00:00:00.000+0000"}))
 
 	dir := t.TempDir()
 	path := writeImportFile(t, dir, "update.md", `---
@@ -396,7 +420,7 @@ updated: "2026-01-01T00:00:00.000+0000"
 
 func TestImportConflictMatching(t *testing.T) {
 	// Matching timestamps — should proceed without error.
-	f, _, _ := newTestImportFactory(t, importHandler(t, nil, "2026-01-01T00:00:00.000+0000"))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{getIssueUpdated: "2026-01-01T00:00:00.000+0000"}))
 
 	dir := t.TempDir()
 	path := writeImportFile(t, dir, "update.md", `---
@@ -418,7 +442,7 @@ updated: "2026-01-01T00:00:00.000+0000"
 
 func TestImportConflictEmptyTimestamp(t *testing.T) {
 	// Empty updated in frontmatter — skip conflict check.
-	f, _, _ := newTestImportFactory(t, importHandler(t, nil, "2026-01-02T00:00:00.000+0000"))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{getIssueUpdated: "2026-01-02T00:00:00.000+0000"}))
 
 	dir := t.TempDir()
 	path := writeImportFile(t, dir, "update.md", `---
@@ -439,7 +463,7 @@ summary: Updated Title
 
 func TestImportForceOverride(t *testing.T) {
 	// Mismatched timestamps but --force is set — should succeed.
-	f, _, _ := newTestImportFactory(t, importHandler(t, nil, "2026-01-02T00:00:00.000+0000"))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{getIssueUpdated: "2026-01-02T00:00:00.000+0000"}))
 
 	dir := t.TempDir()
 	path := writeImportFile(t, dir, "update.md", `---
@@ -463,6 +487,10 @@ updated: "2026-01-01T00:00:00.000+0000"
 func TestImportDryRun(t *testing.T) {
 	apiCalled := false
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode([]api.Field{})
+			return
+		}
 		if r.Method == http.MethodPost || r.Method == http.MethodPut {
 			apiCalled = true
 		}
@@ -508,6 +536,10 @@ summary: Existing Issue
 func TestImportStopOnFirstError(t *testing.T) {
 	callCount := 0
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode([]api.Field{})
+			return
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/issue" {
 			callCount++
 			// First create fails.
@@ -555,6 +587,10 @@ func TestImportMixed(t *testing.T) {
 	createCalls := 0
 	editCalls := 0
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode([]api.Field{})
+			return
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/issue" {
 			createCalls++
 			w.WriteHeader(201)
@@ -670,6 +706,10 @@ updated: "2026-01-01T00:00:00.000+0000"
 func TestImportUpdateFieldsExcluded(t *testing.T) {
 	var capturedBody string
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode([]api.Field{})
+			return
+		}
 		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/issue/") {
 			json.NewEncoder(w).Encode(api.Issue{
 				ID:  "10001",
@@ -754,7 +794,7 @@ Updated description
 
 func TestImportCreateWithParent(t *testing.T) {
 	var capturedBody string
-	f, _, _ := newTestImportFactory(t, importHandler(t, &capturedBody, ""))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{captureCreate: &capturedBody}))
 
 	dir := t.TempDir()
 	path := writeImportFile(t, dir, "child.md", `---
@@ -788,7 +828,7 @@ parent: PROJ-100
 }
 
 func TestImportDirFlag(t *testing.T) {
-	f, _, _ := newTestImportFactory(t, importHandler(t, nil, ""))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{}))
 
 	dir := t.TempDir()
 	writeImportFile(t, dir, "PROJ/PROJ-NEW-1 - Issue.md", `---
@@ -809,8 +849,245 @@ project: PROJ
 	}
 }
 
+func TestImportCustomFields(t *testing.T) {
+	var capturedBody string
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{fields: customFieldTestFields, captureCreate: &capturedBody}))
+
+	dir := t.TempDir()
+
+	// Write sidecar with team value mapping.
+	sidecar := markdown.FieldValueMap{
+		"team": {
+			"Platform": json.RawMessage(`{"id":"team-123","name":"Platform"}`),
+		},
+	}
+	if err := markdown.SaveFieldValues(filepath.Join(dir, markdown.FieldValuesFileName), sidecar); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
+
+	path := writeImportFile(t, dir, "create.md", `---
+key: PROJ-NEW-1
+summary: New Issue
+type: Task
+project: PROJ
+team: Platform
+story_points: 5
+---
+`)
+
+	opts := &ImportOptions{
+		Factory: f,
+		Files:   []string{path},
+	}
+
+	if err := runImport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+
+	// Team field should be the full raw object from sidecar.
+	teamVal, ok := fields["customfield_10001"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("customfield_10001 should be object, got %T: %v", fields["customfield_10001"], fields["customfield_10001"])
+	}
+	if teamVal["name"] != "Platform" {
+		t.Errorf("customfield_10001.name = %v, want Platform", teamVal["name"])
+	}
+	if teamVal["id"] != "team-123" {
+		t.Errorf("customfield_10001.id = %v, want team-123", teamVal["id"])
+	}
+	// Story Points is a number — passes through unchanged.
+	// YAML unmarshals integers; JSON re-encodes as float64.
+	sp, ok := fields["customfield_10002"].(float64)
+	if !ok || sp != 5 {
+		t.Errorf("customfield_10002 = %v (%T), want 5", fields["customfield_10002"], fields["customfield_10002"])
+	}
+}
+
+func TestImportCustomFieldUpdate(t *testing.T) {
+	var capturedEditBody string
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{fields: customFieldTestFields, captureEdit: &capturedEditBody, getIssueUpdated: "2026-01-01T00:00:00.000+0000"}))
+
+	dir := t.TempDir()
+
+	// Write sidecar with team value mapping.
+	sidecar := markdown.FieldValueMap{
+		"team": {
+			"Backend": json.RawMessage(`{"id":"team-456","name":"Backend"}`),
+		},
+	}
+	if err := markdown.SaveFieldValues(filepath.Join(dir, markdown.FieldValuesFileName), sidecar); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
+
+	path := writeImportFile(t, dir, "update.md", `---
+key: PROJ-123
+summary: Updated Issue
+updated: "2026-01-01T00:00:00.000+0000"
+team: Backend
+story_points: 8
+---
+`)
+
+	opts := &ImportOptions{
+		Factory: f,
+		Files:   []string{path},
+	}
+
+	if err := runImport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedEditBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+
+	// Team field should be the full raw object from sidecar.
+	teamVal, ok := fields["customfield_10001"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("customfield_10001 should be object, got %T: %v", fields["customfield_10001"], fields["customfield_10001"])
+	}
+	if teamVal["name"] != "Backend" {
+		t.Errorf("customfield_10001.name = %v, want Backend", teamVal["name"])
+	}
+	if teamVal["id"] != "team-456" {
+		t.Errorf("customfield_10001.id = %v, want team-456", teamVal["id"])
+	}
+	sp, ok := fields["customfield_10002"].(float64)
+	if !ok || sp != 8 {
+		t.Errorf("customfield_10002 = %v (%T), want 8", fields["customfield_10002"], fields["customfield_10002"])
+	}
+}
+
+func TestImportUnresolvableKey(t *testing.T) {
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{fields: customFieldTestFields}))
+
+	dir := t.TempDir()
+	path := writeImportFile(t, dir, "create.md", `---
+key: PROJ-NEW-1
+summary: Bad Field
+type: Task
+project: PROJ
+unknown_field: some value
+---
+`)
+
+	opts := &ImportOptions{
+		Factory: f,
+		Files:   []string{path},
+	}
+
+	err := runImport(opts)
+	if err == nil {
+		t.Fatal("expected error for unresolvable key, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != clierrors.VALIDATION_ERROR {
+		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+	if !strings.Contains(cliErr.Message, "unknown_field") {
+		t.Errorf("error message should mention unknown_field: %s", cliErr.Message)
+	}
+}
+
+func TestImportDryRunCustomFields(t *testing.T) {
+	apiCalled := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode(customFieldTestFields)
+			return
+		}
+		if r.Method == http.MethodPost || r.Method == http.MethodPut {
+			apiCalled = true
+		}
+		w.WriteHeader(404)
+	})
+
+	f, tio, _ := newTestImportFactory(t, handler)
+	f.DryRun = true
+
+	dir := t.TempDir()
+	writeImportFile(t, dir, "create.md", `---
+key: PROJ-NEW-1
+summary: New With Custom
+type: Task
+project: PROJ
+team: Platform
+---
+`)
+
+	opts := &ImportOptions{
+		Factory: f,
+		Dir:     dir,
+	}
+
+	if err := runImport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if apiCalled {
+		t.Error("dry-run should not make create/edit API calls")
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "DRY RUN") {
+		t.Errorf("output should contain 'DRY RUN', got: %s", out)
+	}
+	if !strings.Contains(out, "team") {
+		t.Errorf("output should mention custom field 'team', got: %s", out)
+	}
+}
+
+func TestImportNoCustomFields(t *testing.T) {
+	var capturedBody string
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{fields: customFieldTestFields, captureCreate: &capturedBody}))
+
+	dir := t.TempDir()
+	path := writeImportFile(t, dir, "create.md", `---
+key: PROJ-NEW-1
+summary: No Custom Fields
+type: Task
+project: PROJ
+---
+`)
+
+	opts := &ImportOptions{
+		Factory: f,
+		Files:   []string{path},
+	}
+
+	if err := runImport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+
+	// No custom field IDs should be present.
+	if _, ok := fields["customfield_10001"]; ok {
+		t.Error("customfield_10001 should not be in payload without custom fields")
+	}
+	if _, ok := fields["customfield_10002"]; ok {
+		t.Error("customfield_10002 should not be in payload without custom fields")
+	}
+}
+
 func TestImportFilesAndDirMutuallyExclusive(t *testing.T) {
-	f, _, _ := newTestImportFactory(t, importHandler(t, nil, ""))
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{}))
 
 	cmd := NewCmdImport(f)
 	cmd.SetArgs([]string{"file.md", "--dir", "/some/dir"})
@@ -826,5 +1103,106 @@ func TestImportFilesAndDirMutuallyExclusive(t *testing.T) {
 	}
 	if cliErr.Code != clierrors.VALIDATION_ERROR {
 		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+}
+
+func TestImportCustomFieldWrapping(t *testing.T) {
+	tests := []struct {
+		name       string
+		schema     api.FieldSchema
+		sidecar    markdown.FieldValueMap // optional sidecar entries
+		input      interface{}
+		wantString string // JSON substring to match in the captured body
+	}{
+		{
+			name:       "option wraps as value via schema",
+			schema:     api.FieldSchema{Type: "option"},
+			input:      "Critical",
+			wantString: `"value":"Critical"`,
+		},
+		{
+			name:       "user wraps as accountId via schema",
+			schema:     api.FieldSchema{Type: "user"},
+			input:      "abc123",
+			wantString: `"accountId":"abc123"`,
+		},
+		{
+			name:   "team wraps via sidecar",
+			schema: api.FieldSchema{Type: "team", Custom: "com.atlassian.jira.plugin.system.customfieldtypes:atlassian-team"},
+			sidecar: markdown.FieldValueMap{
+				"test_field": {
+					"Platform": json.RawMessage(`{"id":"team-123","name":"Platform"}`),
+				},
+			},
+			input:      "Platform",
+			wantString: `"id":"team-123"`,
+		},
+		{
+			name:       "number passes through",
+			schema:     api.FieldSchema{Type: "number"},
+			input:      float64(42),
+			wantString: `"customfield_99999":42`,
+		},
+		{
+			name:       "string with unknown type passes through",
+			schema:     api.FieldSchema{Type: "string"},
+			input:      "plain text",
+			wantString: `"customfield_99999":"plain text"`,
+		},
+		{
+			name:   "sidecar overrides schema wrapping",
+			schema: api.FieldSchema{Type: "option"},
+			sidecar: markdown.FieldValueMap{
+				"test_field": {
+					"Critical": json.RawMessage(`{"value":"Critical","id":"opt-99"}`),
+				},
+			},
+			input:      "Critical",
+			wantString: `"id":"opt-99"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedBody string
+			fields := []api.Field{
+				{ID: "customfield_99999", Name: "Test Field", Custom: true, Schema: tt.schema},
+			}
+			f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{fields: fields, captureCreate: &capturedBody}))
+
+			dir := t.TempDir()
+
+			// Write sidecar if provided.
+			if tt.sidecar != nil {
+				if err := markdown.SaveFieldValues(filepath.Join(dir, markdown.FieldValuesFileName), tt.sidecar); err != nil {
+					t.Fatalf("write sidecar: %v", err)
+				}
+			}
+
+			// Build frontmatter with the custom field value inline.
+			var valStr string
+			switch v := tt.input.(type) {
+			case string:
+				valStr = v
+			case float64:
+				valStr = fmt.Sprintf("%g", v)
+			}
+
+			content := fmt.Sprintf("---\nkey: PROJ-NEW-1\nsummary: Test\ntype: Task\nproject: PROJ\ntest_field: %s\n---\n", valStr)
+			path := writeImportFile(t, dir, "create.md", content)
+
+			opts := &ImportOptions{
+				Factory: f,
+				Files:   []string{path},
+			}
+
+			if err := runImport(opts); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if !strings.Contains(capturedBody, tt.wantString) {
+				t.Errorf("expected %q in body, got: %s", tt.wantString, capturedBody)
+			}
+		})
 	}
 }

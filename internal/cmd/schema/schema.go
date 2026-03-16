@@ -18,6 +18,7 @@ func NewCmdSchema(f *factory.Factory) *cobra.Command {
 	}
 
 	cmd.AddCommand(NewCmdFields(f))
+	cmd.AddCommand(NewCmdFieldValues(f))
 	cmd.AddCommand(NewCmdTypes(f))
 	cmd.AddCommand(NewCmdStatuses(f))
 	cmd.AddCommand(NewCmdPriorities(f))

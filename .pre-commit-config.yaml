@@ -2,7 +2,7 @@
 # Install: make hooks
 # Run manually: pre-commit run --all-files
 
-default_install_hook_types: [pre-commit, commit-msg]
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
 
 repos:
   # ── General checks ──────────────────────────────────────────────
@@ -68,5 +68,13 @@ repos:
         name: go test
         entry: go test -short -count=1 ./...
         language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: go-test-race
+        name: go test -race (pre-push)
+        entry: go test -race -count=1 ./...
+        language: system
+        stages: [pre-push]
         types: [go]
         pass_filenames: false

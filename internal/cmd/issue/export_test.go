@@ -2,6 +2,7 @@ package issue
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -54,11 +55,16 @@ func exportIssues() []api.Issue {
 }
 
 // exportSearchHandler returns an HTTP handler that serves POST /search/jql
-// responses, optionally capturing the JQL query.
+// and GET /field responses, optionally capturing the JQL query.
 func exportSearchHandler(t *testing.T, pages [][]api.Issue, capturedJQL *string) http.HandlerFunc {
 	t.Helper()
 	callCount := 0
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/field") {
+			json.NewEncoder(w).Encode([]api.Field{})
+			return
+		}
+
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/search/jql") {
 			var req searchRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -602,5 +608,352 @@ func TestExportProgressStderr(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "Exported 100 issues") {
 		t.Errorf("expected progress at 100 issues in stderr, got: %s", errOut)
+	}
+}
+
+// customFieldTestFields is shared field metadata for custom field tests (export + import).
+var customFieldTestFields = []api.Field{
+	{ID: "summary", Name: "Summary"},
+	{ID: "status", Name: "Status"},
+	{ID: "customfield_10001", Name: "Team", Custom: true, Schema: api.FieldSchema{
+		Type:   "any",
+		Custom: "com.atlassian.teams:rm-teams-custom-field-team",
+	}},
+	{ID: "customfield_10002", Name: "Story Points", Custom: true, Schema: api.FieldSchema{
+		Type: "number",
+	}},
+}
+
+// issueWithCustomFieldsJSON builds a raw JSON issue object that includes custom
+// field keys at the fields level. This is necessary because IssueFields.CustomFields
+// is json:"-" and won't survive standard JSON marshaling through the mock server.
+func issueWithCustomFieldsJSON(issue api.Issue, customFields map[string]json.RawMessage) json.RawMessage {
+	// Marshal the issue to get the base JSON.
+	base, _ := json.Marshal(issue)
+	var raw map[string]json.RawMessage
+	json.Unmarshal(base, &raw)
+
+	// Unmarshal the fields object and inject custom fields.
+	var fields map[string]json.RawMessage
+	json.Unmarshal(raw["fields"], &fields)
+	for k, v := range customFields {
+		fields[k] = v
+	}
+	fieldsJSON, _ := json.Marshal(fields)
+	raw["fields"] = fieldsJSON
+
+	result, _ := json.Marshal(raw)
+	return result
+}
+
+// customFieldExportHandler returns an HTTP handler that serves GET /field with
+// the given field definitions, and POST /search/jql with raw JSON issue responses
+// that include custom field keys.
+func customFieldExportHandler(t *testing.T, fields []api.Field, rawIssuePages [][]json.RawMessage) http.HandlerFunc {
+	t.Helper()
+	callCount := 0
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/field") {
+			json.NewEncoder(w).Encode(fields)
+			return
+		}
+
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/search/jql") {
+			var req searchRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("failed to decode search request: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			page := callCount
+			if page >= len(rawIssuePages) {
+				page = len(rawIssuePages) - 1
+			}
+			callCount++
+
+			isLast := callCount >= len(rawIssuePages)
+			nextToken := ""
+			if !isLast {
+				nextToken = "page-token-next"
+			}
+
+			// Build raw JSON response with issues array.
+			issuesJSON, _ := json.Marshal(rawIssuePages[page])
+			resp := fmt.Sprintf(`{"issues":%s,"isLast":%v,"nextPageToken":%q}`,
+				issuesJSON, isLast, nextToken)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(resp))
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+func TestExportCustomFields(t *testing.T) {
+	fields := customFieldTestFields
+	baseIssue := exportIssues()[0]
+	rawIssue := issueWithCustomFieldsJSON(baseIssue, map[string]json.RawMessage{
+		"customfield_10001": json.RawMessage(`"Platform"`),
+		"customfield_10002": json.RawMessage(`5`),
+	})
+
+	f, _, _ := newTestCreateFactory(t,
+		customFieldExportHandler(t, fields, [][]json.RawMessage{{rawIssue}}), nil)
+
+	outDir := t.TempDir()
+	opts := &ExportOptions{
+		Factory:   f,
+		Project:   "PROJ",
+		OutputDir: outDir,
+	}
+
+	if err := runExport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	relPath := markdown.IssuePath(baseIssue)
+	data, err := os.ReadFile(filepath.Join(outDir, relPath))
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "team: Platform") {
+		t.Errorf("expected 'team: Platform' in output:\n%s", content)
+	}
+	if !strings.Contains(content, "story_points: 5") {
+		t.Errorf("expected 'story_points: 5' in output:\n%s", content)
+	}
+	if !strings.Contains(content, "key: PROJ-1") {
+		t.Errorf("expected built-in 'key: PROJ-1' in output:\n%s", content)
+	}
+}
+
+func TestExportFieldsFlag(t *testing.T) {
+	fields := customFieldTestFields
+	baseIssue := exportIssues()[0]
+	rawIssue := issueWithCustomFieldsJSON(baseIssue, map[string]json.RawMessage{
+		"customfield_10001": json.RawMessage(`"Platform"`),
+		"customfield_10002": json.RawMessage(`5`),
+	})
+
+	f, _, _ := newTestCreateFactory(t,
+		customFieldExportHandler(t, fields, [][]json.RawMessage{{rawIssue}}), nil)
+
+	outDir := t.TempDir()
+	opts := &ExportOptions{
+		Factory:   f,
+		Project:   "PROJ",
+		OutputDir: outDir,
+		Fields:    "team",
+	}
+
+	if err := runExport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	relPath := markdown.IssuePath(baseIssue)
+	data, err := os.ReadFile(filepath.Join(outDir, relPath))
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "team: Platform") {
+		t.Errorf("expected 'team: Platform' in output:\n%s", content)
+	}
+	if strings.Contains(content, "story_points") {
+		t.Errorf("story_points should be filtered out:\n%s", content)
+	}
+}
+
+func TestExportFieldsFlagAllUnknown(t *testing.T) {
+	fields := customFieldTestFields
+	baseIssue := exportIssues()[0]
+	rawIssue := issueWithCustomFieldsJSON(baseIssue, nil)
+
+	f, _, _ := newTestCreateFactory(t,
+		customFieldExportHandler(t, fields, [][]json.RawMessage{{rawIssue}}), nil)
+
+	outDir := t.TempDir()
+	opts := &ExportOptions{
+		Factory:   f,
+		Project:   "PROJ",
+		OutputDir: outDir,
+		Fields:    "nonexistent",
+	}
+
+	err := runExport(opts)
+	if err == nil {
+		t.Fatal("expected error when all --fields names are unmatched, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != clierrors.VALIDATION_ERROR {
+		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+}
+
+func TestExportFieldsFlagPartialMatch(t *testing.T) {
+	fields := customFieldTestFields
+	baseIssue := exportIssues()[0]
+	rawIssue := issueWithCustomFieldsJSON(baseIssue, map[string]json.RawMessage{
+		"customfield_10001": json.RawMessage(`"Platform"`),
+	})
+
+	f, tio, _ := newTestCreateFactory(t,
+		customFieldExportHandler(t, fields, [][]json.RawMessage{{rawIssue}}), nil)
+
+	outDir := t.TempDir()
+	opts := &ExportOptions{
+		Factory:   f,
+		Project:   "PROJ",
+		OutputDir: outDir,
+		Fields:    "team,nonexistent",
+	}
+
+	// Should succeed (some matched), but warn about unmatched.
+	if err := runExport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	errOut := tio.ErrBuf.String()
+	if !strings.Contains(errOut, "nonexistent") {
+		t.Errorf("expected warning about 'nonexistent' in stderr, got: %s", errOut)
+	}
+}
+
+func TestExportBuiltinCollision(t *testing.T) {
+	fields := []api.Field{
+		{ID: "summary", Name: "Summary"},
+		{ID: "status", Name: "Status"},
+		{ID: "customfield_10099", Name: "Status", Custom: true},
+		{ID: "customfield_10001", Name: "Team", Custom: true},
+	}
+	baseIssue := exportIssues()[0]
+	rawIssue := issueWithCustomFieldsJSON(baseIssue, map[string]json.RawMessage{
+		"customfield_10099": json.RawMessage(`"Blocked"`),
+		"customfield_10001": json.RawMessage(`"Platform"`),
+	})
+
+	f, tio, _ := newTestCreateFactory(t,
+		customFieldExportHandler(t, fields, [][]json.RawMessage{{rawIssue}}), nil)
+
+	outDir := t.TempDir()
+	opts := &ExportOptions{
+		Factory:   f,
+		Project:   "PROJ",
+		OutputDir: outDir,
+	}
+
+	if err := runExport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	relPath := markdown.IssuePath(baseIssue)
+	data, err := os.ReadFile(filepath.Join(outDir, relPath))
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "status: To Do") {
+		t.Errorf("expected built-in 'status: To Do' in output:\n%s", content)
+	}
+	if strings.Contains(content, "Blocked") {
+		t.Errorf("custom 'Status' field should be skipped, but found 'Blocked' in output:\n%s", content)
+	}
+	if !strings.Contains(content, "team: Platform") {
+		t.Errorf("expected 'team: Platform' in output:\n%s", content)
+	}
+
+	errOut := tio.ErrBuf.String()
+	if !strings.Contains(errOut, "status") {
+		t.Errorf("expected warning about 'status' collision in stderr, got: %s", errOut)
+	}
+}
+
+func TestExportCustomFieldObjectValue(t *testing.T) {
+	fields := []api.Field{
+		{ID: "customfield_10003", Name: "Severity", Custom: true},
+	}
+	baseIssue := exportIssues()[0]
+	rawIssue := issueWithCustomFieldsJSON(baseIssue, map[string]json.RawMessage{
+		"customfield_10003": json.RawMessage(`{"value": "Critical"}`),
+	})
+
+	f, _, _ := newTestCreateFactory(t,
+		customFieldExportHandler(t, fields, [][]json.RawMessage{{rawIssue}}), nil)
+
+	outDir := t.TempDir()
+	opts := &ExportOptions{
+		Factory:   f,
+		Project:   "PROJ",
+		OutputDir: outDir,
+	}
+
+	if err := runExport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	relPath := markdown.IssuePath(baseIssue)
+	data, err := os.ReadFile(filepath.Join(outDir, relPath))
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "severity: Critical") {
+		t.Errorf("expected 'severity: Critical' in output:\n%s", content)
+	}
+}
+
+func TestExportCustomFieldSkipArray(t *testing.T) {
+	fields := []api.Field{
+		{ID: "customfield_10004", Name: "Components", Custom: true},
+		{ID: "customfield_10001", Name: "Team", Custom: true},
+	}
+	baseIssue := exportIssues()[0]
+	rawIssue := issueWithCustomFieldsJSON(baseIssue, map[string]json.RawMessage{
+		"customfield_10004": json.RawMessage(`[{"name": "Backend"}, {"name": "Frontend"}]`),
+		"customfield_10001": json.RawMessage(`"Platform"`),
+	})
+
+	f, tio, _ := newTestCreateFactory(t,
+		customFieldExportHandler(t, fields, [][]json.RawMessage{{rawIssue}}), nil)
+
+	outDir := t.TempDir()
+	opts := &ExportOptions{
+		Factory:   f,
+		Project:   "PROJ",
+		OutputDir: outDir,
+	}
+
+	if err := runExport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	relPath := markdown.IssuePath(baseIssue)
+	data, err := os.ReadFile(filepath.Join(outDir, relPath))
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	content := string(data)
+
+	if strings.Contains(content, "components") {
+		t.Errorf("array custom field 'components' should be skipped:\n%s", content)
+	}
+	if !strings.Contains(content, "team: Platform") {
+		t.Errorf("expected 'team: Platform' in output:\n%s", content)
+	}
+
+	errOut := tio.ErrBuf.String()
+	if !strings.Contains(errOut, "customfield_10004") || !strings.Contains(errOut, "skip") {
+		t.Errorf("expected warning about skipped array field in stderr, got: %s", errOut)
 	}
 }

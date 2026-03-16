@@ -2,8 +2,12 @@ package issue
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -15,6 +19,13 @@ import (
 	"github.com/endgame-build/jira-cli/internal/markdown"
 	"github.com/endgame-build/jira-cli/internal/output"
 )
+
+// importFieldInfo holds the Jira field ID and schema for a custom field,
+// used to wrap scalar values back into the object format Jira expects.
+type importFieldInfo struct {
+	ID     string
+	Schema api.FieldSchema
+}
 
 // ImportOptions holds all resolved inputs for the issue import command.
 type ImportOptions struct {
@@ -134,6 +145,40 @@ func runImport(opts *ImportOptions) error {
 		return err
 	}
 
+	// Fetch field metadata for custom field resolution.
+	customFieldMap, err := buildImportFieldMap(ctx, client, f.IOStreams.Err)
+	if err != nil {
+		return err
+	}
+
+	// Validate: all custom field keys must resolve to a Jira field ID.
+	for _, issueFile := range issueFiles {
+		for key := range issueFile.Frontmatter.CustomFields {
+			if _, ok := customFieldMap[key]; !ok {
+				return clierrors.NewValidationError(
+					fmt.Sprintf("unknown frontmatter key %q in %s: not a Jira field", key, issueFile.Path),
+				).WithSuggestion("Check field names with 'jira schema fields' or use YAML comments (# ...) for notes")
+			}
+		}
+	}
+
+	// Load sidecar field values for object-type custom field wrapping.
+	var fieldValues markdown.FieldValueMap
+	importDir := opts.Dir
+	if importDir == "" && len(opts.Files) > 0 {
+		importDir = filepath.Dir(opts.Files[0])
+	}
+	if importDir != "" {
+		fvm, sidecarPath, err := markdown.FindFieldValues(importDir)
+		if err != nil {
+			return err
+		}
+		fieldValues = fvm
+		if sidecarPath != "" {
+			fmt.Fprintf(f.IOStreams.Err, "Loaded field value mappings from %s\n", sidecarPath)
+		}
+	}
+
 	// Separate creates and updates, preserving order.
 	var creates, updates []*markdown.IssueFile
 	for _, issueFile := range issueFiles {
@@ -157,7 +202,10 @@ func runImport(opts *ImportOptions) error {
 			continue
 		}
 
-		fields := buildCreateFields(issueFile)
+		fields, err := buildCreateFields(issueFile, customFieldMap, fieldValues)
+		if err != nil {
+			return err
+		}
 
 		if err := setDescriptionADF(fields, issueFile.Description, issueFile.Frontmatter.Key); err != nil {
 			return err
@@ -213,7 +261,10 @@ func runImport(opts *ImportOptions) error {
 			}
 		}
 
-		fields := buildUpdateFields(issueFile)
+		fields, err := buildUpdateFields(issueFile, customFieldMap, fieldValues)
+		if err != nil {
+			return err
+		}
 
 		if err := setDescriptionADF(fields, issueFile.Description, key); err != nil {
 			return err
@@ -243,10 +294,14 @@ func runImport(opts *ImportOptions) error {
 	}
 
 	if f.DryRun {
+		// Collect custom field names across all files for preview.
+		customFieldNames := collectCustomFieldNames(issueFiles)
+
 		payload := map[string]interface{}{
-			"creates": len(creates),
-			"updates": len(updates),
-			"results": results,
+			"creates":       len(creates),
+			"updates":       len(updates),
+			"results":       results,
+			"custom_fields": customFieldNames,
 		}
 		if formatter.IsJSON() {
 			return formatter.OutputDryRun(payload, "passed", nil)
@@ -257,6 +312,9 @@ func runImport(opts *ImportOptions) error {
 				writeResultLine(f.IOStreams.Out, r)
 			}
 			fmt.Fprintf(f.IOStreams.Out, "\nWould process %d creates, %d updates\n", len(creates), len(updates))
+			if len(customFieldNames) > 0 {
+				fmt.Fprintf(f.IOStreams.Out, "Custom fields: %s\n", strings.Join(customFieldNames, ", "))
+			}
 		})
 	}
 
@@ -282,7 +340,7 @@ func runImport(opts *ImportOptions) error {
 }
 
 // buildCreateFields builds the fields map for a create operation.
-func buildCreateFields(issueFile *markdown.IssueFile) map[string]interface{} {
+func buildCreateFields(issueFile *markdown.IssueFile, customFieldMap map[string]importFieldInfo, fieldValues markdown.FieldValueMap) (map[string]interface{}, error) {
 	fm := issueFile.Frontmatter
 	fields := map[string]interface{}{
 		"project":   map[string]interface{}{"key": fm.Project},
@@ -296,12 +354,16 @@ func buildCreateFields(issueFile *markdown.IssueFile) map[string]interface{} {
 		fields["parent"] = map[string]interface{}{"key": fm.Parent}
 	}
 
-	return fields
+	if err := injectCustomFields(fields, fm.CustomFields, customFieldMap, fieldValues); err != nil {
+		return nil, err
+	}
+
+	return fields, nil
 }
 
 // buildUpdateFields builds the fields map for an update operation.
 // Updates do NOT send type, project, parent, or status (read-only or out of MVP scope).
-func buildUpdateFields(issueFile *markdown.IssueFile) map[string]interface{} {
+func buildUpdateFields(issueFile *markdown.IssueFile, customFieldMap map[string]importFieldInfo, fieldValues markdown.FieldValueMap) (map[string]interface{}, error) {
 	fm := issueFile.Frontmatter
 	fields := map[string]interface{}{
 		"summary": fm.Summary,
@@ -309,7 +371,11 @@ func buildUpdateFields(issueFile *markdown.IssueFile) map[string]interface{} {
 
 	setCommonFields(fields, fm)
 
-	return fields
+	if err := injectCustomFields(fields, fm.CustomFields, customFieldMap, fieldValues); err != nil {
+		return nil, err
+	}
+
+	return fields, nil
 }
 
 // setCommonFields sets fields shared between create and update operations.
@@ -348,6 +414,98 @@ func writeResultLine(w io.Writer, r importResult) {
 		fmt.Fprintf(w, " (from %s)", r.TempKey)
 	}
 	fmt.Fprintln(w)
+}
+
+// buildImportFieldMap fetches field metadata from Jira and builds a reverse
+// lookup map: normalizedName → importFieldInfo for custom field resolution during import.
+// Warns to w when multiple fields normalize to the same key (first wins).
+func buildImportFieldMap(ctx context.Context, client *api.Client, w io.Writer) (map[string]importFieldInfo, error) {
+	allFields, err := client.ListFields(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	fieldMap := make(map[string]importFieldInfo)
+	fieldNames := make(map[string]string) // norm → display name (for warnings)
+	for _, f := range allFields {
+		norm := markdown.NormalizeFieldName(f.Name)
+		if norm == "" || markdown.IsBuiltinKey(norm) {
+			continue
+		}
+		if prevName, exists := fieldNames[norm]; exists {
+			fmt.Fprintf(w, "warning: field %q (%s) collides with %q (%s), both normalize to %q, keeping first\n",
+				f.Name, f.ID, prevName, fieldMap[norm].ID, norm)
+			continue
+		}
+		fieldMap[norm] = importFieldInfo{ID: f.ID, Schema: f.Schema}
+		fieldNames[norm] = f.Name
+	}
+	return fieldMap, nil
+}
+
+// injectCustomFields adds resolved custom fields to the API fields map.
+// Each custom field key (normalized name) is looked up in customFieldMap to
+// get the Jira field ID and schema. Values are wrapped into the object format
+// Jira expects, using the sidecar field value map when available, falling back
+// to schema-based wrapping.
+func injectCustomFields(fields map[string]interface{}, customFields map[string]interface{}, customFieldMap map[string]importFieldInfo, fieldValues markdown.FieldValueMap) error {
+	for key, val := range customFields {
+		info, ok := customFieldMap[key]
+		if !ok {
+			return clierrors.NewGeneralError(fmt.Sprintf("internal: custom field key %q not in field map", key))
+		}
+		fields[info.ID] = wrapCustomFieldValue(val, info.Schema, key, fieldValues)
+	}
+	return nil
+}
+
+// wrapCustomFieldValue wraps a scalar value into the object format Jira expects.
+// First checks the sidecar field value map for a pre-recorded raw API object.
+// Falls back to schema-based wrapping for option and user types.
+// Numbers, bools, and maps pass through unchanged.
+func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName string, fieldValues markdown.FieldValueMap) interface{} {
+	str, ok := val.(string)
+	if !ok {
+		return val
+	}
+
+	// Check sidecar for a pre-recorded raw API object.
+	if fieldValues != nil {
+		if vals, ok := fieldValues[fieldName]; ok {
+			if raw, ok := vals[str]; ok {
+				var obj interface{}
+				if err := json.Unmarshal(raw, &obj); err == nil {
+					return obj
+				}
+			}
+		}
+	}
+
+	// Schema-based wrapping fallback.
+	switch schema.Type {
+	case "option":
+		return map[string]interface{}{"value": str}
+	case "user":
+		return map[string]interface{}{"accountId": str}
+	default:
+		return val
+	}
+}
+
+// collectCustomFieldNames gathers all unique custom field names across issue files.
+func collectCustomFieldNames(issueFiles []*markdown.IssueFile) []string {
+	seen := make(map[string]bool)
+	for _, issueFile := range issueFiles {
+		for key := range issueFile.Frontmatter.CustomFields {
+			seen[key] = true
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // emitPartialResults writes completed import results to stderr before an error return,
