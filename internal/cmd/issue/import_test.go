@@ -1160,6 +1160,17 @@ func TestImportCustomFieldWrapping(t *testing.T) {
 			input:      "Platform",
 			wantString: `"id":"team-789"`,
 		},
+		{
+			name:   "sidecar with unknown type uses id fallback",
+			schema: api.FieldSchema{Type: "any"},
+			sidecar: markdown.FieldValueMap{
+				"test_field": {
+					"SomeValue": json.RawMessage(`{"id":"custom-42","label":"SomeValue","extra":"ignored"}`),
+				},
+			},
+			input:      "SomeValue",
+			wantString: `"id":"custom-42"`,
+		},
 	}
 
 	for _, tt := range tests {

@@ -459,6 +459,23 @@ func injectCustomFields(fields map[string]interface{}, customFields map[string]i
 	return nil
 }
 
+// writeKeyForSchema returns the JSON key Jira uses to identify a field value
+// on create/update. This is the single source of truth for the mapping:
+//
+//	user   → accountId
+//	option → value (with id as fallback)
+//	*      → id (team, priority, component, version, group, etc.)
+func writeKeyForSchema(schemaType string) string {
+	switch schemaType {
+	case "user":
+		return "accountId"
+	case "option":
+		return "value"
+	default:
+		return "id"
+	}
+}
+
 // wrapCustomFieldValue wraps a scalar value into the object format Jira expects.
 // First checks the sidecar field value map for a pre-recorded raw API object,
 // trimming it to the write-safe identifier that Jira accepts on create/update.
@@ -482,15 +499,12 @@ func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName str
 		}
 	}
 
-	// Schema-based wrapping fallback.
-	switch schema.Type {
-	case "option":
-		return map[string]interface{}{"value": str}
-	case "user":
-		return map[string]interface{}{"accountId": str}
-	default:
-		return val
+	// Schema-based wrapping fallback (only for types we know how to wrap).
+	key := writeKeyForSchema(schema.Type)
+	if key != "id" {
+		return map[string]interface{}{key: str}
 	}
+	return val
 }
 
 // toWriteObject trims a full API read object to the minimal identifier
@@ -498,23 +512,15 @@ func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName str
 // (e.g. {"id":"...","name":"...","avatarUrl":"..."}) but only accepts
 // a subset on write.
 func toWriteObject(obj map[string]interface{}, schema api.FieldSchema) map[string]interface{} {
-	switch schema.Type {
-	case "user":
-		if id, ok := obj["accountId"]; ok {
-			return map[string]interface{}{"accountId": id}
-		}
-	case "option":
-		if v, ok := obj["value"]; ok {
-			return map[string]interface{}{"value": v}
-		}
+	key := writeKeyForSchema(schema.Type)
+	if v, ok := obj[key]; ok {
+		return map[string]interface{}{key: v}
+	}
+	// Fallback to "id" if primary key is missing (e.g. option without "value").
+	if key != "id" {
 		if id, ok := obj["id"]; ok {
 			return map[string]interface{}{"id": id}
 		}
-	}
-
-	// Default: keep only the "id" field if present (works for team and most types).
-	if id, ok := obj["id"]; ok {
-		return map[string]interface{}{"id": id}
 	}
 	return obj
 }
