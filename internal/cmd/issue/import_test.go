@@ -890,16 +890,16 @@ story_points: 5
 	}
 	fields := reqBody["fields"].(map[string]interface{})
 
-	// Team field should be the full raw object from sidecar.
+	// Team field should be trimmed to write-safe identifier from sidecar.
 	teamVal, ok := fields["customfield_10001"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("customfield_10001 should be object, got %T: %v", fields["customfield_10001"], fields["customfield_10001"])
 	}
-	if teamVal["name"] != "Platform" {
-		t.Errorf("customfield_10001.name = %v, want Platform", teamVal["name"])
-	}
 	if teamVal["id"] != "team-123" {
 		t.Errorf("customfield_10001.id = %v, want team-123", teamVal["id"])
+	}
+	if _, hasName := teamVal["name"]; hasName {
+		t.Errorf("customfield_10001 should not contain name (write-safe trim), got %v", teamVal)
 	}
 	// Story Points is a number — passes through unchanged.
 	// YAML unmarshals integers; JSON re-encodes as float64.
@@ -949,16 +949,16 @@ story_points: 8
 	}
 	fields := reqBody["fields"].(map[string]interface{})
 
-	// Team field should be the full raw object from sidecar.
+	// Team field should be trimmed to write-safe identifier from sidecar.
 	teamVal, ok := fields["customfield_10001"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("customfield_10001 should be object, got %T: %v", fields["customfield_10001"], fields["customfield_10001"])
 	}
-	if teamVal["name"] != "Backend" {
-		t.Errorf("customfield_10001.name = %v, want Backend", teamVal["name"])
-	}
 	if teamVal["id"] != "team-456" {
 		t.Errorf("customfield_10001.id = %v, want team-456", teamVal["id"])
+	}
+	if _, hasName := teamVal["name"]; hasName {
+		t.Errorf("customfield_10001 should not contain name (write-safe trim), got %v", teamVal)
 	}
 	sp, ok := fields["customfield_10002"].(float64)
 	if !ok || sp != 8 {
@@ -1150,15 +1150,26 @@ func TestImportCustomFieldWrapping(t *testing.T) {
 			wantString: `"customfield_99999":"plain text"`,
 		},
 		{
-			name:   "sidecar overrides schema wrapping",
-			schema: api.FieldSchema{Type: "option"},
+			name:   "sidecar overrides schema for team type",
+			schema: api.FieldSchema{Type: "team"},
 			sidecar: markdown.FieldValueMap{
 				"test_field": {
-					"Critical": json.RawMessage(`{"value":"Critical","id":"opt-99"}`),
+					"Platform": json.RawMessage(`{"id":"team-789","name":"Platform"}`),
 				},
 			},
-			input:      "Critical",
-			wantString: `"id":"opt-99"`,
+			input:      "Platform",
+			wantString: `"id":"team-789"`,
+		},
+		{
+			name:   "sidecar with unknown type uses id fallback",
+			schema: api.FieldSchema{Type: "any"},
+			sidecar: markdown.FieldValueMap{
+				"test_field": {
+					"SomeValue": json.RawMessage(`{"id":"custom-42","label":"SomeValue","extra":"ignored"}`),
+				},
+			},
+			input:      "SomeValue",
+			wantString: `"id":"custom-42"`,
 		},
 	}
 

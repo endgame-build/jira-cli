@@ -459,8 +459,26 @@ func injectCustomFields(fields map[string]interface{}, customFields map[string]i
 	return nil
 }
 
+// writeKeyForSchema returns the JSON key Jira uses to identify a field value
+// on create/update. This is the single source of truth for the mapping:
+//
+//	user   → accountId
+//	option → value (with id as fallback)
+//	*      → id (team, priority, component, version, group, etc.)
+func writeKeyForSchema(schemaType string) string {
+	switch schemaType {
+	case "user":
+		return "accountId"
+	case "option":
+		return "value"
+	default:
+		return "id"
+	}
+}
+
 // wrapCustomFieldValue wraps a scalar value into the object format Jira expects.
-// First checks the sidecar field value map for a pre-recorded raw API object.
+// First checks the sidecar field value map for a pre-recorded raw API object,
+// trimming it to the write-safe identifier that Jira accepts on create/update.
 // Falls back to schema-based wrapping for option and user types.
 // Numbers, bools, and maps pass through unchanged.
 func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName string, fieldValues markdown.FieldValueMap) interface{} {
@@ -473,23 +491,38 @@ func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName str
 	if fieldValues != nil {
 		if vals, ok := fieldValues[fieldName]; ok {
 			if raw, ok := vals[str]; ok {
-				var obj interface{}
+				var obj map[string]interface{}
 				if err := json.Unmarshal(raw, &obj); err == nil {
-					return obj
+					return toWriteObject(obj, schema)
 				}
 			}
 		}
 	}
 
-	// Schema-based wrapping fallback.
-	switch schema.Type {
-	case "option":
-		return map[string]interface{}{"value": str}
-	case "user":
-		return map[string]interface{}{"accountId": str}
-	default:
-		return val
+	// Schema-based wrapping fallback (only for types we know how to wrap).
+	key := writeKeyForSchema(schema.Type)
+	if key != "id" {
+		return map[string]interface{}{key: str}
 	}
+	return val
+}
+
+// toWriteObject trims a full API read object to the minimal identifier
+// that Jira accepts on create/update. Jira returns rich objects on read
+// (e.g. {"id":"...","name":"...","avatarUrl":"..."}) but only accepts
+// a subset on write.
+func toWriteObject(obj map[string]interface{}, schema api.FieldSchema) map[string]interface{} {
+	key := writeKeyForSchema(schema.Type)
+	if v, ok := obj[key]; ok {
+		return map[string]interface{}{key: v}
+	}
+	// Fallback to "id" if primary key is missing (e.g. option without "value").
+	if key != "id" {
+		if id, ok := obj["id"]; ok {
+			return map[string]interface{}{"id": id}
+		}
+	}
+	return obj
 }
 
 // collectCustomFieldNames gathers all unique custom field names across issue files.
