@@ -460,7 +460,8 @@ func injectCustomFields(fields map[string]interface{}, customFields map[string]i
 }
 
 // wrapCustomFieldValue wraps a scalar value into the object format Jira expects.
-// First checks the sidecar field value map for a pre-recorded raw API object.
+// First checks the sidecar field value map for a pre-recorded raw API object,
+// trimming it to the write-safe identifier that Jira accepts on create/update.
 // Falls back to schema-based wrapping for option and user types.
 // Numbers, bools, and maps pass through unchanged.
 func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName string, fieldValues markdown.FieldValueMap) interface{} {
@@ -473,9 +474,9 @@ func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName str
 	if fieldValues != nil {
 		if vals, ok := fieldValues[fieldName]; ok {
 			if raw, ok := vals[str]; ok {
-				var obj interface{}
+				var obj map[string]interface{}
 				if err := json.Unmarshal(raw, &obj); err == nil {
-					return obj
+					return toWriteObject(obj, schema)
 				}
 			}
 		}
@@ -490,6 +491,32 @@ func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName str
 	default:
 		return val
 	}
+}
+
+// toWriteObject trims a full API read object to the minimal identifier
+// that Jira accepts on create/update. Jira returns rich objects on read
+// (e.g. {"id":"...","name":"...","avatarUrl":"..."}) but only accepts
+// a subset on write.
+func toWriteObject(obj map[string]interface{}, schema api.FieldSchema) map[string]interface{} {
+	switch schema.Type {
+	case "user":
+		if id, ok := obj["accountId"]; ok {
+			return map[string]interface{}{"accountId": id}
+		}
+	case "option":
+		if v, ok := obj["value"]; ok {
+			return map[string]interface{}{"value": v}
+		}
+		if id, ok := obj["id"]; ok {
+			return map[string]interface{}{"id": id}
+		}
+	}
+
+	// Default: keep only the "id" field if present (works for team and most types).
+	if id, ok := obj["id"]; ok {
+		return map[string]interface{}{"id": id}
+	}
+	return obj
 }
 
 // collectCustomFieldNames gathers all unique custom field names across issue files.
