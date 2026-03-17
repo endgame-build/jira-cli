@@ -3,6 +3,7 @@ package issue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -218,7 +219,7 @@ func runImport(opts *ImportOptions) error {
 		created, err := client.CreateIssue(ctx, input)
 		if err != nil {
 			emitPartialResults(f.IOStreams.Err, results)
-			return err
+			return annotateImportError(err, issueFile.Frontmatter.Key, issueFile.Path)
 		}
 
 		results = append(results, importResult{
@@ -270,13 +271,19 @@ func runImport(opts *ImportOptions) error {
 			return err
 		}
 
+		// Debug: dump fields for failing issue.
+		if f.Verbose {
+			debugBytes, _ := json.MarshalIndent(fields, "", "  ")
+			fmt.Fprintf(f.IOStreams.Err, "DEBUG update %s fields:\n%s\n", key, string(debugBytes))
+		}
+
 		input := &api.EditIssueInput{
 			Fields: fields,
 		}
 
 		if err := client.EditIssue(ctx, key, input); err != nil {
 			emitPartialResults(f.IOStreams.Err, results)
-			return err
+			return annotateImportError(err, key, issueFile.Path)
 		}
 
 		results = append(results, importResult{
@@ -549,6 +556,16 @@ func collectCustomFieldNames(issueFiles []*markdown.IssueFile) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// annotateImportError prepends the issue key and file path to a CLIError message
+// so the user can identify which file caused the failure.
+func annotateImportError(err error, key, path string) error {
+	var cliErr *clierrors.CLIError
+	if errors.As(err, &cliErr) {
+		cliErr.Message = fmt.Sprintf("%s (%s): %s", key, path, cliErr.Message)
+	}
+	return err
 }
 
 // emitPartialResults writes completed import results to stderr before an error return,
