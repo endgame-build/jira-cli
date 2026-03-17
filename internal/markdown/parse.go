@@ -63,20 +63,25 @@ func ParseFile(path string) (*IssueFile, error) {
 
 	yamlContent := content[4 : 4+closeIdx]
 
-	var fm Frontmatter
-	if err := yaml.Unmarshal([]byte(yamlContent), &fm); err != nil {
+	yamlBytes := []byte(yamlContent)
+
+	// Unmarshal into raw map first (used for both validation and custom field extraction).
+	var rawMap map[string]interface{}
+	if err := yaml.Unmarshal(yamlBytes, &rawMap); err != nil {
 		return nil, clierrors.NewValidationError("failed to parse YAML frontmatter").
 			WithContext(map[string]interface{}{"path": path}).
 			WithErr(err)
 	}
 
-	// Second pass: capture unknown keys as custom fields.
-	var rawMap map[string]interface{}
-	if err := yaml.Unmarshal([]byte(yamlContent), &rawMap); err != nil {
-		return nil, clierrors.NewValidationError("failed to parse custom fields from frontmatter").
+	// Unmarshal into typed struct for builtin fields.
+	var fm Frontmatter
+	if err := yaml.Unmarshal(yamlBytes, &fm); err != nil {
+		return nil, clierrors.NewValidationError("failed to parse YAML frontmatter").
 			WithContext(map[string]interface{}{"path": path}).
 			WithErr(err)
 	}
+
+	// Extract unknown keys as custom fields.
 	for k, v := range rawMap {
 		if !IsBuiltinKey(k) {
 			if fm.CustomFields == nil {

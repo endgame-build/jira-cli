@@ -146,19 +146,31 @@ func runImport(opts *ImportOptions) error {
 		return err
 	}
 
-	// Fetch field metadata for custom field resolution.
-	customFieldMap, err := buildImportFieldMap(ctx, client, f.IOStreams.Err)
-	if err != nil {
-		return err
+	// Check if any files have custom fields before fetching metadata.
+	hasCustomFields := false
+	for _, issueFile := range issueFiles {
+		if len(issueFile.Frontmatter.CustomFields) > 0 {
+			hasCustomFields = true
+			break
+		}
 	}
 
-	// Validate: all custom field keys must resolve to a Jira field ID.
-	for _, issueFile := range issueFiles {
-		for key := range issueFile.Frontmatter.CustomFields {
-			if _, ok := customFieldMap[key]; !ok {
-				return clierrors.NewValidationError(
-					fmt.Sprintf("unknown frontmatter key %q in %s: not a Jira field", key, issueFile.Path),
-				).WithSuggestion("Check field names with 'jira schema fields' or use YAML comments (# ...) for notes")
+	// Fetch field metadata for custom field resolution (only if needed).
+	var customFieldMap map[string]importFieldInfo
+	if hasCustomFields {
+		customFieldMap, err = buildImportFieldMap(ctx, client, f.IOStreams.Err)
+		if err != nil {
+			return err
+		}
+
+		// Validate: all custom field keys must resolve to a Jira field ID.
+		for _, issueFile := range issueFiles {
+			for key := range issueFile.Frontmatter.CustomFields {
+				if _, ok := customFieldMap[key]; !ok {
+					return clierrors.NewValidationError(
+						fmt.Sprintf("unknown frontmatter key %q in %s: not a Jira field", key, issueFile.Path),
+					).WithSuggestion("Check field names with 'jira schema fields' or use YAML comments (# ...) for notes")
+				}
 			}
 		}
 	}
