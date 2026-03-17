@@ -82,8 +82,9 @@ jira issue assign <key-or-id> <user>   # Assign (display name, account ID, or @m
 jira issue assign <key-or-id> --unassign  # Remove assignee
 jira issue list                        # List issues (--project, --assignee, --status, --sort)
 jira issue transitions <key-or-id>     # Show available workflow transitions
-jira issue export                      # Export issues to markdown files (--project or --jql)
-jira issue import <files...>           # Create/update issues from markdown files (--dir)
+jira issue export                      # Export issues to markdown (--project, --jql, --tree)
+jira issue import <files...>           # Create/update issues from markdown (--dir, --force)
+jira issue reconcile                   # Detect orphaned Jira issues (--dir, --epic, --project)
 ```
 
 ### Search
@@ -123,6 +124,7 @@ jira schema types                      # List issue types
 jira schema statuses                   # List statuses
 jira schema priorities                 # List priorities
 jira schema labels                     # List labels
+jira schema field-values               # Build field value mappings (--project, --output)
 ```
 
 ### Config
@@ -198,14 +200,57 @@ Round-trip issues between Jira and local markdown files:
 # Export all issues from a project
 jira issue export --project PROJ --output-dir ./issues
 
+# Export as a tree (epics become directories)
+jira issue export --project PROJ --output-dir ./issues --tree
+
+# Export specific custom fields only
+jira issue export --project PROJ --fields "Team, Sprint, Story Points"
+
+# Export with JQL
+jira issue export --jql "project = PROJ AND status != Done" --output-dir ./issues
+
 # Edit markdown files locally, then push changes back
 jira issue import ./issues/PROJ/*.md
 
 # Import from a directory
 jira issue import --dir ./issues/PROJ
+
+# Force import (skip conflict detection)
+jira issue import --dir ./issues/PROJ --force
+
+# Preview import without making changes
+jira issue import --dir ./issues/PROJ --dry-run
 ```
 
-Exported files use YAML frontmatter for metadata (key, type, status, priority, labels, assignee) and Markdown body for the description. Files with temporary keys (`PROJ-NEW-1`) create new issues; files with real keys update existing ones.
+Exported files use YAML frontmatter for metadata (key, type, status, priority, labels, assignee, custom fields) and Markdown body for the description. Files with temporary keys (`PROJ-NEW-1`) create new issues; files with real keys update existing ones.
+
+Custom fields with object values (teams, options, users) are round-tripped via a `.jira-field-values.json` sidecar file that maps display names to Jira API objects. The sidecar is generated automatically during export and consumed during import.
+
+### Reconcile
+
+Detect issues that exist in Jira but have no corresponding markdown file:
+
+```sh
+# List orphaned issues under an epic
+jira issue reconcile --dir ./issues --epic PROJ-10
+
+# List orphans across a project
+jira issue reconcile --dir ./issues --project PROJ
+
+# Close orphaned issues
+jira issue reconcile --dir ./issues --epic PROJ-10 --action close --yes
+
+# Delete orphaned issues
+jira issue reconcile --dir ./issues --project PROJ --action delete --yes
+```
+
+### Field Value Mappings
+
+Build a sidecar mapping file from existing Jira issues (useful when starting without an export):
+
+```sh
+jira schema field-values --project PROJ --output .jira-field-values.json
+```
 
 ## Error Codes
 

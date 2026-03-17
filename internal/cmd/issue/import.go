@@ -3,6 +3,7 @@ package issue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -145,19 +146,31 @@ func runImport(opts *ImportOptions) error {
 		return err
 	}
 
-	// Fetch field metadata for custom field resolution.
-	customFieldMap, err := buildImportFieldMap(ctx, client, f.IOStreams.Err)
-	if err != nil {
-		return err
+	// Check if any files have custom fields before fetching metadata.
+	hasCustomFields := false
+	for _, issueFile := range issueFiles {
+		if len(issueFile.Frontmatter.CustomFields) > 0 {
+			hasCustomFields = true
+			break
+		}
 	}
 
-	// Validate: all custom field keys must resolve to a Jira field ID.
-	for _, issueFile := range issueFiles {
-		for key := range issueFile.Frontmatter.CustomFields {
-			if _, ok := customFieldMap[key]; !ok {
-				return clierrors.NewValidationError(
-					fmt.Sprintf("unknown frontmatter key %q in %s: not a Jira field", key, issueFile.Path),
-				).WithSuggestion("Check field names with 'jira schema fields' or use YAML comments (# ...) for notes")
+	// Fetch field metadata for custom field resolution (only if needed).
+	var customFieldMap map[string]importFieldInfo
+	if hasCustomFields {
+		customFieldMap, err = buildImportFieldMap(ctx, client, f.IOStreams.Err)
+		if err != nil {
+			return err
+		}
+
+		// Validate: all custom field keys must resolve to a Jira field ID.
+		for _, issueFile := range issueFiles {
+			for key := range issueFile.Frontmatter.CustomFields {
+				if _, ok := customFieldMap[key]; !ok {
+					return clierrors.NewValidationError(
+						fmt.Sprintf("unknown frontmatter key %q in %s: not a Jira field", key, issueFile.Path),
+					).WithSuggestion("Check field names with 'jira schema fields' or use YAML comments (# ...) for notes")
+				}
 			}
 		}
 	}
@@ -218,7 +231,7 @@ func runImport(opts *ImportOptions) error {
 		created, err := client.CreateIssue(ctx, input)
 		if err != nil {
 			emitPartialResults(f.IOStreams.Err, results)
-			return err
+			return annotateImportError(err, issueFile.Frontmatter.Key, issueFile.Path)
 		}
 
 		results = append(results, importResult{
@@ -270,13 +283,19 @@ func runImport(opts *ImportOptions) error {
 			return err
 		}
 
+		// Debug: dump fields for failing issue.
+		if f.Verbose {
+			debugBytes, _ := json.MarshalIndent(fields, "", "  ")
+			fmt.Fprintf(f.IOStreams.Err, "DEBUG update %s fields:\n%s\n", key, string(debugBytes))
+		}
+
 		input := &api.EditIssueInput{
 			Fields: fields,
 		}
 
 		if err := client.EditIssue(ctx, key, input); err != nil {
 			emitPartialResults(f.IOStreams.Err, results)
-			return err
+			return annotateImportError(err, key, issueFile.Path)
 		}
 
 		results = append(results, importResult{
@@ -493,7 +512,7 @@ func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName str
 			if raw, ok := vals[str]; ok {
 				var obj map[string]interface{}
 				if err := json.Unmarshal(raw, &obj); err == nil {
-					return toWriteObject(obj, schema)
+					return toWriteValue(obj, schema)
 				}
 			}
 		}
@@ -507,11 +526,21 @@ func wrapCustomFieldValue(val interface{}, schema api.FieldSchema, fieldName str
 	return val
 }
 
-// toWriteObject trims a full API read object to the minimal identifier
+// toWriteValue trims a full API read object to the minimal value
 // that Jira accepts on create/update. Jira returns rich objects on read
 // (e.g. {"id":"...","name":"...","avatarUrl":"..."}) but only accepts
 // a subset on write.
-func toWriteObject(obj map[string]interface{}, schema api.FieldSchema) map[string]interface{} {
+//
+// Most types expect an object with a single identifier key (e.g. {"value": "Critical"}).
+// Team fields are special: Jira expects just the bare UUID string, not an object.
+func toWriteValue(obj map[string]interface{}, schema api.FieldSchema) interface{} {
+	// Team fields take a bare UUID string, not an object.
+	if schema.Type == "team" || schema.Type == "any" {
+		if id, ok := obj["id"]; ok {
+			return id // Return the UUID string directly.
+		}
+	}
+
 	key := writeKeyForSchema(schema.Type)
 	if v, ok := obj[key]; ok {
 		return map[string]interface{}{key: v}
@@ -539,6 +568,16 @@ func collectCustomFieldNames(issueFiles []*markdown.IssueFile) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// annotateImportError prepends the issue key and file path to a CLIError message
+// so the user can identify which file caused the failure.
+func annotateImportError(err error, key, path string) error {
+	var cliErr *clierrors.CLIError
+	if errors.As(err, &cliErr) {
+		cliErr.Message = fmt.Sprintf("%s (%s): %s", key, path, cliErr.Message)
+	}
+	return err
 }
 
 // emitPartialResults writes completed import results to stderr before an error return,

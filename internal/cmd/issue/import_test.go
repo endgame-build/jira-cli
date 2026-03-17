@@ -890,16 +890,9 @@ story_points: 5
 	}
 	fields := reqBody["fields"].(map[string]interface{})
 
-	// Team field should be trimmed to write-safe identifier from sidecar.
-	teamVal, ok := fields["customfield_10001"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("customfield_10001 should be object, got %T: %v", fields["customfield_10001"], fields["customfield_10001"])
-	}
-	if teamVal["id"] != "team-123" {
-		t.Errorf("customfield_10001.id = %v, want team-123", teamVal["id"])
-	}
-	if _, hasName := teamVal["name"]; hasName {
-		t.Errorf("customfield_10001 should not contain name (write-safe trim), got %v", teamVal)
+	// Team field should be bare UUID string from sidecar (Jira Team API takes scalar, not object).
+	if fields["customfield_10001"] != "team-123" {
+		t.Errorf("customfield_10001 = %v (%T), want bare string team-123", fields["customfield_10001"], fields["customfield_10001"])
 	}
 	// Story Points is a number — passes through unchanged.
 	// YAML unmarshals integers; JSON re-encodes as float64.
@@ -949,16 +942,9 @@ story_points: 8
 	}
 	fields := reqBody["fields"].(map[string]interface{})
 
-	// Team field should be trimmed to write-safe identifier from sidecar.
-	teamVal, ok := fields["customfield_10001"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("customfield_10001 should be object, got %T: %v", fields["customfield_10001"], fields["customfield_10001"])
-	}
-	if teamVal["id"] != "team-456" {
-		t.Errorf("customfield_10001.id = %v, want team-456", teamVal["id"])
-	}
-	if _, hasName := teamVal["name"]; hasName {
-		t.Errorf("customfield_10001 should not contain name (write-safe trim), got %v", teamVal)
+	// Team field should be bare UUID string from sidecar.
+	if fields["customfield_10001"] != "team-456" {
+		t.Errorf("customfield_10001 = %v (%T), want bare string team-456", fields["customfield_10001"], fields["customfield_10001"])
 	}
 	sp, ok := fields["customfield_10002"].(float64)
 	if !ok || sp != 8 {
@@ -1127,7 +1113,7 @@ func TestImportCustomFieldWrapping(t *testing.T) {
 			wantString: `"accountId":"abc123"`,
 		},
 		{
-			name:   "team wraps via sidecar",
+			name:   "team wraps via sidecar as bare UUID",
 			schema: api.FieldSchema{Type: "team", Custom: "com.atlassian.jira.plugin.system.customfieldtypes:atlassian-team"},
 			sidecar: markdown.FieldValueMap{
 				"test_field": {
@@ -1135,7 +1121,7 @@ func TestImportCustomFieldWrapping(t *testing.T) {
 				},
 			},
 			input:      "Platform",
-			wantString: `"id":"team-123"`,
+			wantString: `"customfield_99999":"team-123"`,
 		},
 		{
 			name:       "number passes through",
@@ -1150,7 +1136,7 @@ func TestImportCustomFieldWrapping(t *testing.T) {
 			wantString: `"customfield_99999":"plain text"`,
 		},
 		{
-			name:   "sidecar overrides schema for team type",
+			name:   "team sidecar returns bare UUID string",
 			schema: api.FieldSchema{Type: "team"},
 			sidecar: markdown.FieldValueMap{
 				"test_field": {
@@ -1158,10 +1144,10 @@ func TestImportCustomFieldWrapping(t *testing.T) {
 				},
 			},
 			input:      "Platform",
-			wantString: `"id":"team-789"`,
+			wantString: `"customfield_99999":"team-789"`,
 		},
 		{
-			name:   "sidecar with unknown type uses id fallback",
+			name:   "any type sidecar returns bare id string",
 			schema: api.FieldSchema{Type: "any"},
 			sidecar: markdown.FieldValueMap{
 				"test_field": {
@@ -1169,7 +1155,18 @@ func TestImportCustomFieldWrapping(t *testing.T) {
 				},
 			},
 			input:      "SomeValue",
-			wantString: `"id":"custom-42"`,
+			wantString: `"customfield_99999":"custom-42"`,
+		},
+		{
+			name:   "option sidecar returns object with value key",
+			schema: api.FieldSchema{Type: "option"},
+			sidecar: markdown.FieldValueMap{
+				"test_field": {
+					"Critical": json.RawMessage(`{"value":"Critical","id":"opt-99"}`),
+				},
+			},
+			input:      "Critical",
+			wantString: `"value":"Critical"`,
 		},
 	}
 
