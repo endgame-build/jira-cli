@@ -125,7 +125,7 @@ func TestExportBasic(t *testing.T) {
 
 	// Verify files written.
 	for _, issue := range issues {
-		relPath := markdown.IssuePath(issue)
+		relPath := markdown.IssuePath(issue, false)
 		fullPath := filepath.Join(outDir, relPath)
 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 			t.Errorf("expected file %s to exist", relPath)
@@ -156,7 +156,7 @@ func TestExportFileContent(t *testing.T) {
 	}
 
 	// Read first issue's file and verify content.
-	relPath := markdown.IssuePath(issues[0])
+	relPath := markdown.IssuePath(issues[0], false)
 	data, err := os.ReadFile(filepath.Join(outDir, relPath))
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
@@ -554,7 +554,7 @@ func TestExportTreeDefault(t *testing.T) {
 
 	// Verify flat file paths (no epic directories).
 	for _, issue := range issues {
-		relPath := markdown.IssuePath(issue)
+		relPath := markdown.IssuePath(issue, false)
 		fullPath := filepath.Join(outDir, relPath)
 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 			t.Errorf("expected flat file %s to exist", relPath)
@@ -713,7 +713,7 @@ func TestExportCustomFields(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	relPath := markdown.IssuePath(baseIssue)
+	relPath := markdown.IssuePath(baseIssue, false)
 	data, err := os.ReadFile(filepath.Join(outDir, relPath))
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
@@ -754,7 +754,7 @@ func TestExportFieldsFlag(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	relPath := markdown.IssuePath(baseIssue)
+	relPath := markdown.IssuePath(baseIssue, false)
 	data, err := os.ReadFile(filepath.Join(outDir, relPath))
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
@@ -855,7 +855,7 @@ func TestExportBuiltinCollision(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	relPath := markdown.IssuePath(baseIssue)
+	relPath := markdown.IssuePath(baseIssue, false)
 	data, err := os.ReadFile(filepath.Join(outDir, relPath))
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
@@ -901,7 +901,7 @@ func TestExportCustomFieldObjectValue(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	relPath := markdown.IssuePath(baseIssue)
+	relPath := markdown.IssuePath(baseIssue, false)
 	data, err := os.ReadFile(filepath.Join(outDir, relPath))
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
@@ -938,7 +938,7 @@ func TestExportCustomFieldSkipArray(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	relPath := markdown.IssuePath(baseIssue)
+	relPath := markdown.IssuePath(baseIssue, false)
 	data, err := os.ReadFile(filepath.Join(outDir, relPath))
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
