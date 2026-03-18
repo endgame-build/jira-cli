@@ -19,22 +19,29 @@ func issueProjectKey(issue api.Issue) string {
 	return ""
 }
 
+// withProjectPrefix prepends the project key directory when flat is false.
+func withProjectPrefix(issue api.Issue, flat bool, parts ...string) string {
+	if flat {
+		return filepath.Join(parts...)
+	}
+	return filepath.Join(append([]string{issueProjectKey(issue)}, parts...)...)
+}
+
 // IssuePath returns the relative file path for an issue markdown file.
 // Format: {ProjectKey}/{IssueKey} - {SanitizedSummary}.md
 // If Project is nil, the project key is extracted from the issue key prefix.
-func IssuePath(issue api.Issue) string {
-	projectKey := issueProjectKey(issue)
+// When flat is true, the project key directory prefix is omitted.
+func IssuePath(issue api.Issue, flat bool) string {
 	name := SanitizeFilename(issue.Fields.Summary)
 	filename := issue.Key + " - " + name + ".md"
-	return filepath.Join(projectKey, filename)
+	return withProjectPrefix(issue, flat, filename)
 }
 
 // IssueTreePath returns the relative file path for an issue in tree mode.
 // Epics become directories containing _epic.md; children of any parent
 // are placed inside the parent's directory. Orphans stay flat.
-func IssueTreePath(issue api.Issue) string {
-	projectKey := issueProjectKey(issue)
-
+// When flat is true, the project key directory prefix is omitted.
+func IssueTreePath(issue api.Issue, flat bool) string {
 	isEpic := issue.Fields.IssueType != nil &&
 		strings.EqualFold(issue.Fields.IssueType.Name, "epic")
 
@@ -43,7 +50,7 @@ func IssueTreePath(issue api.Issue) string {
 		if name := SanitizeFilename(issue.Fields.Summary); name != "" {
 			dirName += " - " + name
 		}
-		return filepath.Join(projectKey, dirName, "_epic.md")
+		return withProjectPrefix(issue, flat, dirName, "_epic.md")
 	}
 
 	if issue.Fields.Parent != nil && issue.Fields.Parent.Key != "" {
@@ -56,11 +63,11 @@ func IssueTreePath(issue api.Issue) string {
 			parentDir += " - " + parentSummary
 		}
 		filename := issue.Key + " - " + SanitizeFilename(issue.Fields.Summary) + ".md"
-		return filepath.Join(projectKey, parentDir, filename)
+		return withProjectPrefix(issue, flat, parentDir, filename)
 	}
 
 	// Orphan — same as flat.
-	return IssuePath(issue)
+	return IssuePath(issue, flat)
 }
 
 // filenameReplacer replaces characters that are invalid in file names with dashes.

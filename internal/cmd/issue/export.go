@@ -27,6 +27,7 @@ type ExportOptions struct {
 	OutputDir string // --output-dir (default ".")
 	Limit     int    // --limit (0 = all)
 	Tree      bool   // --tree (hierarchical layout)
+	Flat      bool   // --flat (skip project directory in output path)
 	Fields    string // --fields (comma-separated custom field names)
 }
 
@@ -50,6 +51,7 @@ func NewCmdExport(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.OutputDir, "output-dir", "o", ".", "Root output directory")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 0, "Maximum issues to export (0 = all)")
 	cmd.Flags().BoolVar(&opts.Tree, "tree", false, "Organize output hierarchically (epics as directories)")
+	cmd.Flags().BoolVar(&opts.Flat, "flat", false, "Skip project directory in output path")
 	cmd.Flags().StringVar(&opts.Fields, "fields", "", "Comma-separated custom field names to include (default: all)")
 
 	return cmd
@@ -111,9 +113,9 @@ func runExport(opts *ExportOptions) error {
 
 			var relPath string
 			if opts.Tree {
-				relPath = markdown.IssueTreePath(issue)
+				relPath = markdown.IssueTreePath(issue, opts.Flat)
 			} else {
-				relPath = markdown.IssuePath(issue)
+				relPath = markdown.IssuePath(issue, opts.Flat)
 			}
 			fullPath := filepath.Join(opts.OutputDir, relPath)
 

@@ -60,9 +60,48 @@ func TestIssuePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IssuePath(tt.issue)
+			got := IssuePath(tt.issue, false)
 			if got != tt.want {
 				t.Errorf("IssuePath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIssuePathFlat(t *testing.T) {
+	tests := []struct {
+		name  string
+		issue api.Issue
+		want  string
+	}{
+		{
+			name: "flat skips project directory",
+			issue: api.Issue{
+				Key: "PROJ-123",
+				Fields: api.IssueFields{
+					Summary: "Fix login bug",
+					Project: &api.Project{Key: "PROJ"},
+				},
+			},
+			want: "PROJ-123 - Fix login bug.md",
+		},
+		{
+			name: "flat with nil project",
+			issue: api.Issue{
+				Key: "MYAPP-42",
+				Fields: api.IssueFields{
+					Summary: "Add feature",
+				},
+			},
+			want: "MYAPP-42 - Add feature.md",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IssuePath(tt.issue, true)
+			if got != tt.want {
+				t.Errorf("IssuePath(flat=true) = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -304,9 +343,67 @@ func TestIssueTreePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IssueTreePath(tt.issue)
+			got := IssueTreePath(tt.issue, false)
 			if got != tt.want {
 				t.Errorf("IssueTreePath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIssueTreePathFlat(t *testing.T) {
+	tests := []struct {
+		name  string
+		issue api.Issue
+		want  string
+	}{
+		{
+			name: "flat epic skips project directory",
+			issue: api.Issue{
+				Key: "PROJ-1",
+				Fields: api.IssueFields{
+					Summary:   "Epic Name",
+					IssueType: &api.IssueType{Name: "Epic"},
+					Project:   &api.Project{Key: "PROJ"},
+				},
+			},
+			want: "PROJ-1 - Epic Name/_epic.md",
+		},
+		{
+			name: "flat story with parent skips project directory",
+			issue: api.Issue{
+				Key: "PROJ-10",
+				Fields: api.IssueFields{
+					Summary:   "Story One",
+					IssueType: &api.IssueType{Name: "Story"},
+					Project:   &api.Project{Key: "PROJ"},
+					Parent: &api.IssueParent{
+						Key:    "PROJ-1",
+						Fields: &api.ParentFields{Summary: "Epic Name"},
+					},
+				},
+			},
+			want: "PROJ-1 - Epic Name/PROJ-10 - Story One.md",
+		},
+		{
+			name: "flat orphan skips project directory",
+			issue: api.Issue{
+				Key: "PROJ-50",
+				Fields: api.IssueFields{
+					Summary:   "Orphan Issue",
+					IssueType: &api.IssueType{Name: "Bug"},
+					Project:   &api.Project{Key: "PROJ"},
+				},
+			},
+			want: "PROJ-50 - Orphan Issue.md",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IssueTreePath(tt.issue, true)
+			if got != tt.want {
+				t.Errorf("IssueTreePath(flat=true) = %q, want %q", got, tt.want)
 			}
 		})
 	}
