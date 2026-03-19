@@ -22,13 +22,13 @@ import (
 type ExportOptions struct {
 	Factory *factory.Factory
 
-	Project   string // --project (falls back to default.project)
-	JQL       string // --jql (overrides --project)
-	OutputDir string // --output-dir (default ".")
-	Limit     int    // --limit (0 = all)
-	Tree      bool   // --tree (hierarchical layout)
-	NoProjectDir bool // --no-project-dir (skip project directory in output path)
-	Fields    string // --fields (comma-separated custom field names)
+	Project      string // --project (falls back to default.project)
+	JQL          string // --jql (overrides --project)
+	OutputDir    string // --output-dir (default ".")
+	Limit        int    // --limit (0 = all)
+	Tree         bool   // --tree (hierarchical layout)
+	NoProjectDir bool   // --no-project-dir (skip project directory in output path)
+	Fields       string // --fields (comma-separated custom field names)
 }
 
 // NewCmdExport creates the "issue export" command.
