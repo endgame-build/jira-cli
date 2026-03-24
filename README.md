@@ -84,7 +84,7 @@ jira issue list                        # List issues (--project, --assignee, --s
 jira issue transitions <key-or-id>     # Show available workflow transitions
 jira issue export                      # Export issues to markdown (--project, --jql, --tree)
 jira issue import <files...>           # Create/update issues from markdown (--dir, --force)
-jira issue reconcile                   # Detect orphaned Jira issues (--dir, --epic, --project)
+jira issue reconcile                   # Detect orphaned Jira issues (--dir, --epic, --project, --jql)
 ```
 
 ### Search
@@ -236,6 +236,9 @@ jira issue reconcile --dir ./issues --epic PROJ-10
 
 # List orphans across a project
 jira issue reconcile --dir ./issues --project PROJ
+
+# List orphans with arbitrary JQL
+jira issue reconcile --dir ./issues --jql "parent in (PROJ-10, PROJ-48) OR key in (PROJ-10, PROJ-48)"
 
 # Close orphaned issues
 jira issue reconcile --dir ./issues --epic PROJ-10 --action close --yes

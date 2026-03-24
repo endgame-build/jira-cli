@@ -23,6 +23,7 @@ type ReconcileOptions struct {
 	Dir          string // --dir: markdown directory
 	Epic         string // --epic: scope to children of this epic
 	Project      string // --project: scope to all issues in project
+	JQL          string // --jql: raw JQL query (overrides --epic and --project)
 	Action       string // --action: list, close, delete
 	TargetStatus string // --target-status: status for close action
 	Yes          bool   // --yes: skip confirmation
@@ -45,15 +46,19 @@ func NewCmdReconcile(f *factory.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "reconcile",
 		Short: "Detect orphaned Jira issues not in markdown directory",
-		Long:  "Compare markdown files against Jira to find issues that exist in Jira but have no corresponding markdown file. Optionally close or delete orphans.",
+		Long:  "Compare markdown files against Jira to find issues that exist in Jira but have no corresponding markdown file. Optionally close or delete orphans.\n\nScope the query with --epic, --project, or --jql (mutually exclusive).",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if opts.Dir == "" {
 				return clierrors.NewValidationError("--dir is required").
 					WithSuggestion("Specify the markdown directory with --dir")
 			}
-			if opts.Epic == "" && opts.Project == "" {
-				return clierrors.NewValidationError("specify --epic or --project to scope the Jira query").
-					WithSuggestion("Use --epic PROJ-123 or --project PROJ")
+			if opts.JQL != "" && (opts.Epic != "" || opts.Project != "") {
+				return clierrors.NewValidationError("--jql is mutually exclusive with --epic and --project").
+					WithSuggestion("Use --jql for raw JQL, or --epic/--project to scope")
+			}
+			if opts.JQL == "" && opts.Epic == "" && opts.Project == "" {
+				return clierrors.NewValidationError("specify --epic, --project, or --jql to scope the Jira query").
+					WithSuggestion("Use --epic PROJ-123, --project PROJ, or --jql 'your JQL'")
 			}
 			if opts.Epic != "" && opts.Project != "" {
 				return clierrors.NewValidationError("--epic and --project are mutually exclusive").
@@ -87,6 +92,7 @@ func NewCmdReconcile(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.Dir, "dir", "d", "", "Markdown directory (required)")
 	cmd.Flags().StringVar(&opts.Epic, "epic", "", "Scope to children of this epic")
 	cmd.Flags().StringVarP(&opts.Project, "project", "p", "", "Scope to all issues in project")
+	cmd.Flags().StringVar(&opts.JQL, "jql", "", "Raw JQL query (mutually exclusive with --epic and --project)")
 	cmd.Flags().StringVar(&opts.Action, "action", "list", "Action for orphans: list, close, delete")
 	cmd.Flags().StringVar(&opts.TargetStatus, "target-status", "Done", "Target status for --action close")
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Skip confirmation for close/delete")
@@ -150,6 +156,9 @@ func runReconcile(opts *ReconcileOptions) error {
 
 // buildReconcileJQL constructs the JQL query for reconciliation.
 func buildReconcileJQL(opts *ReconcileOptions) string {
+	if opts.JQL != "" {
+		return opts.JQL
+	}
 	if opts.Epic != "" {
 		return fmt.Sprintf("parent = %s ORDER BY key ASC", opts.Epic)
 	}

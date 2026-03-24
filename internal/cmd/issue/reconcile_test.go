@@ -435,6 +435,54 @@ func TestReconcileQuiet(t *testing.T) {
 	}
 }
 
+func TestReconcileJQL(t *testing.T) {
+	dir := t.TempDir()
+	writeMarkdownFile(t, dir, "UNP-20", "Epic one")
+
+	jiraIssues := []api.Issue{
+		{Key: "UNP-20", Fields: api.IssueFields{Summary: "Epic one", Status: &api.Status{Name: "To Do"}}},
+		{Key: "UNP-21", Fields: api.IssueFields{Summary: "Child", Status: &api.Status{Name: "To Do"}}},
+		{Key: "UNP-48", Fields: api.IssueFields{Summary: "Epic two", Status: &api.Status{Name: "To Do"}}},
+	}
+
+	var capturedJQL string
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/search/jql") {
+			var body map[string]interface{}
+			json.NewDecoder(r.Body).Decode(&body)
+			if jql, ok := body["jql"].(string); ok {
+				capturedJQL = jql
+			}
+		}
+		reconcileHandler(jiraIssues, nil)(w, r)
+	}
+
+	f, tio, _ := newTestReconcileFactory(t, http.HandlerFunc(handler))
+
+	opts := &ReconcileOptions{
+		Factory: f,
+		Dir:     dir,
+		JQL:     "parent in (UNP-20, UNP-48) OR key in (UNP-20, UNP-48)",
+		Action:  "list",
+	}
+
+	if err := runReconcile(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedJQL != "parent in (UNP-20, UNP-48) OR key in (UNP-20, UNP-48)" {
+		t.Errorf("expected raw JQL passthrough, got: %s", capturedJQL)
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "UNP-21") {
+		t.Errorf("expected UNP-21 as orphan, got: %s", out)
+	}
+	if !strings.Contains(out, "UNP-48") {
+		t.Errorf("expected UNP-48 as orphan, got: %s", out)
+	}
+}
+
 func TestReconcileValidationErrors(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -449,12 +497,22 @@ func TestReconcileValidationErrors(t *testing.T) {
 		{
 			name:    "missing scope",
 			args:    []string{"--dir", "/tmp"},
-			wantMsg: "--epic or --project",
+			wantMsg: "--epic, --project, or --jql",
 		},
 		{
 			name:    "both scope flags",
 			args:    []string{"--dir", "/tmp", "--epic", "PROJ-1", "--project", "PROJ"},
-			wantMsg: "mutually exclusive",
+			wantMsg: "--epic and --project are mutually exclusive",
+		},
+		{
+			name:    "jql and epic conflict",
+			args:    []string{"--dir", "/tmp", "--jql", "project = X", "--epic", "PROJ-1"},
+			wantMsg: "--jql is mutually exclusive with --epic and --project",
+		},
+		{
+			name:    "jql and project conflict",
+			args:    []string{"--dir", "/tmp", "--jql", "project = X", "--project", "PROJ"},
+			wantMsg: "--jql is mutually exclusive with --epic and --project",
 		},
 		{
 			name:    "invalid action",
