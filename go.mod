@@ -10,7 +10,7 @@ require (
 	github.com/itchyny/gojq v0.12.18
 	github.com/jedib0t/go-pretty/v6 v6.7.8
 	github.com/mattn/go-isatty v0.0.20
-	github.com/pelletier/go-toml/v2 v2.2.4
+	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/yuin/goldmark v1.7.17
