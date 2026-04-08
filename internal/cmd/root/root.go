@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/endgame-build/jira-cli/internal/cmd/agent"
 	"github.com/endgame-build/jira-cli/internal/cmd/alias"
 	authcmd "github.com/endgame-build/jira-cli/internal/cmd/auth"
 	"github.com/endgame-build/jira-cli/internal/cmd/comment"
@@ -15,6 +16,7 @@ import (
 	"github.com/endgame-build/jira-cli/internal/cmd/project"
 	"github.com/endgame-build/jira-cli/internal/cmd/schema"
 	"github.com/endgame-build/jira-cli/internal/cmd/search"
+	"github.com/endgame-build/jira-cli/internal/cmd/sprint"
 	"github.com/endgame-build/jira-cli/internal/cmd/user"
 	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/factory"
@@ -59,6 +61,7 @@ func NewCmdRoot(f *factory.Factory) *cobra.Command {
 	}
 
 	// --- Subcommand groups ---
+	cmd.AddCommand(agent.NewCmdAgent(f))
 	cmd.AddCommand(authcmd.NewCmdAuth(f))
 	cmd.AddCommand(issue.NewCmdIssue(f))
 	cmd.AddCommand(search.NewCmdSearch(f))
@@ -69,6 +72,7 @@ func NewCmdRoot(f *factory.Factory) *cobra.Command {
 	cmd.AddCommand(meta.NewCmdMeta(f))
 	cmd.AddCommand(configcmd.NewCmdConfig(f))
 	cmd.AddCommand(alias.NewCmdAlias(f))
+	cmd.AddCommand(sprint.NewCmdSprint(f))
 
 	return cmd
 }

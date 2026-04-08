@@ -24,6 +24,7 @@ type ListOptions struct {
 	Status   string   // --status
 	Type     string   // --type
 	Label    string   // --label
+	Sprint   string   // --sprint (active, future, or sprint name)
 	JQL      string   // --jql (overrides all filter flags)
 	Sort     string   // --sort (field name for ORDER BY)
 	Order    string   // --order (asc/desc, default: desc)
@@ -76,6 +77,7 @@ func NewCmdList(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.Status, "status", "", "Filter by status name")
 	cmd.Flags().StringVarP(&opts.Type, "type", "t", "", "Filter by issue type")
 	cmd.Flags().StringVarP(&opts.Label, "label", "l", "", "Filter by label")
+	cmd.Flags().StringVar(&opts.Sprint, "sprint", "", "Filter by sprint: active, future, or sprint name")
 	cmd.Flags().StringVar(&opts.JQL, "jql", "", "Raw JQL query (overrides all filter flags)")
 	cmd.Flags().StringVarP(&opts.Sort, "sort", "s", "", "Sort results by field name (appends ORDER BY to JQL)")
 	cmd.Flags().StringVar(&opts.Order, "order", "desc", "Sort order: asc or desc (requires --sort)")
@@ -236,6 +238,9 @@ func runList(opts *ListOptions) error {
 func buildJQL(ctx context.Context, client *api.Client, opts *ListOptions) (string, error) {
 	// --jql overrides everything.
 	if opts.JQL != "" {
+		if opts.Sprint != "" {
+			fmt.Fprintf(opts.Factory.IOStreams.Err, "Warning: --sprint is ignored when --jql is set\n")
+		}
 		return opts.JQL, nil
 	}
 
@@ -244,7 +249,7 @@ func buildJQL(ctx context.Context, client *api.Client, opts *ListOptions) (strin
 	// --project (optional for list, falls back to default.project but not required).
 	project := opts.Project
 	if project == "" {
-		project = configGet(opts.Factory, "default.project")
+		project = shared.ConfigGet(opts.Factory, "default.project")
 	}
 	if project != "" {
 		clauses = append(clauses, fmt.Sprintf("project = %q", project))
@@ -276,6 +281,11 @@ func buildJQL(ctx context.Context, client *api.Client, opts *ListOptions) (strin
 	// --label
 	if opts.Label != "" {
 		clauses = append(clauses, fmt.Sprintf("labels = %q", opts.Label))
+	}
+
+	// --sprint
+	if clause := shared.SprintJQLClause(opts.Sprint); clause != "" {
+		clauses = append(clauses, clause)
 	}
 
 	// No filters at all: default to "my open issues".

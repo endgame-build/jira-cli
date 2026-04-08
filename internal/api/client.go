@@ -16,9 +16,10 @@ const defaultTimeout = 30 * time.Second
 
 // Client is the Jira Cloud REST API v3 HTTP client.
 type Client struct {
-	httpClient *http.Client
-	baseURL    string // e.g. "https://mysite.atlassian.net/rest/api/3"
-	instance   string // raw instance hostname for browse URL construction
+	httpClient   *http.Client
+	baseURL      string // e.g. "https://mysite.atlassian.net/rest/api/3"
+	agileBaseURL string // e.g. "https://mysite.atlassian.net/rest/agile/1.0"
+	instance     string // raw instance hostname for browse URL construction
 }
 
 // ClientOption configures optional Client behaviour.
@@ -43,6 +44,13 @@ func WithBaseURL(url string) ClientOption {
 	return withBaseURL(url)
 }
 
+// WithAgileBaseURL overrides the Agile API base URL (used by tests).
+func WithAgileBaseURL(url string) ClientOption {
+	return func(c *Client) {
+		c.agileBaseURL = url
+	}
+}
+
 // NewClient creates a Client authenticated with the given credentials.
 // The transport chain is: retryablehttp → authTransport → http.DefaultTransport.
 func NewClient(creds *auth.Credentials, opts ...ClientOption) *Client {
@@ -57,8 +65,9 @@ func NewClient(creds *auth.Credentials, opts ...ClientOption) *Client {
 			Transport: newRetryableTransport(authT),
 			Timeout:   defaultTimeout,
 		},
-		baseURL:  fmt.Sprintf("https://%s/rest/api/3", creds.Instance),
-		instance: creds.Instance,
+		baseURL:      fmt.Sprintf("https://%s/rest/api/3", creds.Instance),
+		agileBaseURL: fmt.Sprintf("https://%s/rest/agile/1.0", creds.Instance),
+		instance:     creds.Instance,
 	}
 
 	for _, opt := range opts {
@@ -78,7 +87,7 @@ func (c *Client) BrowseURL(issueKey string) string {
 	return fmt.Sprintf("https://%s/browse/%s", c.instance, issueKey)
 }
 
-// Do sends an HTTP request to the Jira API and decodes the JSON response.
+// Do sends an HTTP request to the Jira REST API v3 and decodes the JSON response.
 //
 // method: HTTP verb (GET, POST, PUT, DELETE).
 // path:   API path appended to base URL (e.g. "issue/PROJ-123").
@@ -88,8 +97,17 @@ func (c *Client) BrowseURL(issueKey string) string {
 // Successful status codes: 200, 201, 204.
 // On 204 (No Content), body decode is skipped regardless of out.
 func (c *Client) Do(ctx context.Context, method, path string, body interface{}, out interface{}) error {
-	url := c.baseURL + "/" + path
+	return c.doRequest(ctx, method, c.baseURL+"/"+path, body, out)
+}
 
+// DoAgile sends an HTTP request to the Jira Agile REST API and decodes the JSON response.
+// Same contract as Do, but uses the /rest/agile/1.0 base URL.
+func (c *Client) DoAgile(ctx context.Context, method, path string, body interface{}, out interface{}) error {
+	return c.doRequest(ctx, method, c.agileBaseURL+"/"+path, body, out)
+}
+
+// doRequest is the shared HTTP dispatch used by Do and DoAgile.
+func (c *Client) doRequest(ctx context.Context, method, fullURL string, body interface{}, out interface{}) error {
 	var reqBody io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -99,7 +117,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body interface{}, 
 		reqBody = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+	req, err := http.NewRequestWithContext(ctx, method, fullURL, reqBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
