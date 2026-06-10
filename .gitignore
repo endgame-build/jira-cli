@@ -31,3 +31,6 @@ swagger-v3.v3.txt
 .sidecar-start.sh
 .sidecar-base
 .td-root
+
+# Beads / Dolt files (added by bd init)
+.beads-credential-key
