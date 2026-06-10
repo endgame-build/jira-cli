@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/endgame-build/jira-cli/internal/api"
+	"github.com/endgame-build/jira-cli/internal/cmd/shared"
 	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/factory"
 	"github.com/endgame-build/jira-cli/internal/markdown"
@@ -202,7 +203,7 @@ func buildExportJQL(f *factory.Factory, opts *ExportOptions) (string, error) {
 	if opts.JQL != "" {
 		return opts.JQL, nil
 	}
-	project, err := resolveProject(f, opts.Project)
+	project, err := shared.ResolveProject(f, opts.Project)
 	if err != nil {
 		return "", err
 	}

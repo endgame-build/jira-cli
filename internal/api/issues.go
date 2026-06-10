@@ -93,6 +93,12 @@ func (c *Client) GetCreateMeta(ctx context.Context, projectKeyOrID string) (*Cre
 	return &meta, nil
 }
 
+// CreateIssueLink creates a link between two issues.
+// POST /issueLink — expects HTTP 201.
+func (c *Client) CreateIssueLink(ctx context.Context, input *CreateIssueLinkInput) error {
+	return c.Do(ctx, http.MethodPost, "issueLink", input, nil)
+}
+
 // SearchIssues executes a JQL search via POST /search/jql.
 // Always sends an explicit "fields" parameter — Jira defaults to returning
 // only the "id" field if fields is not specified.
