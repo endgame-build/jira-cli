@@ -890,6 +890,189 @@ func TestEditDryRunLabels(t *testing.T) {
 	}
 }
 
+func TestEditParent(t *testing.T) {
+	var capturedBody string
+	f, _, _ := newTestEditFactory(t, editHandler(&capturedBody), nil)
+
+	opts := &EditOptions{
+		Factory:   f,
+		KeyOrID:   "PROJ-123",
+		Parent:    "PROJ-100",
+		parentSet: true,
+	}
+
+	if err := runEdit(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+
+	parent, ok := fields["parent"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("parent should be an object, got %T", fields["parent"])
+	}
+	if parent["key"] != "PROJ-100" {
+		t.Errorf("parent key = %v, want PROJ-100", parent["key"])
+	}
+}
+
+func TestEditParentEmptyError(t *testing.T) {
+	editCalled := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		editCalled = true
+		w.WriteHeader(204)
+	})
+	f, _, _ := newTestEditFactory(t, handler, nil)
+
+	opts := &EditOptions{
+		Factory:   f,
+		KeyOrID:   "PROJ-123",
+		Parent:    "",
+		parentSet: true,
+	}
+
+	err := runEdit(opts)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != clierrors.VALIDATION_ERROR {
+		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+	if !strings.Contains(cliErr.Message, "removing a parent is not supported") {
+		t.Errorf("error message = %q, want 'removing a parent is not supported'", cliErr.Message)
+	}
+	if editCalled {
+		t.Error("API should not be called on validation error")
+	}
+}
+
+func TestEditParentInvalidKeyError(t *testing.T) {
+	editCalled := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		editCalled = true
+		w.WriteHeader(204)
+	})
+	f, _, _ := newTestEditFactory(t, handler, nil)
+
+	opts := &EditOptions{
+		Factory:   f,
+		KeyOrID:   "PROJ-123",
+		Parent:    "not a key",
+		parentSet: true,
+	}
+
+	err := runEdit(opts)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var cliErr *clierrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Code != clierrors.VALIDATION_ERROR {
+		t.Errorf("error code = %s, want %s", cliErr.Code, clierrors.VALIDATION_ERROR)
+	}
+	if editCalled {
+		t.Error("API should not be called on validation error")
+	}
+}
+
+func TestEditFieldParentCollisionWarning(t *testing.T) {
+	var capturedBody string
+	f, tio, _ := newTestEditFactory(t, editHandler(&capturedBody), nil)
+
+	opts := &EditOptions{
+		Factory:   f,
+		KeyOrID:   "PROJ-123",
+		Parent:    "PROJ-100",
+		parentSet: true,
+		Fields:    []string{"parent=PROJ-999"},
+	}
+
+	if err := runEdit(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	errOut := tio.ErrBuf.String()
+	if !strings.Contains(errOut, "Warning") || !strings.Contains(errOut, "parent") {
+		t.Errorf("stderr should contain warning about parent collision:\n%s", errOut)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+	parent := fields["parent"].(map[string]interface{})
+	if parent["key"] != "PROJ-100" {
+		t.Errorf("named flag should win: parent key = %v, want PROJ-100", parent["key"])
+	}
+}
+
+func TestEditDryRunParent(t *testing.T) {
+	editCalled := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/issue/") {
+			editCalled = true
+			w.WriteHeader(204)
+			return
+		}
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/issue/") {
+			json.NewEncoder(w).Encode(api.Issue{
+				ID:  "10001",
+				Key: "PROJ-123",
+				Fields: api.IssueFields{
+					Summary: "Old title",
+					Parent: &api.IssueParent{
+						ID:  "10050",
+						Key: "PROJ-50",
+					},
+				},
+			})
+			return
+		}
+		w.WriteHeader(404)
+	})
+
+	f, tio, _ := newTestEditFactory(t, handler, nil)
+	f.DryRun = true
+
+	opts := &EditOptions{
+		Factory:   f,
+		KeyOrID:   "PROJ-123",
+		Parent:    "PROJ-100",
+		parentSet: true,
+	}
+
+	if err := runEdit(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "DRY RUN") {
+		t.Errorf("output should contain 'DRY RUN', got: %s", out)
+	}
+	if !strings.Contains(out, "PROJ-50") {
+		t.Errorf("output should contain current parent 'PROJ-50' (from value), got: %s", out)
+	}
+	if !strings.Contains(out, "PROJ-100") {
+		t.Errorf("output should contain new parent 'PROJ-100' (to value), got: %s", out)
+	}
+	if editCalled {
+		t.Error("dry-run should NOT call the edit (PUT) endpoint")
+	}
+}
+
 func TestComputeLabelDelta(t *testing.T) {
 	tests := []struct {
 		name    string

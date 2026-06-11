@@ -753,7 +753,7 @@ Updated description
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify update payload does NOT contain type, project, parent, or status.
+	// Verify update payload does NOT contain type, project, or status.
 	var reqBody map[string]interface{}
 	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
 		t.Fatalf("invalid request JSON: %v", err)
@@ -766,11 +766,17 @@ Updated description
 	if _, ok := fields["project"]; ok {
 		t.Error("update should not send project")
 	}
-	if _, ok := fields["parent"]; ok {
-		t.Error("update should not send parent")
-	}
 	if _, ok := fields["status"]; ok {
 		t.Error("update should not send status")
+	}
+
+	// Parent IS sent on update when present in frontmatter.
+	parent, ok := fields["parent"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("update should send parent as object, got %T", fields["parent"])
+	}
+	if parent["key"] != "PROJ-100" {
+		t.Errorf("parent key = %v, want PROJ-100", parent["key"])
 	}
 
 	// But should send summary and priority.
@@ -789,6 +795,64 @@ Updated description
 	}
 	if desc["type"] != "doc" {
 		t.Errorf("description type = %v, want 'doc'", desc["type"])
+	}
+}
+
+func TestImportUpdateWithoutParentOmitsField(t *testing.T) {
+	var capturedBody string
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode([]api.Field{})
+			return
+		}
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/issue/") {
+			json.NewEncoder(w).Encode(api.Issue{
+				ID:  "10001",
+				Key: "PROJ-123",
+				Fields: api.IssueFields{
+					Summary: "Existing",
+				},
+			})
+			return
+		}
+		if r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/issue/") {
+			body, _ := io.ReadAll(r.Body)
+			capturedBody = string(body)
+			w.WriteHeader(204)
+			return
+		}
+		w.WriteHeader(404)
+	})
+
+	f, _, _ := newTestImportFactory(t, handler)
+
+	dir := t.TempDir()
+	path := writeImportFile(t, dir, "update.md", `---
+key: PROJ-123
+summary: Updated Summary
+type: Bug
+project: PROJ
+---
+`)
+
+	opts := &ImportOptions{
+		Factory: f,
+		Files:   []string{path},
+	}
+
+	if err := runImport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+
+	// No frontmatter parent → parent key absent entirely (never null, never clears).
+	if v, ok := fields["parent"]; ok {
+		t.Errorf("update without frontmatter parent should not send parent, got %v", v)
 	}
 }
 
