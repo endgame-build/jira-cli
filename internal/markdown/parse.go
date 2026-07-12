@@ -32,19 +32,14 @@ func IsTempKey(key string) bool {
 	return tempKeyPattern.MatchString(key)
 }
 
-// ParseFile reads a markdown file, splits YAML frontmatter from body, and validates.
-// Returns CLIError with VALIDATION_ERROR if frontmatter is missing or invalid.
-func ParseFile(path string) (*IssueFile, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, clierrors.NewValidationError("failed to read file: " + path).WithErr(err)
-	}
-
-	content := string(data)
-
-	// Find frontmatter delimiters
+// SplitFrontmatter splits a markdown file's content into its YAML frontmatter
+// and body. It returns the raw YAML (between the --- delimiters) and the trimmed
+// body that follows. Returns a VALIDATION_ERROR CLIError if the delimiters are
+// missing. Exported so callers that map non-standard frontmatter (see the
+// mapping package) can reuse the exact same splitting rules as ParseFile.
+func SplitFrontmatter(content, path string) (yamlContent, body string, err error) {
 	if !strings.HasPrefix(content, "---\n") {
-		return nil, clierrors.NewValidationError("missing YAML frontmatter delimiters").
+		return "", "", clierrors.NewValidationError("missing YAML frontmatter delimiters").
 			WithContext(map[string]interface{}{"path": path}).
 			WithSuggestion("file must start with --- followed by YAML frontmatter and closing ---")
 	}
@@ -55,13 +50,35 @@ func ParseFile(path string) (*IssueFile, error) {
 		// Check for closing delimiter at end of file (no trailing newline after ---)
 		closeIdx = strings.Index(content[4:], "\n---")
 		if closeIdx < 0 || closeIdx+4+4 != len(content) {
-			return nil, clierrors.NewValidationError("missing closing YAML frontmatter delimiter").
+			return "", "", clierrors.NewValidationError("missing closing YAML frontmatter delimiter").
 				WithContext(map[string]interface{}{"path": path}).
 				WithSuggestion("frontmatter must be enclosed between --- delimiters")
 		}
 	}
 
-	yamlContent := content[4 : 4+closeIdx]
+	yamlContent = content[4 : 4+closeIdx]
+
+	bodyStart := 4 + closeIdx + 4 // skip opening "---\n" + yaml + "\n---\n"
+	if bodyStart < len(content) {
+		body = strings.TrimSpace(content[bodyStart:])
+	}
+	return yamlContent, body, nil
+}
+
+// ParseFile reads a markdown file, splits YAML frontmatter from body, and validates.
+// Returns CLIError with VALIDATION_ERROR if frontmatter is missing or invalid.
+func ParseFile(path string) (*IssueFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, clierrors.NewValidationError("failed to read file: " + path).WithErr(err)
+	}
+
+	content := string(data)
+
+	yamlContent, body, err := SplitFrontmatter(content, path)
+	if err != nil {
+		return nil, err
+	}
 
 	yamlBytes := []byte(yamlContent)
 
@@ -95,13 +112,6 @@ func ParseFile(path string) (*IssueFile, error) {
 		return nil, clierrors.NewValidationError("missing required field: key").
 			WithContext(map[string]interface{}{"path": path}).
 			WithSuggestion("add 'key: PROJ-123' to the YAML frontmatter")
-	}
-
-	// Body is everything after the closing delimiter, trimmed
-	bodyStart := 4 + closeIdx + 4 // skip opening "---\n" + yaml + "\n---\n"
-	body := ""
-	if bodyStart < len(content) {
-		body = strings.TrimSpace(content[bodyStart:])
 	}
 
 	return &IssueFile{
