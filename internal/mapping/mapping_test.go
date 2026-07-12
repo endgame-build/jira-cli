@@ -296,3 +296,15 @@ func TestSetFrontmatterFields_StatusAndNullAssignee(t *testing.T) {
 		t.Errorf("other content must be preserved:\n%s", got)
 	}
 }
+
+func TestDocJiraKey(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFile(t, dir, "e.md", "---\nid: EP-LMP-00\nname: X\njira_key: \"LMP-54\"\n---\nbody")
+	if k, err := DocJiraKey(p); err != nil || k != "LMP-54" {
+		t.Errorf("DocJiraKey = %q, %v; want LMP-54", k, err)
+	}
+	p2 := writeFile(t, dir, "n.md", "---\nid: EP-LMP-01\nname: Y\njira_key: null\n---\nbody")
+	if k, _ := DocJiraKey(p2); k != "" {
+		t.Errorf("null jira_key should yield empty, got %q", k)
+	}
+}
