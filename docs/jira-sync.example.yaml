@@ -1,0 +1,60 @@
+# Example field-map for `jira issue import --map` / `jira issue pull --map`.
+#
+# It lets documents whose frontmatter uses your own keys (name, jira_key,
+# jira_issue_type, initiative, stream, parent_epic_jira_key, last_synced_at) be
+# pushed to and reconciled with Jira, without embedding raw customfield_XXXXX ids
+# in every document. Copy this file, adjust the ids to your project, and pass it
+# with --map. Discover ids with `jira schema fields|types|statuses`.
+
+config_version: 1
+
+project: PROJ                    # target Jira project key
+
+issue_types:
+  epic: Epic                     # the Jira issue type an "epic" document becomes
+  story: Task                    # the Jira issue type a "story" document becomes
+
+# Hierarchy links declare only the MECHANISM; the target comes from each
+# document's frontmatter (an epic's `initiative:`, a story's `parent_epic_jira_key:`),
+# so one document set can span many initiatives/parents.
+links:
+  initiative:                    # epic.frontmatter.initiative -> attach via ...
+    via: parent                  #   the native `parent` field (default)
+  epic:                          # story.frontmatter.parent_epic_jira_key -> attach via ...
+    via: parent
+
+# Map your document's priority to the project's priority NAME (import sends
+# priority by name). Useful when a project uses a non-standard/migrated scheme.
+priority_map:
+  Critical: "Critical"
+  High: "High"
+  Medium: "Medium"
+  Low: "Low"
+
+# CONTENT push (import --map): document -> Jira. Only these fields are written.
+field_map:
+  summary:     { from: name }                        # frontmatter `name` -> summary
+  description: { from: body, format: adf }           # markdown body -> ADF description
+  priority:    { from: priority, via: priority_map }
+  labels:      { from: stream, via: stream_label }   # the per-stream label below
+  parent:      { via: links }                        # epic->initiative, story->parent epic
+
+# Streams: distinguish document families by a Jira label, derived from the id
+# prefix (e.g. EP-LMP-01 -> EP-LMP). Everything else (project/type/parent) is shared.
+streams:
+  EP-LMP:  { stream_label: "stream:lmp" }
+  EP-GTM:  { stream_label: "stream:gtm" }
+  EP-TECH: { stream_label: "stream:tech" }
+
+# STATE pull (pull --map): Jira -> document. Only these frontmatter fields are
+# ever written back — content stays document-owned.
+pull:
+  fields: [status, assignee]
+  assignee_as: email             # "email" (default) or "account_id"
+  status_map:                    # map by category first (stable), then by explicit name
+    by_category:
+      new: "Planned"
+      indeterminate: "In progress"
+      done: "Done"
+    by_name:
+      "Pending": "Blocked"       # example explicit override
