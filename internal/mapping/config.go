@@ -23,6 +23,44 @@ type Config struct {
 	Links       map[string]Link   `yaml:"links"`
 	PriorityMap map[string]string `yaml:"priority_map"`
 	Streams     map[string]Stream `yaml:"streams"`
+	Pull        Pull              `yaml:"pull"`
+}
+
+// Pull configures the JIRA-first reconciliation (status + assignee → hub).
+type Pull struct {
+	Fields     []string  `yaml:"fields"`
+	AssigneeAs string    `yaml:"assignee_as"` // "email" (default) or "account_id"
+	StatusMap  StatusMap `yaml:"status_map"`
+}
+
+// StatusMap maps a JIRA status to a hub status, by category (stable) then by
+// explicit name (override).
+type StatusMap struct {
+	ByCategory map[string]string `yaml:"by_category"`
+	ByName     map[string]string `yaml:"by_name"`
+}
+
+// MapStatus resolves a JIRA status name + category key to the hub status.
+// Explicit name mapping wins; otherwise falls back to the category. Returns ""
+// when neither maps (caller leaves the hub value unchanged).
+func (c *Config) MapStatus(name, categoryKey string) string {
+	if v, ok := c.Pull.StatusMap.ByName[name]; ok {
+		return v
+	}
+	if v, ok := c.Pull.StatusMap.ByCategory[categoryKey]; ok {
+		return v
+	}
+	return ""
+}
+
+// WantsPull reports whether the given field is in the pull set.
+func (c *Config) WantsPull(field string) bool {
+	for _, f := range c.Pull.Fields {
+		if f == field {
+			return true
+		}
+	}
+	return false
 }
 
 // IssueTypes names the JIRA issue types epics and stories map to.

@@ -254,3 +254,45 @@ func TestWriteBack_InsertsMissingKeys(t *testing.T) {
 		t.Errorf("body lost:\n%s", s)
 	}
 }
+
+func TestMapStatus(t *testing.T) {
+	cfg := &Config{Pull: Pull{StatusMap: StatusMap{
+		ByCategory: map[string]string{"new": "Planned", "indeterminate": "In progress", "done": "Done"},
+		ByName:     map[string]string{"Pending": "Blocked"},
+	}}}
+	if got := cfg.MapStatus("Open (migrated)", "new"); got != "Planned" {
+		t.Errorf("category map: got %q", got)
+	}
+	if got := cfg.MapStatus("Pending", "indeterminate"); got != "Blocked" {
+		t.Errorf("name override should win: got %q", got)
+	}
+	if got := cfg.MapStatus("Weird", "unknown"); got != "" {
+		t.Errorf("unknown should be empty: got %q", got)
+	}
+}
+
+func TestWantsPull(t *testing.T) {
+	cfg := &Config{Pull: Pull{Fields: []string{"status", "assignee"}}}
+	if !cfg.WantsPull("status") || !cfg.WantsPull("assignee") || cfg.WantsPull("priority") {
+		t.Error("WantsPull mismatch")
+	}
+}
+
+func TestSetFrontmatterFields_StatusAndNullAssignee(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFile(t, dir, "s.md", "---\nid: EP-LMP-00\nstatus: \"Planned\"\njira_key: \"LMP-54\"\n---\nBody.")
+	if err := SetFrontmatterFields(p, [][2]string{{"status", "In progress"}, {"assignee", ""}}); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := os.ReadFile(p)
+	got := string(s)
+	if !strings.Contains(got, `status: "In progress"`) {
+		t.Errorf("status not updated:\n%s", got)
+	}
+	if !strings.Contains(got, "assignee: null") {
+		t.Errorf("empty assignee should write null:\n%s", got)
+	}
+	if !strings.Contains(got, "Body.") || !strings.Contains(got, `jira_key: "LMP-54"`) {
+		t.Errorf("other content must be preserved:\n%s", got)
+	}
+}

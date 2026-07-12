@@ -174,39 +174,47 @@ func streamLabel(id string, cfg *Config) string {
 	return ""
 }
 
-var (
-	jiraKeyLineRe    = regexp.MustCompile(`(?m)^(jira_key:)[^\n]*$`)
-	lastSyncedLineRe = regexp.MustCompile(`(?m)^(last_synced_at:)[^\n]*$`)
-)
-
 // WriteBack rewrites a mapped file's frontmatter after a push: it sets jira_key
-// (for a fresh create) and last_synced_at, preserving everything else. Only the
-// frontmatter region (before the closing ---) is touched. If a key is absent it
-// is inserted before the closing delimiter.
+// (for a fresh create) and last_synced_at, preserving everything else.
 func WriteBack(path, key, syncedAt string) error {
+	return SetFrontmatterFields(path, [][2]string{
+		{"jira_key", key},
+		{"last_synced_at", syncedAt},
+	})
+}
+
+// SetFrontmatterFields sets (or inserts) the given frontmatter fields in order,
+// touching only the frontmatter region (before the closing ---) and preserving
+// everything else — including any trailing # comment on a replaced line. An
+// empty value is written as the literal `null`.
+func SetFrontmatterFields(path string, pairs [][2]string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 	content := string(data)
-	// Bound edits to the frontmatter: split at the closing delimiter.
 	closeRel := strings.Index(content[4:], "\n---")
 	if !strings.HasPrefix(content, "---\n") || closeRel < 0 {
 		return fmt.Errorf("write-back: no frontmatter in %s", path)
 	}
-	fmEnd := 4 + closeRel // index of the "\n---" that closes frontmatter
+	fmEnd := 4 + closeRel
 	head, tail := content[:fmEnd], content[fmEnd:]
-
-	head = setFrontmatterLine(head, jiraKeyLineRe, "jira_key", key)
-	head = setFrontmatterLine(head, lastSyncedLineRe, "last_synced_at", syncedAt)
-
+	for _, kv := range pairs {
+		head = setFrontmatterLine(head, kv[0], kv[1])
+	}
 	return os.WriteFile(path, []byte(head+tail), 0o644)
 }
 
 // setFrontmatterLine replaces an existing `field:` line (preserving any trailing
-// # comment) or appends the line if absent.
-func setFrontmatterLine(head string, re *regexp.Regexp, field, value string) string {
-	repl := fmt.Sprintf("%s: %q", field, value)
+// # comment) or appends the line if absent. An empty value writes `null`.
+func setFrontmatterLine(head, field, value string) string {
+	var repl string
+	if value == "" {
+		repl = field + ": null"
+	} else {
+		repl = fmt.Sprintf("%s: %q", field, value)
+	}
+	re := regexp.MustCompile(`(?m)^(` + regexp.QuoteMeta(field) + `:)[^\n]*$`)
 	if loc := re.FindStringIndex(head); loc != nil {
 		line := head[loc[0]:loc[1]]
 		if i := strings.Index(line, "#"); i >= 0 { // keep trailing comment
@@ -215,6 +223,23 @@ func setFrontmatterLine(head string, re *regexp.Regexp, field, value string) str
 		return head[:loc[0]] + repl + head[loc[1]:]
 	}
 	return strings.TrimRight(head, "\n") + "\n" + repl
+}
+
+// DocJiraKey reads just the jira_key from a document's frontmatter (empty if absent).
+func DocJiraKey(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	yamlContent, _, err := markdown.SplitFrontmatter(string(data), path)
+	if err != nil {
+		return "", err
+	}
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal([]byte(yamlContent), &raw); err != nil {
+		return "", err
+	}
+	return str(raw, "jira_key"), nil
 }
 
 func str(m map[string]interface{}, key string) string {
