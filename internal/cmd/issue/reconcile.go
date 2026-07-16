@@ -12,6 +12,7 @@ import (
 	"github.com/endgame-build/jira-cli/internal/api"
 	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/mapping"
 	"github.com/endgame-build/jira-cli/internal/markdown"
 	"github.com/endgame-build/jira-cli/internal/output"
 )
@@ -27,6 +28,7 @@ type ReconcileOptions struct {
 	Action       string // --action: list, close, delete
 	TargetStatus string // --target-status: status for close action
 	Yes          bool   // --yes: skip confirmation
+	Map          string // --map: read jira_key from hub-style frontmatter
 }
 
 // orphanInfo holds information about an orphaned Jira issue.
@@ -96,6 +98,7 @@ func NewCmdReconcile(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.Action, "action", "list", "Action for orphans: list, close, delete")
 	cmd.Flags().StringVar(&opts.TargetStatus, "target-status", "Done", "Target status for --action close")
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Skip confirmation for close/delete")
+	cmd.Flags().StringVar(&opts.Map, "map", "", "Read jira_key from hub-style frontmatter (for docs mapped via jira-sync.yaml)")
 
 	return cmd
 }
@@ -105,19 +108,38 @@ func runReconcile(opts *ReconcileOptions) error {
 	f := opts.Factory
 	ctx := context.Background()
 
-	// Step 1: Parse markdown files → set of real issue keys.
-	issueFiles, err := markdown.ParseDir(opts.Dir)
-	if err != nil {
-		return err
-	}
-
-	localKeys := make(map[string]bool, len(issueFiles))
-	for _, issueFile := range issueFiles {
-		key := issueFile.Frontmatter.Key
-		if markdown.IsTempKey(key) {
-			continue
+	// Step 1: Collect the set of real issue keys present locally. With --map,
+	// keys come from hub-style `jira_key` frontmatter; otherwise from the
+	// canonical `key`. An orphan is a scoped Jira issue with no local doc — i.e.
+	// its source markdown was deleted — and is closed/deleted per --action.
+	localKeys := make(map[string]bool)
+	if opts.Map != "" {
+		paths, err := collectMarkdownPaths(opts.Dir, nil)
+		if err != nil {
+			return err
 		}
-		localKeys[key] = true
+		for _, path := range paths {
+			key, err := mapping.DocJiraKey(path)
+			if err != nil {
+				return err
+			}
+			if key == "" || markdown.IsTempKey(key) {
+				continue
+			}
+			localKeys[key] = true
+		}
+	} else {
+		issueFiles, err := markdown.ParseDir(opts.Dir)
+		if err != nil {
+			return err
+		}
+		for _, issueFile := range issueFiles {
+			key := issueFile.Frontmatter.Key
+			if markdown.IsTempKey(key) {
+				continue
+			}
+			localKeys[key] = true
+		}
 	}
 
 	// Step 2: Build JQL.

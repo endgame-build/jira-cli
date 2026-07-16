@@ -177,12 +177,16 @@ func (c *converter) convertInline(n ast.Node, source []byte, marks []Mark) []*No
 		return c.convertInlineChildren(n, source, append(copyMarks(marks), mark))
 
 	case ast.KindCodeSpan:
-		// Inline code: extract raw text segments
+		// Inline code: extract raw text segments.
 		t := c.extractInlineCodeText(n, source)
 		if t == "" {
 			return nil
 		}
-		return []*Node{Text(t, append(copyMarks(marks), Code())...)}
+		// Per the ADF spec, the `code` mark may only be combined with `link`.
+		// Inherited `em`/`strong`/`strike` marks (e.g. an inline code span inside
+		// an italic footer) must be dropped, or Jira rejects the document with
+		// INVALID_INPUT. Keep only link marks alongside code.
+		return []*Node{Text(t, append(keepLinkMarks(marks), Code())...)}
 
 	case ast.KindLink:
 		link := n.(*ast.Link)
@@ -280,4 +284,17 @@ func copyMarks(marks []Mark) []Mark {
 	cp := make([]Mark, len(marks))
 	copy(cp, marks)
 	return cp
+}
+
+// keepLinkMarks returns a copy of marks containing only link marks — the only
+// mark the ADF spec permits alongside the code mark. Used to sanitize an inline
+// code span that inherits em/strong/strike from an enclosing span.
+func keepLinkMarks(marks []Mark) []Mark {
+	var out []Mark
+	for _, m := range marks {
+		if m.Type == MarkLink {
+			out = append(out, m)
+		}
+	}
+	return out
 }

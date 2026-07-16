@@ -1,6 +1,6 @@
 module github.com/endgame-build/jira-cli
 
-go 1.26.1
+go 1.26.5
 
 require (
 	github.com/adrg/xdg v0.5.3

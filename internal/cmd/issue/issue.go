@@ -28,6 +28,7 @@ func NewCmdIssue(f *factory.Factory) *cobra.Command {
 	cmd.AddCommand(NewCmdTransitions(f))
 	cmd.AddCommand(NewCmdExport(f))
 	cmd.AddCommand(NewCmdImport(f))
+	cmd.AddCommand(NewCmdPull(f))
 	cmd.AddCommand(NewCmdReconcile(f))
 
 	return cmd
