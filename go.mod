@@ -7,7 +7,7 @@ require (
 	github.com/cli/browser v1.3.0
 	github.com/fatih/color v1.19.0
 	github.com/hashicorp/go-retryablehttp v0.7.8
-	github.com/itchyny/gojq v0.12.18
+	github.com/itchyny/gojq v0.12.19
 	github.com/jedib0t/go-pretty/v6 v6.8.2
 	github.com/mattn/go-isatty v0.0.23
 	github.com/pelletier/go-toml/v2 v2.4.3
@@ -25,7 +25,7 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/itchyny/timefmt-go v0.1.7 // indirect
+	github.com/itchyny/timefmt-go v0.1.8 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	golang.org/x/sys v0.42.0 // indirect
