@@ -8,7 +8,7 @@ require (
 	github.com/fatih/color v1.19.0
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/itchyny/gojq v0.12.18
-	github.com/jedib0t/go-pretty/v6 v6.7.8
+	github.com/jedib0t/go-pretty/v6 v6.8.2
 	github.com/mattn/go-isatty v0.0.20
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/spf13/cobra v1.10.2
