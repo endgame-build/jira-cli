@@ -18,6 +18,9 @@ links:
 priority_map:
   High: "High (migrated)"
   Critical: "Critical (migrated)"
+component_map:
+  hub: "Hub"
+  application: "Application"
 streams:
   EP-TECH: { stream_label: "stream:tech" }
   EP-LMP: { stream_label: "stream:lmp" }
@@ -116,6 +119,64 @@ Body text.`)
 	}
 	if fm.Status != "" {
 		t.Errorf("Status should not be pushed, got %q", fm.Status)
+	}
+}
+
+func TestParseMappedFile_Component(t *testing.T) {
+	cfg := loadTestConfig(t)
+	dir := t.TempDir()
+
+	// Known ownership key maps through component_map.
+	p := writeFile(t, dir, "EP-TECH-02.md", `---
+id: EP-TECH-02
+name: "Lean spoke test-plan template"
+status: "Planned"
+component: "hub"
+jira_issue_type: "Epic"
+---
+Body.`)
+	n := 0
+	f, err := ParseMappedFile(p, cfg, &n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Frontmatter.Components) != 1 || f.Frontmatter.Components[0] != "Hub" {
+		t.Errorf("Components = %v, want [Hub]", f.Frontmatter.Components)
+	}
+
+	// Unknown key passes through unchanged (JIRA validates).
+	p2 := writeFile(t, dir, "EP-X.md", `---
+id: EP-LMP-99
+name: "Passthrough"
+status: "Planned"
+component: "Verbatim Component"
+jira_issue_type: "Epic"
+---
+Body.`)
+	n = 0
+	f2, err := ParseMappedFile(p2, cfg, &n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f2.Frontmatter.Components) != 1 || f2.Frontmatter.Components[0] != "Verbatim Component" {
+		t.Errorf("Components = %v, want [Verbatim Component]", f2.Frontmatter.Components)
+	}
+
+	// No component: field → no components pushed.
+	p3 := writeFile(t, dir, "EP-Y.md", `---
+id: EP-LMP-98
+name: "None"
+status: "Planned"
+jira_issue_type: "Epic"
+---
+Body.`)
+	n = 0
+	f3, err := ParseMappedFile(p3, cfg, &n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f3.Frontmatter.Components != nil {
+		t.Errorf("Components = %v, want nil", f3.Frontmatter.Components)
 	}
 }
 

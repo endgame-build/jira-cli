@@ -130,6 +130,16 @@ func ParseMappedFile(path string, cfg *Config, tempCounter *int) (*markdown.Issu
 		fm.Labels = []string{label}
 	}
 
+	// Components: map the doc's ownership-area key (`component:`) to a JIRA
+	// component name. Required on some create screens; pushed like priority.
+	if c := str(raw, "component"); c != "" {
+		if mapped, ok := cfg.ComponentMap[c]; ok {
+			fm.Components = []string{mapped}
+		} else {
+			fm.Components = []string{c} // pass through; let JIRA validate
+		}
+	}
+
 	// status + assignee are JIRA-first (pull-only) and deliberately never pushed.
 
 	return &markdown.IssueFile{Path: path, Frontmatter: fm, Description: body}, nil

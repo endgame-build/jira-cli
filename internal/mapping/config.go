@@ -22,8 +22,12 @@ type Config struct {
 	IssueTypes  IssueTypes        `yaml:"issue_types"`
 	Links       map[string]Link   `yaml:"links"`
 	PriorityMap map[string]string `yaml:"priority_map"`
-	Streams     map[string]Stream `yaml:"streams"`
-	Pull        Pull              `yaml:"pull"`
+	// ComponentMap translates a doc's `component:` frontmatter (an ownership-area
+	// key) to a JIRA component name. Components is a required create-screen field
+	// in some projects, so this is pushed like priority — see setCommonFields.
+	ComponentMap map[string]string `yaml:"component_map"`
+	Streams      map[string]Stream `yaml:"streams"`
+	Pull         Pull              `yaml:"pull"`
 }
 
 // Pull configures the JIRA-first reconciliation (status + assignee → hub).

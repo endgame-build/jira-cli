@@ -36,6 +36,7 @@ var builtinFrontmatterKeys = map[string]bool{
 	"status":      true,
 	"priority":    true,
 	"labels":      true,
+	"components":  true,
 	"parent":      true,
 	"assignee":    true,
 	"assignee_id": true,
@@ -60,6 +61,7 @@ type Frontmatter struct {
 	Status     string   `yaml:"status,omitempty"`
 	Priority   string   `yaml:"priority,omitempty"`
 	Labels     []string `yaml:"labels,omitempty"`
+	Components []string `yaml:"components,omitempty"`
 	Parent     string   `yaml:"parent,omitempty"`
 	Assignee   string   `yaml:"assignee,omitempty"`
 	AssigneeID string   `yaml:"assignee_id,omitempty"`
