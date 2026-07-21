@@ -447,6 +447,13 @@ func setCommonFields(fields map[string]interface{}, fm markdown.Frontmatter) {
 	if fm.Labels != nil {
 		fields["labels"] = fm.Labels
 	}
+	if len(fm.Components) > 0 {
+		comps := make([]map[string]interface{}, len(fm.Components))
+		for i, c := range fm.Components {
+			comps[i] = map[string]interface{}{"name": c}
+		}
+		fields["components"] = comps
+	}
 	if fm.AssigneeID != "" {
 		fields["assignee"] = map[string]interface{}{"accountId": fm.AssigneeID}
 	}
