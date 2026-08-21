@@ -4,7 +4,7 @@ What the end-to-end suite found on its first runs against a live Jira Cloud
 sprint. Every finding below was reproduced against the API directly, not
 inferred from reading code.
 
-**Run:** `endgame-build.atlassian.net`, project `SCRUM` (team-managed, board 1,
+**Run:** an ENDGAME sandbox instance, project `SCRUM` (team-managed, board 1,
 active sprint `SCRUM Sprint 0`). First run: 30 passed, 7 skipped, 0 failed.
 
 **Status: six of the nine are fixed.** After the fixes the same suite reports
@@ -125,8 +125,8 @@ $ jira agent discover SCRUM-12 --title "found work"
 exit 3
 ```
 
-Confirmed instance-dependent: `CUSTOMER` on odevo uses `Sub-task`; `SCRUM`,
-`TJS` and `QA` use `Subtask`.
+Confirmed instance-dependent: some projects report the type as `Sub-task` and
+others as `Subtask`. The `SCRUM` project used for this run reports `Subtask`.
 
 **Impact.** On a team-managed project, filing discovered work — a core step of
 the loop — fails unless the caller knows to pass `--type` explicitly. The

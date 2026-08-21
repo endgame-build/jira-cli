@@ -181,8 +181,8 @@ Team-managed Jira Cloud projects name that type `Subtask`. Since `--as-subtask`
 defaults to true, the **default** invocation of `agent discover` fails on any
 team-managed project.
 
-Confirmed on `odevo.atlassian.net`: `CUSTOMER` uses `Sub-task`, while `TJS` and
-`QA` use `Subtask`. The fix is to read the name from `GetCreateMeta`, which
+Confirmed instance-dependent: some projects report the type as `Sub-task` and
+others as `Subtask`. The fix is to read the name from `GetCreateMeta`, which
 `agent prime` already fetches.
 
 The type is now resolved from the project's own create metadata, falling back
