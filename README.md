@@ -14,6 +14,7 @@ jira search "project = PROJ AND status = Open" --limit 10
 - **Non-interactive** — flags supply all input; every command runs unattended
 - **Pipe-safe** — structured JSON output, correct exit codes, plain text when piped
 - **Agent-friendly** — errors include codes, context, and fix suggestions so LLMs self-correct
+- **Agent SDLC loop** — `ready → claim → discover → close`, blocker-aware and sprint-filtered
 - **Three credential sources** — flags, environment variables, or stored profiles (keyring-backed)
 - **Markdown input** — write descriptions and comments in Markdown; the CLI converts them to Atlassian Document Format
 - **JQL support** — raw JQL via `jira search` or flag-based filtering via `jira issue list`
@@ -66,6 +67,10 @@ jira search "project = PROJ AND assignee = currentUser()" --json
 
 # List my open issues
 jira issue list --assignee @me
+
+# Find work an agent can start on now, and claim it
+jira agent ready --project PROJ --sprint active --json
+jira agent claim PROJ-123
 ```
 
 ## Commands
@@ -86,6 +91,58 @@ jira issue export                      # Export issues to markdown (--project, -
 jira issue import <files...>           # Create/update issues from markdown (--dir, --force)
 jira issue reconcile                   # Detect orphaned Jira issues (--dir, --epic, --project, --jql)
 ```
+
+### Agent Workflow
+
+Commands for autonomous agents working a Jira backlog. `jira agent prime` prints
+the workflow context an agent needs; the rest move work through it.
+
+```sh
+jira agent prime                       # Print workflow context for agent injection (--full)
+jira agent ready                       # Issues ready for work, no unresolved blockers
+jira agent blocked                     # Issues blocked by unresolved dependencies
+jira agent claim <key>                 # Assign to yourself and move to In Progress (--force)
+jira agent close <key>                 # Move to Done (--reason, --suggest-next, --claim-next)
+jira agent discover <parent-key>       # File newly found work against the current item
+jira agent status                      # Ready, actionable, in-progress, blocked and done today
+```
+
+The loop these commands implement:
+
+```sh
+jira agent ready --project PROJ --sprint active --json   # find work
+jira agent claim PROJ-123                                # assign + In Progress
+# ...implement...
+jira agent discover PROJ-123 --title "Retry on 429"      # file what you found
+jira agent close PROJ-123 --reason "Shipped" --suggest-next
+```
+
+`ready` filters on `--assignee @me`, `--unassigned`, `--type`, `--label`,
+`--priority`, `--component` and `--sprint active|future|<name>`. It excludes
+anything blocked by an unresolved issue, so what it returns is what an agent can
+start on now.
+
+Two details worth knowing. Blocked-ness is computed from `is blocked by` links
+whose target is not in the `done` status *category*, and `claim`/`close` resolve
+transitions by category rather than by status name — so both survive custom
+workflows. And `status` reports `ready_count` as every To Do issue in the
+project, while `actionable_count` is the subset with no blockers, which is what
+`ready` actually hands out; `in_progress_count` covers only your own issues,
+the rest are project-wide.
+
+The command contracts are specified in [docs/agent-sdlc-contracts.md](docs/agent-sdlc-contracts.md),
+and [test/e2e](test/e2e) exercises the whole loop against a real sprint.
+
+### Sprints
+
+```sh
+jira sprint list                       # List sprints (--state active|future|closed, --board)
+jira sprint active                     # Show the active sprint for a project
+jira sprint add <key>...               # Move issues into a sprint (--sprint, defaults to active)
+```
+
+Sprints are found through the project's board. Both company-managed boards
+(which Jira reports as `scrum`) and team-managed ones (`simple`) are supported.
 
 ### Search
 
@@ -147,7 +204,7 @@ jira alias list                        # List all aliases
 ```sh
 jira auth login                        # Store credentials (--instance, --user, --token)
 jira auth logout --yes                 # Remove stored credentials
-jira auth status                       # Show current authentication
+jira auth status                       # Show current authentication (--check to fail on an invalid token)
 jira auth switch <profile>             # Switch active profile
 ```
 
