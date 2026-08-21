@@ -1073,6 +1073,60 @@ func TestEditDryRunParent(t *testing.T) {
 	}
 }
 
+func TestEditDryRunParentNoExistingParent(t *testing.T) {
+	editCalled := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/issue/") {
+			editCalled = true
+			w.WriteHeader(204)
+			return
+		}
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/issue/") {
+			// Issue currently has no parent.
+			json.NewEncoder(w).Encode(api.Issue{
+				ID:  "10001",
+				Key: "PROJ-123",
+				Fields: api.IssueFields{
+					Summary: "Old title",
+				},
+			})
+			return
+		}
+		w.WriteHeader(404)
+	})
+
+	f, tio, _ := newTestEditFactory(t, handler, nil)
+	f.DryRun = true
+
+	opts := &EditOptions{
+		Factory:   f,
+		KeyOrID:   "PROJ-123",
+		Parent:    "PROJ-100",
+		parentSet: true,
+	}
+
+	if err := runEdit(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := tio.OutBuf.String()
+	if !strings.Contains(out, "DRY RUN") {
+		t.Errorf("output should contain 'DRY RUN', got: %s", out)
+	}
+	if !strings.Contains(out, "parent") {
+		t.Errorf("output should contain a 'parent' row, got: %s", out)
+	}
+	if !strings.Contains(out, "(none)") {
+		t.Errorf("output should render the absent current parent as '(none)' (from value), got: %s", out)
+	}
+	if !strings.Contains(out, "PROJ-100") {
+		t.Errorf("output should contain new parent 'PROJ-100' (to value), got: %s", out)
+	}
+	if editCalled {
+		t.Error("dry-run should NOT call the edit (PUT) endpoint")
+	}
+}
+
 func TestComputeLabelDelta(t *testing.T) {
 	tests := []struct {
 		name    string
