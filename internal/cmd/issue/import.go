@@ -422,7 +422,9 @@ func buildCreateFields(issueFile *markdown.IssueFile, customFieldMap map[string]
 }
 
 // buildUpdateFields builds the fields map for an update operation.
-// Updates do NOT send type, project, parent, or status (read-only or out of MVP scope).
+// Updates do NOT send type, project, or status (read-only or out of MVP scope).
+// Parent is set-only: a non-empty frontmatter parent is sent, but an absent
+// parent never clears the link in Jira.
 func buildUpdateFields(issueFile *markdown.IssueFile, customFieldMap map[string]importFieldInfo, fieldValues markdown.FieldValueMap) (map[string]interface{}, error) {
 	fm := issueFile.Frontmatter
 	fields := map[string]interface{}{
@@ -430,6 +432,10 @@ func buildUpdateFields(issueFile *markdown.IssueFile, customFieldMap map[string]
 	}
 
 	setCommonFields(fields, fm)
+
+	if fm.Parent != "" {
+		fields["parent"] = map[string]interface{}{"key": fm.Parent}
+	}
 
 	if err := injectCustomFields(fields, fm.CustomFields, customFieldMap, fieldValues); err != nil {
 		return nil, err
