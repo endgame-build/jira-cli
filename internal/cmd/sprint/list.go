@@ -7,6 +7,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 
+	"github.com/endgame-build/jira-cli/internal/api"
 	"github.com/endgame-build/jira-cli/internal/cmd/shared"
 	"github.com/endgame-build/jira-cli/internal/factory"
 	"github.com/endgame-build/jira-cli/internal/output"
@@ -73,7 +74,7 @@ func runList(opts *ListOptions) error {
 		}
 
 		for _, b := range boards {
-			if b.Type == "scrum" {
+			if api.IsSprintBoardType(b.Type) {
 				boardIDs = append(boardIDs, b.ID)
 			}
 		}

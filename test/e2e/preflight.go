@@ -34,10 +34,10 @@ type Sandbox struct {
 	TaskType string
 
 	// CLISeesBoard records whether the CLI's own board lookup can find this
-	// board. Team-managed projects report their board type as "simple", but
-	// internal/api/agile.go asks Jira for type=scrum, so every board-derived
-	// sprint feature is invisible on them. TestE2E_SPRINT_06 pins the defect;
-	// the cases that depend on that path skip when this is false.
+	// board. It is answered by running `sprint active` rather than by
+	// inspecting the board type, so it stays accurate as the lookup changes.
+	// TestE2E_SPRINT_06 pins the defect that makes it false; the cases that
+	// depend on that path skip when it is.
 	CLISeesBoard bool
 }
 
@@ -161,13 +161,12 @@ func checkSandbox() (*Sandbox, error) {
 	}
 
 	return &Sandbox{
-		Client:       client,
-		ProjectKey:   projectKey,
-		AccountID:    me.AccountID,
-		Board:        *board,
-		Sprint:       sprint,
-		SubtaskType:  subtaskType,
-		TaskType:     taskType,
-		CLISeesBoard: board.Type == "scrum",
+		Client:      client,
+		ProjectKey:  projectKey,
+		AccountID:   me.AccountID,
+		Board:       *board,
+		Sprint:      sprint,
+		SubtaskType: subtaskType,
+		TaskType:    taskType,
 	}, nil
 }

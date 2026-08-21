@@ -83,6 +83,15 @@ func runStatus(opts *StatusOptions) error {
 	if err != nil {
 		return err
 	}
+	// Bad credentials make search/jql return HTTP 200 with no issues rather
+	// than 401, so without this probe an expired token produces a clean
+	// all-zeros summary at exit 0 — see the note in ready.go.
+	if len(myWorkResults.Issues) == 0 {
+		if err := shared.CheckEmptyResultsAuth(ctx, client, f.IOStreams.Err); err != nil {
+			return err
+		}
+	}
+
 	result.InProgressCount = len(myWorkResults.Issues)
 	for _, issue := range myWorkResults.Issues {
 		item := myWorkItem{

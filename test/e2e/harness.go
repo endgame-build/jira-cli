@@ -87,8 +87,21 @@ func New(t *testing.T) *Harness {
 		Sandbox:  sb,
 	}
 	h.Fixtures = newFixtures(t, h)
+
+	// Ask the CLI whether it can see the board, rather than inferring it from
+	// the board type — the lookup is what these cases actually depend on.
+	cliSeesBoardOnce.Do(func() {
+		cliSeesBoard = h.Run("sprint", "active", "-p", h.Project, "--json").ExitCode == 0
+	})
+	sb.CLISeesBoard = cliSeesBoard
+
 	return h
 }
+
+var (
+	cliSeesBoardOnce sync.Once
+	cliSeesBoard     bool
+)
 
 // requireEnabled skips when the suite was not explicitly asked for. This is the
 // only acceptable skip for a structural reason: everything else is a failure,

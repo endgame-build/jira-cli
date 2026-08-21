@@ -98,6 +98,17 @@ func runReady(opts *ReadyOptions) error {
 		return err
 	}
 
+	// Jira answers search/jql with HTTP 200 and no issues when the credentials
+	// are bad, rather than 401, so an empty search is ambiguous. Probe before
+	// reporting an empty queue. Gate on the raw result, not on the filtered
+	// slice below: that one legitimately empties when every candidate is
+	// blocked, which is not an auth signal.
+	if len(results.Issues) == 0 {
+		if err := shared.CheckEmptyResultsAuth(ctx, client, f.IOStreams.Err); err != nil {
+			return err
+		}
+	}
+
 	// Post-filter: exclude blocked issues.
 	var ready []api.Issue
 	for i := range results.Issues {

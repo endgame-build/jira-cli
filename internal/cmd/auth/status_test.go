@@ -13,6 +13,7 @@ import (
 
 	"github.com/endgame-build/jira-cli/internal/api"
 	"github.com/endgame-build/jira-cli/internal/config"
+	cliErrors "github.com/endgame-build/jira-cli/internal/errors"
 	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/factory"
 	"github.com/endgame-build/jira-cli/internal/iostreams"
@@ -249,5 +250,55 @@ func TestStatusNullEmail(t *testing.T) {
 	out := tio.OutBuf.String()
 	if !strings.Contains(out, "(email hidden)") {
 		t.Errorf("output should show '(email hidden)' for null email: %q", out)
+	}
+}
+
+// --check turns an invalid token from a reportable state into an error, so the
+// command can gate a script. The report is still printed first.
+func TestStatusCheckFailsOnInvalidToken(t *testing.T) {
+	f, tio := newTestStatusFactory(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(401)
+		w.Write([]byte(`{"errorMessages":["Client must be authenticated"]}`))
+	}))
+	defer srv.Close()
+
+	opts := &StatusOptions{
+		Factory:    f,
+		Check:      true,
+		clientOpts: []api.ClientOption{api.WithBaseURL(srv.URL)},
+	}
+
+	err := runStatus(opts)
+	if err == nil {
+		t.Fatal("expected an error under --check with an invalid token")
+	}
+	var cliErr *cliErrors.CLIError
+	if !errors.As(err, &cliErr) || cliErr.Code != cliErrors.AUTH_ERROR {
+		t.Fatalf("expected AUTH_ERROR, got %v", err)
+	}
+	if out := tio.OutBuf.String(); !strings.Contains(out, "invalid") {
+		t.Errorf("the report should still be printed before failing, got %q", out)
+	}
+}
+
+// --check must not disturb the healthy path.
+func TestStatusCheckPassesOnValidToken(t *testing.T) {
+	f, _ := newTestStatusFactory(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"accountId":"abc","displayName":"Test User"}`))
+	}))
+	defer srv.Close()
+
+	opts := &StatusOptions{
+		Factory:    f,
+		Check:      true,
+		clientOpts: []api.ClientOption{api.WithBaseURL(srv.URL)},
+	}
+
+	if err := runStatus(opts); err != nil {
+		t.Fatalf("unexpected error with a valid token: %v", err)
 	}
 }

@@ -436,7 +436,7 @@ func (f *IssueFields) UnmarshalJSON(data []byte) error {
 type Board struct {
 	ID       int            `json:"id"`
 	Name     string         `json:"name"`
-	Type     string         `json:"type"` // "scrum" or "kanban"
+	Type     string         `json:"type"` // "scrum", "kanban", or "simple" (team-managed)
 	Location *BoardLocation `json:"location,omitempty"`
 }
 

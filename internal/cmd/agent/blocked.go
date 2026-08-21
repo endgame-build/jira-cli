@@ -80,6 +80,15 @@ func runBlocked(opts *BlockedOptions) error {
 		return err
 	}
 
+	// An empty search may mean bad credentials rather than no open issues —
+	// see the note in ready.go. Probe on the raw result: `items` below is
+	// empty whenever nothing is blocked, which is the healthy case.
+	if len(results.Issues) == 0 {
+		if err := shared.CheckEmptyResultsAuth(ctx, client, f.IOStreams.Err); err != nil {
+			return err
+		}
+	}
+
 	// Filter to only blocked issues and collect blocker details.
 	var items []blockedItem
 	for i := range results.Issues {

@@ -11,6 +11,14 @@ import (
 
 func blockedHandler(issues []api.Issue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// GET /myself — the credential probe an empty search triggers. Without
+		// this arm the catch-all below answers 404, which the probe treats as
+		// transient, so these tests would pass while no longer exercising the
+		// path they claim to.
+		if strings.HasSuffix(r.URL.Path, "/myself") {
+			writeJSON(w, myselfResponse())
+			return
+		}
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/search/jql") {
 			writeJSON(w, sampleSearchResponse(issues))
 			return

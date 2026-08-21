@@ -177,3 +177,39 @@ func TestSprintList_StateFilter(t *testing.T) {
 		t.Errorf("expected state=active query param, got %q", gotState)
 	}
 }
+
+// A team-managed project's board reports its type as "simple" while carrying
+// sprints exactly like a Scrum board. Filtering on "scrum" alone hid them.
+func TestSprintList_TeamManagedBoard(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/board":
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"values": []map[string]interface{}{
+					{"id": 1, "name": "SCRUM board", "type": "simple"},
+					{"id": 2, "name": "Ops", "type": "kanban"},
+				},
+				"isLast": true,
+			})
+		case strings.HasSuffix(r.URL.Path, "/sprint"):
+			if !strings.Contains(r.URL.Path, "/board/1/") {
+				t.Errorf("fetched sprints for %s; only the sprint-capable board should be used", r.URL.Path)
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"values": []map[string]interface{}{{"id": 7, "name": "Sprint 0", "state": "active"}},
+				"isLast": true,
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	f, tio, _ := newTestFactory(t, handler, nil)
+
+	if err := runList(&ListOptions{Factory: f, Project: "PROJ", NoPager: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out := tio.OutBuf.String(); !strings.Contains(out, "Sprint 0") {
+		t.Errorf("output = %q, want the team-managed board's sprint listed", out)
+	}
+}

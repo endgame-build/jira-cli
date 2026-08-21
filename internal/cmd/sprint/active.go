@@ -71,7 +71,7 @@ func runActive(opts *ActiveOptions) error {
 	if sprint == nil {
 		return clierrors.NewNotFoundError(
 			fmt.Sprintf("No active sprint found for project %s", project), project,
-		).WithSuggestion("Ensure the project has a Scrum board with an active sprint")
+		).WithSuggestion("Ensure the project has a board with an active sprint")
 	}
 
 	if f.Quiet {

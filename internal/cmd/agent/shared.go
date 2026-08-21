@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"sort"
 	"strings"
 
@@ -123,6 +124,30 @@ func SortByPriorityThenCreated(issues []api.Issue) {
 		}
 		return issues[i].Fields.Created < issues[j].Fields.Created
 	})
+}
+
+// ResolveIssueTypeName returns the project's own name for a sub-task or a
+// standard issue type.
+//
+// The names are not fixed across Jira: a company-managed project calls its
+// sub-task type "Sub-task" while a team-managed one calls it "Subtask", and a
+// project need not have a type called "Task" at all. Hardcoding either name
+// makes the command fail on half the projects in existence.
+//
+// fallback is returned when the project's metadata cannot be read — the caller
+// is better off attempting the create and surfacing Jira's own error than
+// failing early on a permissions problem.
+func ResolveIssueTypeName(ctx context.Context, client *api.Client, project string, wantSubtask bool, fallback string) string {
+	meta, err := client.GetCreateMeta(ctx, project)
+	if err != nil {
+		return fallback
+	}
+	for _, it := range meta.IssueTypes {
+		if it.Subtask == wantSubtask {
+			return it.Name
+		}
+	}
+	return fallback
 }
 
 // AgentReadyFields returns the Jira fields needed for ready queue computation.

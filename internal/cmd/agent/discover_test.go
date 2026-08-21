@@ -33,6 +33,16 @@ func discoverHandler(parent api.Issue) http.HandlerFunc {
 			return
 		}
 
+		// GET /issue/createmeta/{project}/issuetypes — how the sub-task type
+		// name is resolved. Must precede the generic /issue/ arm below.
+		if strings.Contains(path, "/issue/createmeta/") && r.Method == http.MethodGet {
+			writeJSON(w, api.CreateMetaIssueTypes{IssueTypes: []api.IssueTypeCreateMeta{
+				{ID: "1", Name: "Task", Subtask: false},
+				{ID: "2", Name: "Subtask", Subtask: true},
+			}})
+			return
+		}
+
 		// GET /issue/{key}
 		if strings.Contains(path, "/issue/") && r.Method == http.MethodGet {
 			writeJSON(w, parent)

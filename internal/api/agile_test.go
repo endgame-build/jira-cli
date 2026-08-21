@@ -123,15 +123,22 @@ func TestGetSprintsForBoard(t *testing.T) {
 func TestGetActiveSprint(t *testing.T) {
 	tests := []struct {
 		name     string
-		boards   []Board // scrum boards returned (type=scrum filter applied server-side)
+		boards   []Board // sprint-capable boards (type filter applied server-side)
 		sprints  []Sprint
 		wantNil  bool
 		wantName string
 	}{
 		{
-			name:    "no scrum boards",
+			name:    "no sprint-capable boards",
 			boards:  []Board{},
 			wantNil: true,
+		},
+		{
+			name:     "team-managed board reports type simple",
+			boards:   []Board{{ID: 1, Name: "SCRUM board", Type: "simple"}},
+			sprints:  []Sprint{{ID: 10, Name: "Sprint 0", State: "active"}},
+			wantNil:  false,
+			wantName: "Sprint 0",
 		},
 		{
 			name:    "scrum board no active sprint",
@@ -163,9 +170,12 @@ func TestGetActiveSprint(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch {
 				case r.URL.Path == "/rest/agile/1.0/board":
-					// Verify type=scrum filter is applied.
-					if got := r.URL.Query().Get("type"); got != "scrum" {
-						t.Errorf("expected type=scrum query param, got %q", got)
+					// The filter must cover every sprint-capable board type.
+					// Team-managed boards report "simple" while carrying
+					// sprints, so filtering on "scrum" alone hides them.
+					got := r.URL.Query().Get("type")
+					if got != SprintBoardTypes {
+						t.Errorf("expected type=%s query param, got %q", SprintBoardTypes, got)
 					}
 					json.NewEncoder(w).Encode(boardPage{Values: tt.boards, IsLast: true})
 				case len(r.URL.Path) > len("/rest/agile/1.0/board/") &&

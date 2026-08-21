@@ -96,12 +96,17 @@ func TestE2E_READY_02(t *testing.T) {
 		return len(items) == 3
 	})
 
-	res := h.MustRun("agent", "ready", "-p", h.Project, "-l", label, "--limit", "2", "--json")
-	items, page := DecodeList[ReadyItem](t, res)
-
-	if len(items) != 2 {
-		t.Errorf("returned %d issues, want 2\n%s", len(items), res)
-	}
+	// The limited query needs the same index-lag tolerance as the query above:
+	// a search that has just seen three issues can still answer the next one
+	// from a lagging replica.
+	var res Result
+	var items []ReadyItem
+	var page *Pagination
+	Eventually(t, "the limited query to see the fixtures", func() bool {
+		res = h.MustRun("agent", "ready", "-p", h.Project, "-l", label, "--limit", "2", "--json")
+		items, page = DecodeList[ReadyItem](t, res)
+		return len(items) == 2
+	})
 	if page == nil {
 		t.Fatalf("no pagination envelope\n%s", res)
 	}

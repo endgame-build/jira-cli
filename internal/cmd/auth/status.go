@@ -16,7 +16,13 @@ import (
 
 // StatusOptions holds all resolved inputs for the status command.
 type StatusOptions struct {
-	Factory    *factory.Factory
+	Factory *factory.Factory
+
+	// Check makes an invalid token an error rather than a reportable state, so
+	// the command can gate a script or hook. Off by default: the exit code is
+	// part of the existing contract.
+	Check bool
+
 	clientOpts []api.ClientOption // for test injection of WithBaseURL
 }
 
@@ -27,11 +33,16 @@ func NewCmdStatus(f *factory.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show authentication status",
-		Long:  "Display the current profile, instance, user, and token validity.",
+		Long: "Display the current profile, instance, user, and token validity.\n\n" +
+			"By default an invalid token is reported and the command still exits 0. " +
+			"Pass --check to exit with an authentication error instead, so this can " +
+			"gate a script or a hook.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStatus(opts)
 		},
 	}
+
+	cmd.Flags().BoolVar(&opts.Check, "check", false, "Exit with an error if the token is invalid")
 
 	return cmd
 }
@@ -71,11 +82,14 @@ func runStatus(opts *StatusOptions) error {
 	apiErr := client.Do(context.Background(), "GET", "myself", nil, &user)
 
 	tokenValid := true
+	var authErr error
 	if apiErr != nil {
 		var cliErr *cliErrors.CLIError
 		if errors.As(apiErr, &cliErr) && cliErr.Code == cliErrors.AUTH_ERROR {
-			// 401 — token is invalid, but that's a reportable state, not a command error.
+			// 401 — token is invalid. Reportable state by default; an error
+			// under --check.
 			tokenValid = false
+			authErr = apiErr
 		} else {
 			// Other errors (network, 5xx) are real command failures.
 			return apiErr
@@ -85,6 +99,9 @@ func runStatus(opts *StatusOptions) error {
 	formatter := output.NewFormatter(ios, f.OutputJSON, f.JQExpr)
 
 	if f.Quiet {
+		if opts.Check && !tokenValid {
+			return authErr
+		}
 		return nil
 	}
 
@@ -100,7 +117,8 @@ func runStatus(opts *StatusOptions) error {
 		"token_valid": tokenValid,
 	}
 
-	return formatter.OutputData(data, func(t table.Writer) {
+	// Report first, then fail: the caller should see why the check failed.
+	if err := formatter.OutputData(data, func(t table.Writer) {
 		fmt.Fprintf(ios.Out, "Profile:  %s\n", profileName)
 		fmt.Fprintf(ios.Out, "Instance: %s\n", creds.Instance)
 		fmt.Fprintf(ios.Out, "User:     %s\n", creds.User)
@@ -112,5 +130,12 @@ func runStatus(opts *StatusOptions) error {
 		} else {
 			fmt.Fprintf(ios.Out, "Token:    %s\n", ios.Red("invalid"))
 		}
-	})
+	}); err != nil {
+		return err
+	}
+
+	if opts.Check && !tokenValid {
+		return authErr
+	}
+	return nil
 }

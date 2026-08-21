@@ -115,47 +115,44 @@ func TestE2E_DISCOVER_03(t *testing.T) {
 	}
 }
 
-// TestE2E_DISCOVER_04 — `agent discover` with no --type hardcodes the issue
-// type name "Sub-task" (internal/cmd/agent/discover.go:107), but team-managed
-// Jira projects name that type "Subtask". On such a project the DEFAULT
-// invocation of the command fails outright.
+// TestE2E_DISCOVER_04 — the default invocation, with no --type, works on any
+// project style.
 //
-// This case adapts to whichever naming the sandbox uses and reports the defect
-// rather than asserting a fixed outcome, so it is informative on either project
-// style.
+// `agent discover` used to hardcode the issue type name "Sub-task". Team-managed
+// Jira projects call that type "Subtask", so the default invocation failed
+// outright on them — and team-managed is the default project type in Jira Cloud.
+// The type is now resolved from the project's own create metadata.
 //
 // Spec: docs/e2e-agent-sdlc-spec.md#e2e-discover-04
 func TestE2E_DISCOVER_04(t *testing.T) {
 	h := New(t)
 	parent := h.Fixtures.Create(IssueSpec{Summary: "default type parent", Labels: []string{h.CaseLabel()}})
 
-	res := h.Run("agent", "discover", parent.Key, "--title", "default subtask type")
-
-	if h.Sandbox.SubtaskType == "Sub-task" {
-		if res.ExitCode != 0 {
-			t.Errorf("this project names its sub-task type %q, so the default discover should "+
-				"succeed; got exit %d\n%s", h.Sandbox.SubtaskType, res.ExitCode, res)
-		}
-		if key := firstIssueKey(res.Stdout); key != "" {
-			h.Fixtures.Track(key)
-		}
-		return
+	res := h.Run("agent", "discover", parent.Key, "--title", "default subtask type", "--json")
+	if res.ExitCode != 0 {
+		t.Fatalf("the default discover failed on a project whose sub-task type is %q; "+
+			"the type should be resolved from create metadata, not hardcoded\n%s",
+			h.Sandbox.SubtaskType, res)
 	}
 
-	if res.ExitCode == 0 {
-		if key := firstIssueKey(res.Stdout); key != "" {
-			h.Fixtures.Track(key)
-		}
-		t.Errorf("expected the default discover to fail on a project whose sub-task type is %q, "+
-			"but it succeeded — the hardcoded %q may have been fixed, in which case delete this case",
-			h.Sandbox.SubtaskType, "Sub-task")
-		return
+	doc := DecodeObject[MutationDoc](t, res)
+	h.Fixtures.Track(doc.Key)
+
+	if doc.Relationship != "subtask" {
+		t.Errorf("relationship = %q, want %q\n%s", doc.Relationship, "subtask", res)
+	}
+	if doc.Type != h.Sandbox.SubtaskType {
+		t.Errorf("type = %q, want the project's own sub-task type %q\n%s",
+			doc.Type, h.Sandbox.SubtaskType, res)
 	}
 
-	t.Logf("KNOWN DEFECT: `agent discover` hardcodes the issue type %q "+
-		"(internal/cmd/agent/discover.go:107) but this project names it %q, so the default "+
-		"invocation fails with exit %d. Callers must pass --type explicitly.\n%s",
-		"Sub-task", h.Sandbox.SubtaskType, res.ExitCode, strings.TrimSpace(res.Stderr))
+	child := h.Fixtures.GetIssue(doc.Key, "issuetype", "parent")
+	if child.Fields.IssueType == nil || !child.Fields.IssueType.Subtask {
+		t.Errorf("%s was not created as a sub-task", doc.Key)
+	}
+	if child.Fields.Parent == nil || child.Fields.Parent.Key != parent.Key {
+		t.Errorf("%s is not a child of %s", doc.Key, parent.Key)
+	}
 }
 
 // firstIssueKey pulls an issue key out of the text-mode discover output, which

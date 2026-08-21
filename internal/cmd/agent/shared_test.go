@@ -3,7 +3,10 @@ package agent
 import (
 	"testing"
 
+	"context"
 	"github.com/endgame-build/jira-cli/internal/api"
+	"github.com/endgame-build/jira-cli/internal/auth"
+	"net/http"
 )
 
 func blockerLink(key, statusCategoryKey string) api.IssueLink {
@@ -185,5 +188,88 @@ func TestSortByPriorityThenCreated(t *testing.T) {
 		if issues[i].Key != w {
 			t.Errorf("position %d: got %s, want %s", i, issues[i].Key, w)
 		}
+	}
+}
+
+// The sub-task type name differs between project styles — "Sub-task" in
+// company-managed projects, "Subtask" in team-managed ones — so it has to come
+// from the project rather than from a literal in the source.
+func TestResolveIssueTypeName(t *testing.T) {
+	tests := []struct {
+		name        string
+		types       []api.IssueTypeCreateMeta
+		status      int
+		wantSubtask bool
+		fallback    string
+		want        string
+	}{
+		{
+			name: "company-managed names it Sub-task",
+			types: []api.IssueTypeCreateMeta{
+				{Name: "Task", Subtask: false},
+				{Name: "Sub-task", Subtask: true},
+			},
+			status:      http.StatusOK,
+			wantSubtask: true,
+			fallback:    "Sub-task",
+			want:        "Sub-task",
+		},
+		{
+			name: "team-managed names it Subtask",
+			types: []api.IssueTypeCreateMeta{
+				{Name: "Task", Subtask: false},
+				{Name: "Subtask", Subtask: true},
+			},
+			status:      http.StatusOK,
+			wantSubtask: true,
+			fallback:    "Sub-task",
+			want:        "Subtask",
+		},
+		{
+			name: "standard type",
+			types: []api.IssueTypeCreateMeta{
+				{Name: "Story", Subtask: false},
+				{Name: "Subtask", Subtask: true},
+			},
+			status:      http.StatusOK,
+			wantSubtask: false,
+			fallback:    "Task",
+			want:        "Story",
+		},
+		{
+			name:        "unreadable metadata falls back",
+			status:      http.StatusForbidden,
+			wantSubtask: true,
+			fallback:    "Sub-task",
+			want:        "Sub-task",
+		},
+		{
+			name:        "no matching type falls back",
+			types:       []api.IssueTypeCreateMeta{{Name: "Task", Subtask: false}},
+			status:      http.StatusOK,
+			wantSubtask: true,
+			fallback:    "Sub-task",
+			want:        "Sub-task",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, srv := newTestFactory(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tt.status != http.StatusOK {
+					w.WriteHeader(tt.status)
+					return
+				}
+				writeJSON(w, api.CreateMetaIssueTypes{IssueTypes: tt.types})
+			}))
+
+			creds := &auth.Credentials{Instance: "test.atlassian.net", User: "u", Token: "t"}
+			client := api.NewClient(creds, api.WithBaseURL(srv.URL))
+
+			got := ResolveIssueTypeName(context.Background(), client, "PROJ", tt.wantSubtask, tt.fallback)
+			if got != tt.want {
+				t.Errorf("ResolveIssueTypeName() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

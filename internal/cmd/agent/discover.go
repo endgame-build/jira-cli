@@ -100,14 +100,15 @@ func runDiscover(opts *DiscoverOptions) error {
 		isSubtask = false
 	}
 
-	// Resolve issue type.
+	// Resolve issue type. The project's own name for its sub-task type varies
+	// ("Sub-task" vs "Subtask"), so ask the project rather than guessing.
 	issueType := opts.Type
 	if issueType == "" {
+		fallback := "Task"
 		if isSubtask {
-			issueType = "Sub-task"
-		} else {
-			issueType = "Task"
+			fallback = "Sub-task"
 		}
+		issueType = ResolveIssueTypeName(ctx, client, projectKey, isSubtask, fallback)
 	}
 
 	// Resolve priority (inherit from parent if not overridden).
