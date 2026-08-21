@@ -27,6 +27,7 @@ type EditOptions struct {
 	BodyFile     string   // --body-file
 	Assignee     string   // --assignee
 	Priority     string   // --priority
+	Parent       string   // --parent (set-only; removal not supported)
 	Labels       []string // --labels (replaces all)
 	AddLabels    []string // --add-labels (delta add)
 	RemoveLabels []string // --remove-labels (delta remove)
@@ -37,6 +38,7 @@ type EditOptions struct {
 	descriptionSet bool
 	assigneeSet    bool
 	labelsSet      bool
+	parentSet      bool
 }
 
 // NewCmdEdit creates the "issue edit" command.
@@ -62,6 +64,7 @@ func NewCmdEdit(f *factory.Factory) *cobra.Command {
 			opts.descriptionSet = cmd.Flags().Changed("description")
 			opts.assigneeSet = cmd.Flags().Changed("assignee")
 			opts.labelsSet = cmd.Flags().Changed("labels")
+			opts.parentSet = cmd.Flags().Changed("parent")
 
 			return runEdit(opts)
 		},
@@ -72,6 +75,7 @@ func NewCmdEdit(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.BodyFile, "body-file", "", "Read description from file (use - for stdin)")
 	cmd.Flags().StringVarP(&opts.Assignee, "assignee", "a", "", "Assignee (display name, @me, or account ID; empty string unassigns)")
 	cmd.Flags().StringVar(&opts.Priority, "priority", "", "Priority (e.g. High, Medium, Low)")
+	cmd.Flags().StringVar(&opts.Parent, "parent", "", "Parent issue key (epic for stories, parent issue for subtasks)")
 	cmd.Flags().StringSliceVarP(&opts.Labels, "labels", "l", nil, "Comma-separated labels (replaces all)")
 	cmd.Flags().StringSliceVar(&opts.AddLabels, "add-labels", nil, "Labels to add (comma-separated)")
 	cmd.Flags().StringSliceVar(&opts.RemoveLabels, "remove-labels", nil, "Labels to remove (comma-separated)")
@@ -93,7 +97,7 @@ func runEdit(opts *EditOptions) error {
 
 	// At least one field flag must be specified.
 	hasField := opts.summarySet || opts.descriptionSet || opts.BodyFile != "" ||
-		opts.assigneeSet || opts.Priority != "" || opts.labelsSet ||
+		opts.assigneeSet || opts.Priority != "" || opts.labelsSet || opts.parentSet ||
 		len(opts.AddLabels) > 0 || len(opts.RemoveLabels) > 0 || len(opts.Fields) > 0
 	if !hasField {
 		return clierrors.NewValidationError("At least one field flag is required").
@@ -162,6 +166,19 @@ func runEdit(opts *EditOptions) error {
 		fields["priority"] = map[string]interface{}{"name": opts.Priority}
 	}
 
+	// Parent: set-only. Removing a parent is not supported.
+	if opts.parentSet {
+		if opts.Parent == "" {
+			return clierrors.NewValidationError("--parent cannot be empty; removing a parent is not supported").
+				WithSuggestion("Provide a parent issue key, e.g. --parent PROJ-100")
+		}
+		parentKey, err := ValidateIssueKeyOrID(opts.Parent)
+		if err != nil {
+			return err
+		}
+		fields["parent"] = map[string]interface{}{"key": parentKey}
+	}
+
 	// Labels: replaces all labels on the issue (via fields).
 	if opts.labelsSet {
 		if opts.Labels == nil {
@@ -193,7 +210,7 @@ func runEdit(opts *EditOptions) error {
 	// Named flags take precedence; warn on collision.
 	namedFieldKeys := map[string]bool{
 		"summary": true, "description": true, "assignee": true,
-		"priority": true, "labels": true,
+		"priority": true, "labels": true, "parent": true,
 	}
 
 	var updatedFields []string
@@ -267,7 +284,7 @@ type editChange struct {
 func runEditDryRun(ctx context.Context, f *factory.Factory, client *api.Client, opts *EditOptions, fields map[string]interface{}, update map[string]json.RawMessage, updatedFields []string) error {
 	// Fetch current issue to compute diff.
 	issue, err := client.GetIssue(ctx, opts.KeyOrID, &api.GetIssueOptions{
-		Fields: []string{"summary", "description", "assignee", "priority", "labels"},
+		Fields: []string{"summary", "description", "assignee", "priority", "labels", "parent"},
 	})
 	if err != nil {
 		return err
@@ -330,6 +347,20 @@ func runEditDryRun(ctx context.Context, f *factory.Factory, client *api.Client, 
 			From:  issue.Fields.Labels,
 			To:    fields["labels"],
 		})
+	}
+
+	if _, ok := fields["parent"]; ok {
+		var from interface{}
+		if issue.Fields.Parent != nil {
+			from = issue.Fields.Parent.Key
+		}
+		if m, ok := fields["parent"].(map[string]interface{}); ok {
+			changes = append(changes, editChange{
+				Field: "parent",
+				From:  from,
+				To:    m["key"],
+			})
+		}
 	}
 
 	// Add/remove label operations: compute resulting labels.
@@ -399,7 +430,7 @@ func computeLabelDelta(current []string, add, remove []string) []string {
 // namedFieldKey returns true if the key collides with a named flag.
 func namedFieldKey(key string) bool {
 	switch key {
-	case "summary", "description", "assignee", "priority", "labels":
+	case "summary", "description", "assignee", "priority", "labels", "parent":
 		return true
 	}
 	return false

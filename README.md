@@ -226,6 +226,17 @@ Exported files use YAML frontmatter for metadata (key, type, status, priority, l
 
 Custom fields with object values (teams, options, users) are round-tripped via a `.jira-field-values.json` sidecar file that maps display names to Jira API objects. The sidecar is generated automatically during export and consumed during import.
 
+### Config-driven mapping (`--map`)
+
+When your documents use their own frontmatter vocabulary (e.g. `name`, `jira_key`, `initiative`, `stream`) rather than the CLI's canonical keys, pass a declarative field-map and the CLI translates them — pushing content on `import` and reconciling `status`/`assignee` back on `pull`:
+
+```sh
+jira issue import ./epics/**/*.md --map ./jira-sync.yaml --force   # content: docs -> Jira
+jira issue pull   ./epics/**/*.md --map ./jira-sync.yaml           # state: Jira -> docs (status, assignee)
+```
+
+`--map` is opt-in and backward compatible. See [docs/config-driven-mapping.md](docs/config-driven-mapping.md) and the annotated [docs/jira-sync.example.yaml](docs/jira-sync.example.yaml).
+
 ### Reconcile
 
 Detect issues that exist in Jira but have no corresponding markdown file:

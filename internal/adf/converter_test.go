@@ -302,7 +302,9 @@ func TestConvert(t *testing.T) {
 				assertDocNode(t, doc)
 				assertContentLen(t, doc, 1)
 				p := doc.Content[0]
-				// Find text "code" with both strong and code marks
+				// The code span carries only the code mark: the ADF spec forbids
+				// combining code with strong, so the inherited strong is dropped
+				// (Jira rejects code+strong with INVALID_INPUT).
 				found := false
 				for _, n := range p.Content {
 					if n.Type == TypeText && n.Text == "code" {
@@ -316,13 +318,16 @@ func TestConvert(t *testing.T) {
 								hasCode = true
 							}
 						}
-						if hasStrong && hasCode {
+						if hasCode && !hasStrong {
 							found = true
+						}
+						if hasStrong {
+							t.Error("code span must not carry the strong mark (invalid ADF)")
 						}
 					}
 				}
 				if !found {
-					t.Error("expected text 'code' with both strong and code marks")
+					t.Error("expected text 'code' with the code mark and no strong mark")
 				}
 			},
 		},
@@ -625,4 +630,42 @@ func assertHasTextWithMark(t *testing.T, p *Node, text string, markType MarkType
 		}
 	}
 	t.Errorf("expected text %q with mark %q not found in paragraph", text, markType)
+}
+
+// TestConvertCodeSpanDropsIncompatibleMarks verifies that an inline code span
+// inside emphasis does not emit a combined code+em mark (invalid ADF that Jira
+// rejects with INVALID_INPUT). The code mark may only combine with link.
+func TestConvertCodeSpanDropsIncompatibleMarks(t *testing.T) {
+	doc, err := Convert("*see `file.md` now*")
+	if err != nil {
+		t.Fatalf("Convert() error: %v", err)
+	}
+	var checked bool
+	var walk func(n *Node)
+	walk = func(n *Node) {
+		if n.Type == TypeText {
+			hasCode, hasEm := false, false
+			for _, m := range n.Marks {
+				switch m.Type {
+				case MarkCode:
+					hasCode = true
+				case MarkEm:
+					hasEm = true
+				}
+			}
+			if hasCode {
+				checked = true
+				if hasEm {
+					t.Errorf("text %q has both code and em marks; code must not combine with em", n.Text)
+				}
+			}
+		}
+		for _, c := range n.Content {
+			walk(c)
+		}
+	}
+	walk(doc)
+	if !checked {
+		t.Fatal("no code-marked text node found; test did not exercise the fix")
+	}
 }
