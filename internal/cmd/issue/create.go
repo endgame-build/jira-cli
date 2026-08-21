@@ -71,7 +71,7 @@ func runCreate(opts *CreateOptions) error {
 	ctx := context.Background()
 
 	// Resolve --project: flag > default.project config > error.
-	project, err := resolveProject(f, opts.Project)
+	project, err := shared.ResolveProject(f, opts.Project)
 	if err != nil {
 		return err
 	}
@@ -132,7 +132,7 @@ func runCreate(opts *CreateOptions) error {
 		fields["assignee"] = map[string]interface{}{"accountId": accountID}
 	} else {
 		// Check default.assignee config.
-		assigneeDefault := configGet(f, "default.assignee")
+		assigneeDefault := shared.ConfigGet(f, "default.assignee")
 		if assigneeDefault != "" {
 			accountID, err := api.ResolveUser(ctx, client, assigneeDefault)
 			if err != nil {
@@ -300,36 +300,6 @@ func runCreateDryRun(ctx context.Context, f *factory.Factory, client *api.Client
 		}
 		fmt.Fprintf(f.IOStreams.Out, "\nValidation: %s\n", validation)
 	})
-}
-
-// resolveProject resolves the project key from flag, config, or returns an error.
-func resolveProject(f *factory.Factory, flagProject string) (string, error) {
-	if flagProject != "" {
-		return flagProject, nil
-	}
-
-	// Check default.project config.
-	defaultProject := configGet(f, "default.project")
-	if defaultProject != "" {
-		return defaultProject, nil
-	}
-
-	return "", clierrors.NewValidationError("--project is required").
-		WithSuggestion("Specify --project or set a default: jira config set default.project PROJ")
-}
-
-// configGet safely retrieves a config value. Returns "" if missing.
-// Warns on stderr if config cannot be loaded.
-func configGet(f *factory.Factory, key string) string {
-	cfg, err := f.Config()
-	if err != nil {
-		fmt.Fprintf(f.IOStreams.Err, "Warning: could not load config: %v\n", err)
-		return ""
-	}
-	if cfg == nil {
-		return ""
-	}
-	return cfg.Get(key)
 }
 
 // parseField splits a "key=value" string on the first '=' only.

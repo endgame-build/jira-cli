@@ -1,6 +1,15 @@
 # jira-cli
 
-Non-interactive CLI for Jira Cloud REST API v3 — built for developers, agents, and CI/CD.
+[![CI](https://github.com/endgame-build/jira-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/endgame-build/jira-cli/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/endgame-build/jira-cli)](https://github.com/endgame-build/jira-cli/releases/latest)
+[![Go Reference](https://pkg.go.dev/badge/github.com/endgame-build/jira-cli.svg)](https://pkg.go.dev/github.com/endgame-build/jira-cli)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
+A non-interactive CLI for the Jira Cloud REST API v3, built for developers, agents, and CI/CD.
+
+jira-cli is an unofficial tool, not affiliated with or endorsed by Atlassian. It
+is a separate project from [ankitpokhrel/jira-cli](https://github.com/ankitpokhrel/jira-cli),
+which installs a binary under the same name.
 
 ```
 jira issue create --project PROJ --type Bug --summary "Login fails on Safari"
@@ -14,6 +23,7 @@ jira search "project = PROJ AND status = Open" --limit 10
 - **Non-interactive** — flags supply all input; every command runs unattended
 - **Pipe-safe** — structured JSON output, correct exit codes, plain text when piped
 - **Agent-friendly** — errors include codes, context, and fix suggestions so LLMs self-correct
+- **Agent SDLC loop** — `ready → claim → discover → close`, blocker-aware and sprint-filtered
 - **Three credential sources** — flags, environment variables, or stored profiles (keyring-backed)
 - **Markdown input** — write descriptions and comments in Markdown; the CLI converts them to Atlassian Document Format
 - **JQL support** — raw JQL via `jira search` or flag-based filtering via `jira issue list`
@@ -66,6 +76,10 @@ jira search "project = PROJ AND assignee = currentUser()" --json
 
 # List my open issues
 jira issue list --assignee @me
+
+# Find work an agent can start on now, and claim it
+jira agent ready --project PROJ --sprint active --json
+jira agent claim PROJ-123
 ```
 
 ## Commands
@@ -84,8 +98,61 @@ jira issue list                        # List issues (--project, --assignee, --s
 jira issue transitions <key-or-id>     # Show available workflow transitions
 jira issue export                      # Export issues to markdown (--project, --jql, --tree)
 jira issue import <files...>           # Create/update issues from markdown (--dir, --force)
+jira issue pull <files...>             # Reconcile status and assignee from Jira back into markdown
 jira issue reconcile                   # Detect orphaned Jira issues (--dir, --epic, --project, --jql)
 ```
+
+### Agent Workflow
+
+Commands for autonomous agents working a Jira backlog. `jira agent prime` prints
+the workflow context an agent needs; the rest move work through it.
+
+```sh
+jira agent prime                       # Print workflow context for agent injection (--full)
+jira agent ready                       # Issues ready for work, no unresolved blockers
+jira agent blocked                     # Issues blocked by unresolved dependencies
+jira agent claim <key>                 # Assign to yourself and move to In Progress (--force)
+jira agent close <key>                 # Move to Done (--reason, --suggest-next, --claim-next)
+jira agent discover <parent-key>       # File newly found work against the current item
+jira agent status                      # Ready, actionable, in-progress, blocked and done today
+```
+
+The loop these commands implement:
+
+```sh
+jira agent ready --project PROJ --sprint active --json   # find work
+jira agent claim PROJ-123                                # assign + In Progress
+# ...implement...
+jira agent discover PROJ-123 --title "Retry on 429"      # file what you found
+jira agent close PROJ-123 --reason "Shipped" --suggest-next
+```
+
+`ready` filters on `--assignee @me`, `--unassigned`, `--type`, `--label`,
+`--priority`, `--component` and `--sprint active|future|<name>`. It excludes
+anything blocked by an unresolved issue, so what it returns is what an agent can
+start on now.
+
+Two details worth knowing. Blocked-ness is computed from `is blocked by` links
+whose target is not in the `done` status *category*, and `claim`/`close` resolve
+transitions by category rather than by status name — so both survive custom
+workflows. And `status` reports `ready_count` as every To Do issue in the
+project, while `actionable_count` is the subset with no blockers, which is what
+`ready` actually hands out; `in_progress_count` covers only your own issues,
+the rest are project-wide.
+
+The command contracts are specified in [docs/agent-sdlc-contracts.md](docs/agent-sdlc-contracts.md),
+and [test/e2e](test/e2e) exercises the whole loop against a real sprint.
+
+### Sprints
+
+```sh
+jira sprint list                       # List sprints (--state active|future|closed, --board)
+jira sprint active                     # Show the active sprint for a project
+jira sprint add <key>...               # Move issues into a sprint (--sprint, defaults to active)
+```
+
+Sprints are found through the project's board. Both company-managed boards
+(which Jira reports as `scrum`) and team-managed ones (`simple`) are supported.
 
 ### Search
 
@@ -147,7 +214,7 @@ jira alias list                        # List all aliases
 ```sh
 jira auth login                        # Store credentials (--instance, --user, --token)
 jira auth logout --yes                 # Remove stored credentials
-jira auth status                       # Show current authentication
+jira auth status                       # Show current authentication (--check to fail on an invalid token)
 jira auth switch <profile>             # Switch active profile
 ```
 
@@ -228,7 +295,7 @@ Custom fields with object values (teams, options, users) are round-tripped via a
 
 ### Config-driven mapping (`--map`)
 
-When your documents use their own frontmatter vocabulary (e.g. `name`, `jira_key`, `initiative`, `stream`) rather than the CLI's canonical keys, pass a declarative field-map and the CLI translates them — pushing content on `import` and reconciling `status`/`assignee` back on `pull`:
+When your documents use their own frontmatter vocabulary (e.g. `name`, `jira_key`, `initiative`, `stream`) rather than the CLI's canonical keys, pass a declarative field-map and the CLI translates them, pushing content on `import` and reconciling `status` and `assignee` back on `pull`:
 
 ```sh
 jira issue import ./epics/**/*.md --map ./jira-sync.yaml --force   # content: docs -> Jira
@@ -280,10 +347,47 @@ jira schema field-values --project PROJ --output .jira-field-values.json
 | 7 | Network error |
 | 8 | Conflict |
 
+## Documentation
+
+- [Config-driven field mapping](docs/config-driven-mapping.md) and the annotated [example config](docs/jira-sync.example.yaml)
+- [Agent SDLC command contracts](docs/agent-sdlc-contracts.md)
+- [SPEC.md](SPEC.md) for the full command surface, [CLAUDE.md](CLAUDE.md) for the architecture
+
 ## Status
 
-Active development. Covers Jira Cloud REST API v3.
+Active development against the Jira Cloud REST API v3. Jira Server and Data
+Center are unsupported. Releases before 1.0 can change flags and output between
+minor versions; pin a version in CI.
+
+## Contributing
+
+Read [CONTRIBUTING.md](.github/CONTRIBUTING.md). It covers the setup, the
+conventional-commit format that drives releases, and the architecture rules new
+commands follow. Open an issue before writing code for anything larger than a
+bug fix.
+
+Everyone taking part is expected to follow the
+[Code of Conduct](.github/CODE_OF_CONDUCT.md).
+
+## Support
+
+See [SUPPORT.md](.github/SUPPORT.md) for where to file what. Questions about
+Jira itself belong in the [Atlassian Community](https://community.atlassian.com).
+
+## Security
+
+Report vulnerabilities privately through GitHub's security advisories, never in
+a public issue. [SECURITY.md](.github/SECURITY.md) covers the process and how
+jira-cli handles your API token.
 
 ## License
 
-Proprietary.
+Apache License 2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE), and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the licenses of the Go
+modules linked into the released binaries.
+
+## Trademarks
+
+Jira and Atlassian are trademarks of Atlassian Pty Ltd. This project uses the
+names to describe what it is compatible with, and claims no affiliation with or
+endorsement by Atlassian.

@@ -26,11 +26,14 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
+    formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - README.md
+      - LICENSE
+      - NOTICE
+      - THIRD_PARTY_NOTICES.md
 
 checksum:
   name_template: checksums.txt

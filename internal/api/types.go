@@ -213,6 +213,15 @@ type StatusDetail struct {
 	IconURL        string          `json:"iconUrl,omitempty"`
 }
 
+// IssueTypeStatuses groups an issue type with its available workflow statuses.
+// Returned by GET /project/{key}/statuses.
+type IssueTypeStatuses struct {
+	ID       string         `json:"id"`
+	Name     string         `json:"name"`
+	Subtask  bool           `json:"subtask"`
+	Statuses []StatusDetail `json:"statuses"`
+}
+
 // LabelPage is the response from GET /label (PageBeanString shape).
 type LabelPage struct {
 	Values     []string `json:"values"`
@@ -317,6 +326,23 @@ type EditIssueInput struct {
 	Update map[string]json.RawMessage `json:"update,omitempty"`
 }
 
+// CreateIssueLinkInput is the request body for POST /issueLink.
+type CreateIssueLinkInput struct {
+	Type         IssueLinkTypeRef `json:"type"`
+	InwardIssue  LinkedIssueRef   `json:"inwardIssue"`
+	OutwardIssue LinkedIssueRef   `json:"outwardIssue"`
+}
+
+// IssueLinkTypeRef identifies a link type by name.
+type IssueLinkTypeRef struct {
+	Name string `json:"name"`
+}
+
+// LinkedIssueRef identifies an issue by key for link creation.
+type LinkedIssueRef struct {
+	Key string `json:"key"`
+}
+
 // ──────────────────────────────────────────────
 // Options (internal, not sent as JSON)
 // ──────────────────────────────────────────────
@@ -400,4 +426,51 @@ func (f *IssueFields) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
+}
+
+// ──────────────────────────────────────────────
+// Agile board + sprint types (REST /agile/1.0)
+// ──────────────────────────────────────────────
+
+// Board represents a Jira Software board.
+type Board struct {
+	ID       int            `json:"id"`
+	Name     string         `json:"name"`
+	Type     string         `json:"type"` // "scrum", "kanban", or "simple" (team-managed)
+	Location *BoardLocation `json:"location,omitempty"`
+}
+
+// BoardLocation identifies the project a board belongs to.
+type BoardLocation struct {
+	ProjectID   int    `json:"projectId"`
+	ProjectKey  string `json:"projectKey"`
+	DisplayName string `json:"displayName"`
+}
+
+// Sprint represents a Jira Software sprint.
+type Sprint struct {
+	ID            int    `json:"id"`
+	Name          string `json:"name"`
+	State         string `json:"state"` // "future", "active", "closed"
+	StartDate     string `json:"startDate,omitempty"`
+	EndDate       string `json:"endDate,omitempty"`
+	CompleteDate  string `json:"completeDate,omitempty"`
+	Goal          string `json:"goal,omitempty"`
+	OriginBoardID int    `json:"originBoardId"`
+}
+
+// boardPage is the paginated response from GET /rest/agile/1.0/board.
+type boardPage struct {
+	Values  []Board `json:"values"`
+	StartAt int     `json:"startAt"`
+	Total   int     `json:"total"`
+	IsLast  bool    `json:"isLast"`
+}
+
+// sprintPage is the paginated response from GET /rest/agile/1.0/board/{id}/sprint.
+type sprintPage struct {
+	Values  []Sprint `json:"values"`
+	StartAt int      `json:"startAt"`
+	Total   int      `json:"total"`
+	IsLast  bool     `json:"isLast"`
 }

@@ -3,6 +3,7 @@
 package factory
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -55,6 +56,11 @@ func New() *Factory {
 	return &Factory{
 		IOStreams: iostreams.New(),
 	}
+}
+
+// Stderr returns the stderr writer from IOStreams.
+func (f *Factory) Stderr() io.Writer {
+	return f.IOStreams.Err
 }
 
 // Config returns the loaded configuration, initializing on first call.

@@ -78,7 +78,8 @@ func TestValidateProjectKeyOrID(t *testing.T) {
 		{name: "empty string", input: "", wantErr: true},
 		{name: "single letter", input: "A", wantErr: true},
 		{name: "issue key format", input: "PROJ-123", wantErr: true},
-		{name: "contains digits", input: "PROJ1", wantErr: true},
+		{name: "trailing digits", input: "PROJ1", want: "PROJ1"},
+		{name: "digits in the middle", input: "AB1C", want: "AB1C"},
 		{name: "contains underscore", input: "MY_PROJ", wantErr: true},
 		{name: "spaces", input: "MY PROJ", wantErr: true},
 		{name: "special chars", input: "PROJ@", wantErr: true},
@@ -120,6 +121,8 @@ func TestValidateIssueKeyOrID(t *testing.T) {
 		// Valid issue keys
 		{name: "standard key", input: "PROJ-123", want: "PROJ-123"},
 		{name: "single letter project", input: "A-1", want: "A-1"},
+		{name: "digits in project part", input: "ABC123-45", want: "ABC123-45"},
+		{name: "lowercase with digits", input: "ab1-2", want: "AB1-2"},
 		{name: "long project key", input: "MYPROJECT-99999", want: "MYPROJECT-99999"},
 
 		// Lowercase normalization

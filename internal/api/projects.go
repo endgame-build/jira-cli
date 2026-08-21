@@ -29,6 +29,18 @@ func (c *Client) ListProjects(ctx context.Context, opts OffsetPaginationOptions)
 	return &result, nil
 }
 
+// GetProjectStatuses returns the statuses available for each issue type in a project.
+// GET /project/{keyOrId}/statuses
+func (c *Client) GetProjectStatuses(ctx context.Context, keyOrID string) ([]IssueTypeStatuses, error) {
+	path := fmt.Sprintf("project/%s/statuses", keyOrID)
+
+	var result []IssueTypeStatuses
+	if err := c.Do(ctx, http.MethodGet, path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // GetProject fetches a single project by key or numeric ID.
 // GET /project/{keyOrId}
 // On 404, wraps the error with the project key in context.
