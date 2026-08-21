@@ -28,7 +28,10 @@ func NewCmdStatus(f *factory.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show current agent work status",
-		Long:  "Show a summary of what's ready, in progress, blocked, and done today.",
+		Long: "Show a summary of what's ready, in progress, blocked, and done today.\n\n" +
+			"Ready counts every To Do issue in the project; Actionable is the subset with no\n" +
+			"unresolved blockers, which is what 'agent ready' hands out. In Progress counts\n" +
+			"only your own issues; the other three are project-wide.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStatus(opts)
 		},
@@ -44,6 +47,7 @@ type statusResult struct {
 	Project         string       `json:"project"`
 	Sprint          *sprintInfo  `json:"sprint,omitempty"`
 	ReadyCount      int          `json:"ready_count"`
+	ActionableCount int          `json:"actionable_count"`
 	InProgressCount int          `json:"in_progress_count"`
 	BlockedCount    int          `json:"blocked_count"`
 	DoneToday       int          `json:"done_today"`
@@ -131,8 +135,13 @@ func runStatus(opts *StatusOptions) error {
 		result.DoneToday = len(doneResults.Issues)
 	}
 
-	// Blocked count — uses same fetch+filter approach as the blocked command
-	// (standard JQL, no ScriptRunner required).
+	// Blocked and actionable counts — one fetch, same filter the blocked and
+	// ready commands use (standard JQL, no ScriptRunner required).
+	//
+	// ready_count above counts every To Do issue with no blocker filter, so it
+	// disagrees with what `agent ready` will actually hand out. It is kept as
+	// it is because callers depend on it; actionable_count is the number that
+	// matches the ready queue.
 	blockedResults, err := client.SearchIssues(ctx, &api.SearchOptions{
 		JQL:        fmt.Sprintf("project = %q AND statusCategory != Done", project),
 		Fields:     AgentReadyFields(),
@@ -142,8 +151,14 @@ func runStatus(opts *StatusOptions) error {
 		fmt.Fprintf(f.IOStreams.Err, "Warning: could not fetch blocked count: %v\n", err)
 	} else {
 		for i := range blockedResults.Issues {
-			if IsBlocked(&blockedResults.Issues[i]) {
+			issue := &blockedResults.Issues[i]
+			if IsBlocked(issue) {
 				result.BlockedCount++
+				continue
+			}
+			if issue.Fields.Status != nil && issue.Fields.Status.StatusCategory != nil &&
+				issue.Fields.Status.StatusCategory.Key == CategoryToDo {
+				result.ActionableCount++
 			}
 		}
 	}
@@ -172,6 +187,7 @@ func runStatus(opts *StatusOptions) error {
 	}
 	fmt.Fprintln(f.IOStreams.Out)
 	fmt.Fprintf(f.IOStreams.Out, "  Ready:       %d\n", result.ReadyCount)
+	fmt.Fprintf(f.IOStreams.Out, "  Actionable:  %d\n", result.ActionableCount)
 	fmt.Fprintf(f.IOStreams.Out, "  In Progress: %d\n", result.InProgressCount)
 	fmt.Fprintf(f.IOStreams.Out, "  Blocked:     %d\n", result.BlockedCount)
 	fmt.Fprintf(f.IOStreams.Out, "  Done Today:  %d\n", result.DoneToday)

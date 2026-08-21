@@ -7,9 +7,11 @@ import (
 	"github.com/endgame-build/jira-cli/internal/errors"
 )
 
-// issueKeyRe matches Jira issue keys: 1+ ASCII letters, hyphen, 1+ digits.
+// issueKeyRe matches Jira issue keys: a letter, then letters or digits, then a
+// hyphen and 1+ digits. Jira permits digits in a project key after the first
+// character, so ABC123-45 is legal and must be accepted.
 // Lowercase letters are accepted and auto-uppercased by ValidateIssueKeyOrID.
-var issueKeyRe = regexp.MustCompile(`^[A-Za-z][A-Za-z]*-[0-9]+$`)
+var issueKeyRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*-[0-9]+$`)
 
 // numericIDRe matches plain numeric Jira issue IDs (e.g., "10001").
 var numericIDRe = regexp.MustCompile(`^[0-9]+$`)
@@ -25,8 +27,9 @@ func ValidateCommentID(input string) (string, error) {
 	return input, nil
 }
 
-// projectKeyRe matches Jira project keys: 2+ ASCII letters (no hyphen or digits).
-var projectKeyRe = regexp.MustCompile(`^[A-Za-z]{2,}$`)
+// projectKeyRe matches Jira project keys: a letter followed by 1+ letters or
+// digits. An all-digit input is treated as a numeric ID before this is reached.
+var projectKeyRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]+$`)
 
 // ValidateProjectKeyOrID validates the input as either a Jira project key (PROJ)
 // or a numeric project ID (10001). Keys are auto-uppercased. Returns the normalized

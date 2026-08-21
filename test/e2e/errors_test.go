@@ -105,32 +105,41 @@ func TestE2E_ERR_03(t *testing.T) {
 	})
 }
 
-// TestE2E_ERR_04 — issue keys whose project part contains a digit are rejected
-// before any request, even though Jira allows them.
+// TestE2E_ERR_04 — issue keys whose project part contains a digit are accepted.
 //
-// internal/cmd/shared/validate.go:12 is `^[A-Za-z][A-Za-z]*-[0-9]+$`, so a
-// project like AB1 makes every claim/close/discover call unusable while
-// `agent ready -p AB1` still returns those very keys. The loop hands an agent
-// work it then refuses to accept.
+// The validator used to be `^[A-Za-z][A-Za-z]*-[0-9]+$`, which rejected AB1-23
+// before any request even though Jira permits digits in a project key after the
+// first character. On such a project `agent ready` returned keys that `claim`,
+// `close` and `discover` all refused — the loop handed an agent work it then
+// would not accept.
 //
-// This case documents the defect. It passes today by asserting the broken
-// behaviour, and will fail — deliberately — when the regex is fixed.
+// The key below does not exist, so the assertion is that validation lets it
+// through to Jira: NOT_FOUND (4) rather than VALIDATION_ERROR (3).
 //
 // Spec: docs/e2e-agent-sdlc-spec.md#e2e-err-04
 func TestE2E_ERR_04(t *testing.T) {
 	h := New(t)
 
 	res := h.Run("agent", "claim", "AB1-23", "--json")
-	if res.ExitCode != 3 {
-		t.Skipf("expected the digit-bearing key AB1-23 to be rejected with exit 3; got %d — "+
-			"the validation regex may have been fixed, in which case delete this case", res.ExitCode)
+
+	if res.ExitCode == 3 {
+		doc := DecodeError(t, res, "VALIDATION_ERROR")
+		t.Fatalf("AB1-23 was rejected before reaching Jira (%s); digits are legal in a "+
+			"project key after the first character", doc.Message)
 	}
-	doc := DecodeError(t, res, "VALIDATION_ERROR")
-	if !strings.Contains(strings.ToLower(doc.Message), "invalid issue key") {
-		t.Errorf("message = %q, want it to name an invalid issue key\n%s", doc.Message, res)
+	if res.ExitCode != 4 {
+		t.Errorf("exit = %d, want 4 (NOT_FOUND) — the key is well-formed but does not exist\n%s",
+			res.ExitCode, res)
+		return
 	}
-	t.Logf("KNOWN DEFECT: issue keys with a digit in the project part (AB1-23) are rejected "+
-		"pre-request by internal/cmd/shared/validate.go:12, though Jira permits them: %s", doc.Message)
+	DecodeError(t, res, "NOT_FOUND")
+
+	// Lowercase input is still normalised on the way through.
+	lower := h.Run("agent", "claim", "ab1-23", "--json")
+	if lower.ExitCode != 4 {
+		t.Errorf("lowercase exit = %d, want 4 — keys are uppercased, not rejected\n%s",
+			lower.ExitCode, lower)
+	}
 }
 
 // replaceEnv returns env with key set to value, replacing any existing entry.

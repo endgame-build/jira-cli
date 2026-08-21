@@ -5,8 +5,16 @@ sprint. Every finding below was reproduced against the API directly, not
 inferred from reading code.
 
 **Run:** `endgame-build.atlassian.net`, project `SCRUM` (team-managed, board 1,
-active sprint `SCRUM Sprint 0`). 30 passed, 7 skipped, 0 failed, 140 seconds,
-no leaked issues.
+active sprint `SCRUM Sprint 0`). First run: 30 passed, 7 skipped, 0 failed.
+
+**Status: six of the nine are fixed.** After the fixes the same suite reports
+**38 passed, 2 skipped, 0 failed** — the remaining skips need a second Jira
+account and the manual sweep utility. Each fixed item is marked below, and its
+E2E case now asserts the corrected behaviour rather than documenting the defect,
+so a regression fails the suite.
+
+The three still open all change a contract that clients depend on, so they are
+deferred to the next major version rather than fixed in place.
 
 The loop itself works. `ready → claim → status → discover → close → ready`
 passed all ten steps against real Jira, including idempotent re-claim with an
@@ -18,7 +26,7 @@ implemented in `test/e2e/`.
 
 ---
 
-## P0 — An invalid token is indistinguishable from an empty backlog
+## P0 — An invalid token is indistinguishable from an empty backlog — FIXED
 
 **Case:** `E2E-ERR-05` · `test/e2e/errors_test.go`
 
@@ -52,18 +60,21 @@ there is no work. Nothing in the loop separates "you are not authenticated" from
 script because it exits 0. Token rotation turns every agent into a no-op
 silently.
 
-**Recommended fix.** Two changes, both small:
+**Fixed.** `agent ready`, `blocked` and `status` now call
+`shared.CheckEmptyResultsAuth` when a search returns nothing — the helper
+`issue list`, `search` and `project list` already used. It probes `GET /myself`,
+returns `AUTH_ERROR`, and treats a non-auth probe failure as a warning so a
+legitimately empty result is never masked. The probe keys off the raw search
+result, so a queue that empties through blocker filtering does not trigger it.
 
-1. Validate the session before trusting an empty search. In the agent commands,
-   when a search returns zero issues, call `GetMyself` — which does return 401 —
-   and surface `AUTH_ERROR` instead of an empty queue. One extra request only on
-   the empty path, so the cost is nil in the common case.
-2. Make `auth status` exit non-zero when the token is invalid, so it can be used
-   as a gate in a hook or CI step.
+`auth status` gains an opt-in `--check` that turns an invalid token into an
+error. The default exit code is unchanged, because scripts depend on it.
+
+Verified live: all three now exit 2 with a bad token.
 
 ---
 
-## P1 — Sprint features are blind to team-managed projects
+## P1 — Sprint features are blind to team-managed projects — FIXED
 
 **Case:** `E2E-SPRINT-06` · `test/e2e/sprint_test.go`
 
@@ -92,21 +103,16 @@ sprint-aware half of this feature does not work for most new projects. That
 `ready --sprint active` still works makes the failure easy to miss: sprint
 filtering appears functional while every sprint *display* is empty.
 
-**Recommended fix.** Drop the `type=scrum` server-side filter in
-`getScrumBoards` and accept boards of type `scrum` or `simple`. `sprint list`
-does its filtering client-side at `list.go` and needs the same change. Consider
-selecting boards by "has sprints" rather than by type, since that is the actual
-requirement.
+**Fixed.** Both filters now accept either type: the server-side one sends
+`type=scrum,simple`, and `sprint list` uses the shared `api.IsSprintBoardType`
+predicate. Five E2E cases that had been skipped now run.
 
-Related gap: **no command can add an issue to a sprint.** `issue create --field`
-sends every value as a string (`internal/cmd/issue/create.go:183`) and Jira's
-sprint field needs a number, and the Agile `POST /sprint/{id}/issue` endpoint is
-not exposed. The e2e fixtures call that endpoint directly. Worth adding a
-`jira sprint add` command.
+The related gap — no way to put an issue into a sprint — is closed by the new
+`jira sprint add`, which wraps `POST /rest/agile/1.0/sprint/{id}/issue`.
 
 ---
 
-## P1 — `agent discover` hardcodes the sub-task type name
+## P1 — `agent discover` hardcodes the sub-task type name — FIXED
 
 **Case:** `E2E-DISCOVER-04` · `test/e2e/discover_test.go`
 
@@ -126,13 +132,14 @@ Confirmed instance-dependent: `CUSTOMER` on odevo uses `Sub-task`; `SCRUM`,
 the loop — fails unless the caller knows to pass `--type` explicitly. The
 `prime` output an agent is primed with does not mention that.
 
-**Recommended fix.** Resolve the sub-task type from `GetCreateMeta`, which
-`agent prime` already calls, and fall back to the literal only if nothing is
-marked `subtask: true`.
+**Fixed.** `ResolveIssueTypeName` in `internal/cmd/agent/shared.go` reads the
+project's create metadata and picks the type by its `subtask` flag, falling back
+to the previous literal when the metadata cannot be read — a forbidden
+`createmeta` should not stop the command from trying.
 
 ---
 
-## P2 — Issue keys with a digit in the project part are rejected
+## P2 — Issue keys with a digit in the project part are rejected — FIXED
 
 **Case:** `E2E-ERR-04` · `test/e2e/errors_test.go`
 
@@ -145,12 +152,13 @@ those very keys.
 **Impact.** On such a project the loop hands an agent work it then refuses to
 accept. `ValidateProjectKeyOrID` has the same gap: `^[A-Za-z]{2,}$`.
 
-**Recommended fix.** `^[A-Za-z][A-Za-z0-9]*-[0-9]+$` for issue keys and
-`^[A-Za-z][A-Za-z0-9]+$` for project keys.
+**Fixed.** The regexes are now `^[A-Za-z][A-Za-z0-9]*-[0-9]+$` for issue keys and
+`^[A-Za-z][A-Za-z0-9]+$` for project keys. A leading digit is still rejected, as
+Jira requires.
 
 ---
 
-## P2 — `--sort` has no effect
+## P2 — `--sort` has no effect — FIXED
 
 **Case:** `E2E-READY-03` · `test/e2e/ready_test.go`
 
@@ -163,12 +171,13 @@ ordering whenever priorities differ. Observed live: `--sort updated` returned
 **Impact.** The flag is advertised in `--help` and in the contract, and does
 nothing.
 
-**Recommended fix.** Skip the client-side re-sort when `--sort` was given
-explicitly, or drop the flag. Keep the priority sort as the default.
+**Fixed.** The client-side re-sort now runs only for the default. An explicit
+`--sort` keeps the order Jira returned, and an unrecognised value is rejected
+rather than silently falling through to the default.
 
 ---
 
-## P3 — `status` counts disagree with the commands they summarise
+## P3 — `status` counts disagree with the commands they summarise — PARTLY FIXED
 
 **Cases:** `E2E-CONSIST-01`, `E2E-CONSIST-02` · `test/e2e/consistency_test.go`
 
@@ -180,12 +189,16 @@ Separately, `in_progress_count` is scoped to `assignee = currentUser()`
 (`status.go:79`) while `ready_count`, `blocked_count` and `done_today` are
 project-wide. Four numbers in one summary, two different scopes, no labelling.
 
-**Recommended fix.** Apply the same blocker filter to `ready_count`, and either
-scope all four counts consistently or rename the field to `my_in_progress_count`.
+**Partly fixed.** `ready_count` keeps its meaning, because clients read it.
+`status` now also reports **`actionable_count`** — the same figure `agent ready`
+hands out, computed with the blocker filter in the pass that already fetches
+those issues, so it costs no extra request. The help text states which counts
+are project-wide and which are yours. Changing `ready_count` itself and renaming
+`in_progress_count` are deferred.
 
 ---
 
-## P3 — Empty results are shaped inconsistently
+## P3 — Empty results are shaped inconsistently — DEFERRED
 
 **Case:** `E2E-CONSIST-03` · `test/e2e/consistency_test.go`
 
@@ -199,7 +212,7 @@ that currently declare a nil slice.
 
 ---
 
-## P3 — Pagination metadata is not truthful
+## P3 — Pagination metadata is not truthful — DEFERRED
 
 **Case:** `E2E-READY-02` · `test/e2e/ready_test.go`
 
@@ -216,7 +229,7 @@ appear, while the metadata insists there is no next page.
 
 ---
 
-## P3 — A failed link is reported as success
+## P3 — A failed link is reported as success — PARTLY FIXED
 
 **Case:** partially covered by `E2E-DISCOVER-03` · `test/e2e/discover_test.go`
 
@@ -226,8 +239,10 @@ the failure is downgraded to a stderr warning and the command exits 0 reporting
 "always linked to parent, no orphan discoveries", and an agent reading the JSON
 cannot detect the orphan.
 
-**Recommended fix.** Either fail the command, or report the real state —
-`"relationship": "unlinked"` plus a `link_error` field — so a caller can react.
+**Partly fixed.** The payload now carries `link_failed: true` when the link call
+fails, so a caller reading stdout can detect the orphan without parsing stderr.
+`relationship` is unchanged and the command still exits 0, because both are
+contracts clients depend on; failing outright is deferred.
 
 ---
 
@@ -259,13 +274,19 @@ Also uncovered, with reasons in the spec: exit 6 `RATE_LIMITED` (the retry
 transport absorbs it), exit 5 `PERMISSION_DENIED` (no reliable fixture), and
 `INVALID_TRANSITION` (unreachable on a default workflow).
 
-## Suggested order of work
+## What is left
 
-1. **P0 auth blindness** — it silently disables every agent, and the fix is small.
-2. **P1 team-managed boards** — restores the sprint half of the feature for the default project type, and unskips 5 cases.
-3. **P1 hardcoded `Sub-task`** — unblocks `discover` on team-managed projects.
-4. **P2 key regex and `--sort`** — both are small and remove misleading behaviour.
-5. **P3 shape and count consistency** — worth doing together, since they all affect what an agent can rely on in the JSON.
+Three items remain, all deferred because they change a contract clients already
+depend on. They belong in the next major version, where the release tooling will
+pick them up from a `BREAKING CHANGE` footer:
 
-Add `jira sprint add` alongside item 2, and give the README the `agent` and
-`sprint` sections it currently lacks.
+- Empty results emitting `null` instead of `[]` in `agent blocked`, `sprint list`
+  and `status.my_work`.
+- `pagination.total` reporting the returned count rather than the match count,
+  `has_next_page` always false, and the `max(limit*3, 50)` fetch window that can
+  hide actionable work.
+- `ready_count` semantics and `in_progress_count` scoping, once `actionable_count`
+  has bedded in.
+
+Also still outstanding, and unrelated to these findings: PR #29 has no README
+coverage for the `agent` and `sprint` command groups.

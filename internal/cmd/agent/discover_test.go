@@ -303,3 +303,96 @@ func TestDiscoverDryRun(t *testing.T) {
 		t.Error("expected no create call during dry-run")
 	}
 }
+
+// A link failure leaves the issue created but unlinked. The command still
+// succeeds — the issue is real — but the payload must say so, because
+// relationship alone asserts a link that is not there and a caller reading
+// stdout never sees the stderr warning.
+func TestDiscoverReportsLinkFailure(t *testing.T) {
+	parent := api.Issue{
+		Key: "PROJ-100",
+		Fields: api.IssueFields{
+			Summary:   "Parent issue",
+			Project:   &api.Project{Key: "PROJ"},
+			IssueType: &api.IssueType{Name: "Task"},
+		},
+	}
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case path == "/issue" && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			writeJSON(w, api.CreatedIssue{ID: "10001", Key: "PROJ-456"})
+		case strings.HasSuffix(path, "/issueLink") && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"errorMessages":["No issue link type with name 'Nonsense' found"]}`))
+		case strings.HasSuffix(path, "/comment") && r.Method == http.MethodPost:
+			writeJSON(w, api.Comment{ID: "200"})
+		case strings.Contains(path, "/issue/createmeta/") && r.Method == http.MethodGet:
+			writeJSON(w, api.CreateMetaIssueTypes{IssueTypes: []api.IssueTypeCreateMeta{
+				{Name: "Task", Subtask: false},
+			}})
+		case strings.Contains(path, "/issue/") && r.Method == http.MethodGet:
+			writeJSON(w, parent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	f, tio, _ := newTestFactory(t, handler)
+	f.OutputJSON = true
+
+	opts := &DiscoverOptions{
+		Factory:   f,
+		ParentKey: "PROJ-100",
+		Title:     "orphan",
+		AsSubtask: false,
+		LinkType:  "Nonsense",
+	}
+	if err := runDiscover(opts); err != nil {
+		t.Fatalf("the issue was created, so the command should succeed: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(tio.OutBuf.Bytes(), &result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result["link_failed"] != true {
+		t.Errorf("payload = %v, want link_failed:true so the caller can detect the orphan", result)
+	}
+	if !strings.Contains(tio.ErrBuf.String(), "link failed") {
+		t.Errorf("stderr = %q, want a warning", tio.ErrBuf.String())
+	}
+}
+
+// The happy path must not carry the flag.
+func TestDiscoverOmitsLinkFailedOnSuccess(t *testing.T) {
+	parent := api.Issue{
+		Key: "PROJ-100",
+		Fields: api.IssueFields{
+			Project:   &api.Project{Key: "PROJ"},
+			IssueType: &api.IssueType{Name: "Task"},
+		},
+	}
+
+	f, tio, _ := newTestFactory(t, discoverHandler(parent))
+	f.OutputJSON = true
+
+	opts := &DiscoverOptions{
+		Factory:   f,
+		ParentKey: "PROJ-100",
+		Title:     "linked",
+		AsSubtask: false,
+		LinkType:  "Relates",
+	}
+	if err := runDiscover(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]interface{}
+	json.Unmarshal(tio.OutBuf.Bytes(), &result)
+	if _, found := result["link_failed"]; found {
+		t.Errorf("payload = %v, want no link_failed key when the link succeeded", result)
+	}
+}

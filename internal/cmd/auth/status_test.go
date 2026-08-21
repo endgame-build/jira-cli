@@ -20,9 +20,21 @@ import (
 )
 
 // newTestStatusFactory creates a Factory pre-loaded with a stored profile and token.
+// clearAmbientCredentials stops the developer's own environment reaching the
+// command under test. The credential chain reads env before the stored profile,
+// so with real credentials exported — the state `make test-e2e` asks for —
+// these tests would resolve that instance instead of their fixture and fail.
+func clearAmbientCredentials(t *testing.T) {
+	t.Helper()
+	t.Setenv("JIRA_INSTANCE", "")
+	t.Setenv("JIRA_USER", "")
+	t.Setenv("JIRA_TOKEN", "")
+}
+
 func newTestStatusFactory(t *testing.T) (*factory.Factory, *iostreams.TestIOStreams) {
 	t.Helper()
 	keyring.MockInit()
+	clearAmbientCredentials(t)
 
 	tio := iostreams.Test()
 	cfgPath := filepath.Join(t.TempDir(), "config.toml")
@@ -121,6 +133,7 @@ func TestStatusInvalidToken(t *testing.T) {
 
 func TestStatusNoCredentials(t *testing.T) {
 	keyring.MockInit()
+	clearAmbientCredentials(t)
 
 	tio := iostreams.Test()
 	cfgPath := filepath.Join(t.TempDir(), "config.toml")

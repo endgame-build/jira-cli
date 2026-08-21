@@ -223,3 +223,94 @@ func TestReadyTextEmptyOutput(t *testing.T) {
 		t.Errorf("expected empty message, got: %s", out)
 	}
 }
+
+// --sort used to be discarded: the JQL asked Jira for one order and a
+// client-side re-sort immediately imposed another. Because truncation to
+// --limit happens after that sort, the wrong order changed which issues came
+// back, not just how they were arranged.
+func TestReadyHonoursExplicitSort(t *testing.T) {
+	// Server order is deliberately the opposite of priority order.
+	serverOrder := []api.Issue{
+		sampleIssueWithLinks("PROJ-LOW", "new", nil),
+		sampleIssueWithLinks("PROJ-HIGH", "new", nil),
+	}
+	serverOrder[0].Fields.Priority = &api.Priority{Name: "Low"}
+	serverOrder[0].Fields.Created = "2026-01-01T00:00:00.000+0000"
+	serverOrder[1].Fields.Priority = &api.Priority{Name: "Highest"}
+	serverOrder[1].Fields.Created = "2026-01-02T00:00:00.000+0000"
+
+	tests := []struct {
+		sort      string
+		wantFirst string
+		why       string
+	}{
+		{sort: "priority", wantFirst: "PROJ-HIGH", why: "the default re-sorts by priority"},
+		{sort: "created", wantFirst: "PROJ-LOW", why: "an explicit sort keeps the order Jira returned"},
+		{sort: "updated", wantFirst: "PROJ-LOW", why: "an explicit sort keeps the order Jira returned"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.sort, func(t *testing.T) {
+			var gotJQL string
+			f, tio, _ := newTestFactory(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/myself") {
+					writeJSON(w, myselfResponse())
+					return
+				}
+				body := map[string]interface{}{}
+				json.NewDecoder(r.Body).Decode(&body)
+				gotJQL, _ = body["jql"].(string)
+				writeJSON(w, sampleSearchResponse(serverOrder))
+			}))
+			f.OutputJSON = true
+
+			opts := &ReadyOptions{Factory: f, Project: "PROJ", Limit: 10, Sort: tt.sort}
+			if err := runReady(opts); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// The JQL must ask for the requested order in the first place.
+			switch tt.sort {
+			case "created":
+				if !strings.Contains(gotJQL, "ORDER BY created ASC") {
+					t.Errorf("JQL = %q, want it to order by created", gotJQL)
+				}
+			case "updated":
+				if !strings.Contains(gotJQL, "ORDER BY updated DESC") {
+					t.Errorf("JQL = %q, want it to order by updated", gotJQL)
+				}
+			}
+
+			var result struct {
+				Data []struct {
+					Key string `json:"key"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(tio.OutBuf.Bytes(), &result); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if len(result.Data) == 0 {
+				t.Fatal("no issues returned")
+			}
+			if result.Data[0].Key != tt.wantFirst {
+				t.Errorf("first issue = %s, want %s — %s", result.Data[0].Key, tt.wantFirst, tt.why)
+			}
+		})
+	}
+}
+
+// An unrecognised --sort used to fall through to the default silently.
+func TestReadyRejectsUnknownSort(t *testing.T) {
+	f, _, _ := newTestFactory(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("the sort guard should fire before any request")
+	}))
+
+	cmd := NewCmdReady(f)
+	cmd.SetArgs([]string{"--project", "PROJ", "--sort", "nonsense"})
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected an error for an unknown --sort value")
+	}
+}

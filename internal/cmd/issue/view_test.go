@@ -97,7 +97,19 @@ func newTestViewFactory(t *testing.T, handler http.Handler) (*factory.Factory, *
 
 // newTestViewWebFactory creates a Factory wired with a stored profile (for --web).
 // The --web code path needs AuthCredentials() to resolve the instance URL.
+// clearAmbientCredentials stops the developer's own environment reaching the
+// code under test. The credential chain reads env before the stored profile, so
+// with real credentials exported — the state `make test-e2e` asks for — these
+// tests would resolve that instance instead of their fixture.
+func clearAmbientCredentials(t *testing.T) {
+	t.Helper()
+	t.Setenv("JIRA_INSTANCE", "")
+	t.Setenv("JIRA_USER", "")
+	t.Setenv("JIRA_TOKEN", "")
+}
+
 func newTestViewWebFactory(t *testing.T) (*factory.Factory, *iostreams.TestIOStreams) {
+	clearAmbientCredentials(t)
 	t.Helper()
 	keyring.MockInit()
 

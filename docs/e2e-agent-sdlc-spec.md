@@ -153,12 +153,14 @@ does not read as a regression.
 
 ---
 
-## Defects these cases document
+## Defects these cases documented
 
-Found by inspection and confirmed against a live instance. Per the agreed scope
-these are reported, not fixed.
+Found by inspection and confirmed against a live instance. **All of the
+following are now fixed**; the cases below assert the corrected behaviour and
+would fail if it regressed. The remaining known divergences are listed after
+them.
 
-### Issue keys with a digit in the project part are rejected
+### Issue keys with a digit in the project part were rejected — FIXED
 
 `internal/cmd/shared/validate.go:12` is `^[A-Za-z][A-Za-z]*-[0-9]+$`. Jira
 allows digits in project keys after the first character, so a project called
@@ -168,9 +170,11 @@ allows digits in project keys after the first character, so a project called
 
 The loop becomes: here is your work → that is not a valid key.
 
-Covered by **E2E-ERR-04**, and the reason the sandbox key must be letters only.
+The validator now accepts a digit after the first character, so `AB1-23` reaches
+Jira. Covered by **E2E-ERR-04**, which asserts a well-formed but absent key
+returns NOT_FOUND rather than being rejected up front.
 
-### `agent discover` hardcodes the sub-task type name
+### `agent discover` hardcoded the sub-task type name — FIXED
 
 `internal/cmd/agent/discover.go:107` sets the type to the literal `"Sub-task"`.
 Team-managed Jira Cloud projects name that type `Subtask`. Since `--as-subtask`
@@ -181,9 +185,12 @@ Confirmed on `odevo.atlassian.net`: `CUSTOMER` uses `Sub-task`, while `TJS` and
 `QA` use `Subtask`. The fix is to read the name from `GetCreateMeta`, which
 `agent prime` already fetches.
 
-Covered by **E2E-DISCOVER-04**, which adapts to either naming.
+The type is now resolved from the project's own create metadata, falling back
+to the literal when that metadata cannot be read. Covered by
+**E2E-DISCOVER-04**, which asserts the default invocation works and produces the
+project's own sub-task type.
 
-### An invalid token looks exactly like an empty backlog
+### An invalid token looked exactly like an empty backlog — FIXED
 
 Jira Cloud answers `POST /rest/api/3/search/jql` with **HTTP 200 and zero
 issues** when the credentials are bad, rather than 401. Verified directly
@@ -204,13 +211,14 @@ and quietly does nothing, forever. Nothing in the loop distinguishes "you are
 not authenticated" from "there is no work", and the one command that detects it
 cannot gate a script because it exits 0.
 
-This is the most operationally dangerous behaviour the suite found. A cheap fix
-is to validate the session with `GET /myself` — which does 401 — before trusting
-an empty search result.
+This was the most operationally dangerous behaviour the suite found.
 
-Covered by **E2E-ERR-05**.
+`agent ready`, `blocked` and `status` now probe the session with `GET /myself`
+before reporting an empty result, and exit 2. `auth status --check` turns an
+invalid token into an error so it can gate a script; its default exit code is
+unchanged. Covered by **E2E-ERR-05**.
 
-### Sprint features are blind to team-managed projects
+### Sprint features were blind to team-managed projects — FIXED
 
 `internal/api/agile.go` asks Jira for boards with `type=scrum`. A team-managed
 project's board carries sprints exactly like a company-managed one but reports
@@ -226,18 +234,21 @@ JQL rather than the board API — which is what makes the failure easy to miss.
 Team-managed is the default project type in Jira Cloud, so the sprint-aware half
 of this feature does not work for most new projects.
 
-Covered by **E2E-SPRINT-06**.
+The board lookup now accepts `simple` alongside `scrum`, on both the server-side
+filter and the client-side one in `sprint list`. Covered by **E2E-SPRINT-06**.
 
-### `--sort` has no effect
+### `--sort` had no effect — FIXED
 
 `agent ready` builds an `ORDER BY` from `--sort`, then re-sorts the results
 client-side by priority and creation date after filtering. The JQL ordering is
 discarded whenever priorities differ, so `--sort updated` and `--sort created`
 are advertised in `--help` and in the contract but do nothing.
 
-Covered by **E2E-READY-03**.
+The client-side re-sort now runs only for the default; an explicit `--sort`
+keeps the order Jira returned. An unrecognised value is rejected rather than
+silently ignored. Covered by **E2E-READY-03**.
 
-### An orphaned discovery is reported as success
+### An orphaned discovery is reported as success — PARTLY FIXED
 
 When `discover --as-subtask=false` creates the issue but the link call fails,
 the failure is downgraded to a stderr warning and the command still exits 0
@@ -245,7 +256,10 @@ reporting `"ok": true, "relationship": "linked"`. This contradicts the contract
 invariant "always linked to parent, no orphan discoveries", and an agent reading
 the JSON has no way to detect the orphan.
 
-Partially covered by **E2E-DISCOVER-03**, which asserts the link exists.
+The payload now carries `link_failed: true` when the link call fails, so a
+caller reading stdout can detect the orphan. `relationship` is unchanged because
+clients depend on it; making the command fail outright is deferred to the next
+major version. Partially covered by **E2E-DISCOVER-03**.
 
 ### Pagination metadata is not truthful
 
@@ -264,4 +278,4 @@ Covered by **E2E-READY-02**.
 | **Exit 6 `RATE_LIMITED`** | The retry transport retries 429 up to three times honouring `Retry-After`, so surfacing the code requires four consecutive rate-limits. Covered by unit tests instead |
 | **Exit 5 `PERMISSION_DENIED`** | Needs a restricted issue or a second token; no reliable sandbox setup |
 | **`INVALID_TRANSITION`** | Needs a workflow with no transition into a status category. Unreachable on a default Scrum workflow; covered by unit tests |
-| **Sprint membership as a CLI operation** | No command can add an issue to a sprint. `issue create --field` sends every value as a string and Jira's sprint field needs a number, so fixtures use the Agile API directly. Filed as a follow-up |
+| **Sprint membership as a CLI operation** | Now covered by `jira sprint add`. The fixtures still call the Agile API directly so they do not depend on the command under test |

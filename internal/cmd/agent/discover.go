@@ -193,12 +193,14 @@ func runDiscover(opts *DiscoverOptions) error {
 	}
 
 	// If not sub-task, create issue link.
+	linkFailed := false
 	if !isSubtask {
 		if err := client.CreateIssueLink(ctx, &api.CreateIssueLinkInput{
 			Type:         api.IssueLinkTypeRef{Name: opts.LinkType},
 			InwardIssue:  api.LinkedIssueRef{Key: opts.ParentKey},
 			OutwardIssue: api.LinkedIssueRef{Key: created.Key},
 		}); err != nil {
+			linkFailed = true
 			fmt.Fprintf(f.IOStreams.Err, "Warning: issue created but link failed: %v\n", err)
 		}
 	}
@@ -224,14 +226,21 @@ func runDiscover(opts *DiscoverOptions) error {
 	}
 
 	if formatter.IsJSON() {
-		return formatter.OutputMutation(map[string]interface{}{
+		extras := map[string]interface{}{
 			"key":          created.Key,
 			"parent":       opts.ParentKey,
 			"relationship": relationship,
 			"summary":      opts.Title,
 			"type":         issueType,
 			"priority":     priorityName,
-		}, nil)
+		}
+		// The link is best-effort, so the issue can exist without it. Say so
+		// in the payload: relationship alone would assert a link that is not
+		// there, and a caller reading stdout never sees the stderr warning.
+		if linkFailed {
+			extras["link_failed"] = true
+		}
+		return formatter.OutputMutation(extras, nil)
 	}
 
 	fmt.Fprintf(f.IOStreams.Out, "Discovered %s (%s of %s): %s\n", created.Key, relationship, opts.ParentKey, opts.Title)

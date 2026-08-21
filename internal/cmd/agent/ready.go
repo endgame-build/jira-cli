@@ -15,6 +15,15 @@ import (
 	"github.com/endgame-build/jira-cli/internal/output"
 )
 
+// validSortKeys are the accepted --sort values. An unrecognised value used to
+// fall through to the default silently.
+var validSortKeys = map[string]bool{
+	"":         true,
+	"priority": true,
+	"created":  true,
+	"updated":  true,
+}
+
 // ReadyOptions holds all resolved inputs for the agent ready command.
 type ReadyOptions struct {
 	Factory    *factory.Factory
@@ -44,6 +53,11 @@ func NewCmdReady(f *factory.Factory) *cobra.Command {
 			if opts.Assignee != "" && opts.Unassigned {
 				return clierrors.NewValidationError("Cannot use --assignee and --unassigned together").
 					WithSuggestion("Use either --assignee or --unassigned, not both")
+			}
+			if !validSortKeys[opts.Sort] {
+				return clierrors.NewValidationError(fmt.Sprintf("Unknown --sort value %q", opts.Sort)).
+					WithContext(map[string]interface{}{"valid": []string{"priority", "created", "updated"}}).
+					WithSuggestion("Use --sort priority, created, or updated")
 			}
 			return runReady(opts)
 		},
@@ -117,8 +131,14 @@ func runReady(opts *ReadyOptions) error {
 		}
 	}
 
-	// Re-sort after filtering.
-	SortByPriorityThenCreated(ready)
+	// Re-sort after filtering, but only for the default. The blocker filter
+	// preserves relative order, so for an explicit --sort the order Jira
+	// returned is already the requested one — re-sorting here would silently
+	// discard it. Truncation below then decides which rows survive, so a wrong
+	// order changes the result set, not just its presentation.
+	if opts.Sort == "" || opts.Sort == "priority" {
+		SortByPriorityThenCreated(ready)
+	}
 
 	// Truncate to limit.
 	if len(ready) > opts.Limit {
