@@ -1,0 +1,22 @@
+github.com/adrg/xdg	MIT
+github.com/cli/browser	BSD-2-Clause
+github.com/clipperhouse/stringish	MIT
+github.com/clipperhouse/uax29/v2	MIT
+github.com/fatih/color	MIT
+github.com/godbus/dbus/v5	BSD-2-Clause
+github.com/hashicorp/go-cleanhttp	MPL-2.0
+github.com/hashicorp/go-retryablehttp	MPL-2.0
+github.com/itchyny/gojq	MIT
+github.com/itchyny/timefmt-go	MIT
+github.com/jedib0t/go-pretty/v6	MIT
+github.com/mattn/go-colorable	MIT
+github.com/mattn/go-isatty	MIT
+github.com/mattn/go-runewidth	MIT
+github.com/pelletier/go-toml/v2	MIT
+github.com/spf13/cobra	Apache-2.0
+github.com/spf13/pflag	BSD-3-Clause
+github.com/yuin/goldmark	MIT
+github.com/zalando/go-keyring	MIT
+golang.org/x/sys	BSD-3-Clause
+golang.org/x/text	BSD-3-Clause
+gopkg.in/yaml.v3	MIT AND Apache-2.0

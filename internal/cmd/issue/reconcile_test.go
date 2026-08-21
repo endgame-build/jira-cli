@@ -437,12 +437,12 @@ func TestReconcileQuiet(t *testing.T) {
 
 func TestReconcileJQL(t *testing.T) {
 	dir := t.TempDir()
-	writeMarkdownFile(t, dir, "UNP-20", "Epic one")
+	writeMarkdownFile(t, dir, "PROJ-20", "Epic one")
 
 	jiraIssues := []api.Issue{
-		{Key: "UNP-20", Fields: api.IssueFields{Summary: "Epic one", Status: &api.Status{Name: "To Do"}}},
-		{Key: "UNP-21", Fields: api.IssueFields{Summary: "Child", Status: &api.Status{Name: "To Do"}}},
-		{Key: "UNP-48", Fields: api.IssueFields{Summary: "Epic two", Status: &api.Status{Name: "To Do"}}},
+		{Key: "PROJ-20", Fields: api.IssueFields{Summary: "Epic one", Status: &api.Status{Name: "To Do"}}},
+		{Key: "PROJ-21", Fields: api.IssueFields{Summary: "Child", Status: &api.Status{Name: "To Do"}}},
+		{Key: "PROJ-48", Fields: api.IssueFields{Summary: "Epic two", Status: &api.Status{Name: "To Do"}}},
 	}
 
 	var capturedJQL string
@@ -462,7 +462,7 @@ func TestReconcileJQL(t *testing.T) {
 	opts := &ReconcileOptions{
 		Factory: f,
 		Dir:     dir,
-		JQL:     "parent in (UNP-20, UNP-48) OR key in (UNP-20, UNP-48)",
+		JQL:     "parent in (PROJ-20, PROJ-48) OR key in (PROJ-20, PROJ-48)",
 		Action:  "list",
 	}
 
@@ -470,16 +470,16 @@ func TestReconcileJQL(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if capturedJQL != "parent in (UNP-20, UNP-48) OR key in (UNP-20, UNP-48)" {
+	if capturedJQL != "parent in (PROJ-20, PROJ-48) OR key in (PROJ-20, PROJ-48)" {
 		t.Errorf("expected raw JQL passthrough, got: %s", capturedJQL)
 	}
 
 	out := tio.OutBuf.String()
-	if !strings.Contains(out, "UNP-21") {
-		t.Errorf("expected UNP-21 as orphan, got: %s", out)
+	if !strings.Contains(out, "PROJ-21") {
+		t.Errorf("expected PROJ-21 as orphan, got: %s", out)
 	}
-	if !strings.Contains(out, "UNP-48") {
-		t.Errorf("expected UNP-48 as orphan, got: %s", out)
+	if !strings.Contains(out, "PROJ-48") {
+		t.Errorf("expected PROJ-48 as orphan, got: %s", out)
 	}
 }
 

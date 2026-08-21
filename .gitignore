@@ -34,3 +34,27 @@ swagger-v3.v3.txt
 
 # Beads / Dolt files (added by bd init)
 .beads-credential-key
+
+# Local exports containing real Jira data — never publish
+jira-export/
+*.jira-export/
+
+# Internal planning, agent scaffolding and issue-tracker state.
+# Kept on disk for maintainers; not part of the published project.
+PLAN.md
+CLAUDE.ralph.md
+ralph.sh
+ralph/
+tasks/
+archive/
+deploy/
+.beads/
+.claude/
+.crit/
+docs/plan-tree-flag-export.md
+docs/plans/
+docs/brainstorms/
+docs/reviews/
+
+# RPI process artifacts
+.rpi-tracking/
