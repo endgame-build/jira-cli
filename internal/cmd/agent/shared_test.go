@@ -30,9 +30,9 @@ func relatesLink(key string) api.IssueLink {
 
 func TestIsBlocked(t *testing.T) {
 	tests := []struct {
-		name   string
-		links  []api.IssueLink
-		want   bool
+		name  string
+		links []api.IssueLink
+		want  bool
 	}{
 		{
 			name:  "no links",

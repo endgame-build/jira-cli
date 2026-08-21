@@ -160,4 +160,3 @@ type sprintListItem struct {
 	Goal      string `json:"goal,omitempty"`
 	BoardID   int    `json:"board_id"`
 }
-
