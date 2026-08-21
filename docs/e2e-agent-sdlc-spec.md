@@ -57,6 +57,13 @@ type name `Sub-task`; see **E2E-DISCOVER-04**.
 A real `Blocks` link, created via the API so its direction is verified before
 any assertion depends on it.
 
+The direction is the reverse of what Atlassian's example suggests: posting
+`{Blocks, inwardIssue: A, outwardIssue: B}` yields **"B is blocked by A"**, so
+the blocker goes in `inwardIssue`. Verified against Jira Cloud from both sides.
+The fixture re-reads the issue after writing and fails loudly on a mismatch —
+which is how the first version of this suite, which had them swapped, was
+caught.
+
 | Step | Asserts |
 |---|---|
 | **a** | `agent ready` returns exactly the blocker and the unencumbered issue — the blocked one is excluded |
@@ -103,13 +110,14 @@ through the API, not from the output that claimed it.
 - **03** — `--as-subtask=false` creates a linked issue. The dry-run payload says `linked (Relates)` where the success payload says `linked`.
 - **04** — The default invocation with no `--type`. Documented below.
 
-## E2E-SPRINT-01…05
+## E2E-SPRINT-01…06
 
 - **01** — `sprint list` finds the board's sprints; dates are raw ISO timestamps.
 - **02** — `--board N` resolves no project at all; without either, exit 3.
 - **03** — `sprint active` emits a bare object with no envelope; `remaining_days` ≥ 0.
 - **04** — `ready --sprint active` narrows to sprint members; `future` returns nothing; filtering by sprint name matches `active`.
 - **05** — `status` truncates `end_date` to `YYYY-MM-DD` where `sprint active` emits the full timestamp; the two must agree on the date.
+- **06** — Every board-derived sprint feature is invisible on a team-managed project. Documented below. Cases 01, 02, 03 and 05 skip when it applies, naming this case.
 
 ## E2E-PRIME-01…05
 
@@ -129,8 +137,9 @@ through the API, not from the output that claimed it.
 
 - **01** — Unknown key → 4; malformed key → 3; `--assignee` with `--unassigned` → 3; `discover` without `--title` → 3. All write to stderr only, with a decodable error document.
 - **02** — Both flag guards fire **before any HTTP request**, proved by pointing the CLI at an unroutable host: a guard that fired exits 3, one that did not exits 7.
-- **03** — A bad token exits 2; an unresolvable host exits 7.
+- **03** — An unresolvable host exits 7.
 - **04** — Digit-bearing project keys. Documented below.
+- **05** — An invalid token is indistinguishable from an empty backlog. Documented below.
 
 ## E2E-CONSIST-01…03 — known divergences
 
@@ -173,6 +182,51 @@ Confirmed on `odevo.atlassian.net`: `CUSTOMER` uses `Sub-task`, while `TJS` and
 `agent prime` already fetches.
 
 Covered by **E2E-DISCOVER-04**, which adapts to either naming.
+
+### An invalid token looks exactly like an empty backlog
+
+Jira Cloud answers `POST /rest/api/3/search/jql` with **HTTP 200 and zero
+issues** when the credentials are bad, rather than 401. Verified directly
+against the API; `/myself` on the same token correctly returns 401.
+
+The CLI relays that faithfully, so with an expired token:
+
+| command | result |
+|---|---|
+| `agent ready` | `No ready issues found`, **exit 0** |
+| `agent blocked` | `No blocked issues found`, **exit 0** |
+| `agent status` | a full summary of zeroes, **exit 0** |
+| `agent claim` | `NOT_FOUND` (exit 4) — blames the issue, not the session |
+| `auth status` | prints `Token: invalid`, but still **exit 0** |
+
+An unattended agent running this loop with expired credentials reports healthy
+and quietly does nothing, forever. Nothing in the loop distinguishes "you are
+not authenticated" from "there is no work", and the one command that detects it
+cannot gate a script because it exits 0.
+
+This is the most operationally dangerous behaviour the suite found. A cheap fix
+is to validate the session with `GET /myself` — which does 401 — before trusting
+an empty search result.
+
+Covered by **E2E-ERR-05**.
+
+### Sprint features are blind to team-managed projects
+
+`internal/api/agile.go` asks Jira for boards with `type=scrum`. A team-managed
+project's board carries sprints exactly like a company-managed one but reports
+its type as `simple`, so the filter matches nothing and `GetActiveSprint`
+returns `(nil, nil)` — which callers read as "no sprint" rather than as an error.
+
+Verified against a live project with a running sprint: board 1 holds
+`SCRUM Sprint 0` ending 2026-09-04, yet `sprint active` exits 4, `sprint list`
+prints nothing, and the sprint blocks are absent from `agent status` and
+`agent prime`. Only `ready --sprint active` still works, because it goes through
+JQL rather than the board API — which is what makes the failure easy to miss.
+
+Team-managed is the default project type in Jira Cloud, so the sprint-aware half
+of this feature does not work for most new projects.
+
+Covered by **E2E-SPRINT-06**.
 
 ### `--sort` has no effect
 

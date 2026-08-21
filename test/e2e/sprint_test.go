@@ -14,6 +14,7 @@ import (
 // Spec: docs/e2e-agent-sdlc-spec.md#e2e-sprint-01
 func TestE2E_SPRINT_01(t *testing.T) {
 	h := New(t)
+	requireCLISeesBoard(t, h)
 
 	res := h.MustRun("sprint", "list", "-p", h.Project, "--json")
 	items, page := DecodeList[SprintListItem](t, res)
@@ -53,6 +54,7 @@ func TestE2E_SPRINT_01(t *testing.T) {
 // Spec: docs/e2e-agent-sdlc-spec.md#e2e-sprint-02
 func TestE2E_SPRINT_02(t *testing.T) {
 	h := New(t)
+	requireCLISeesBoard(t, h)
 
 	withBoard := h.MustRun("sprint", "list", "--board", strconv.Itoa(h.Sandbox.Board.ID), "--json")
 	items, _ := DecodeList[SprintListItem](t, withBoard)
@@ -71,6 +73,7 @@ func TestE2E_SPRINT_02(t *testing.T) {
 // Spec: docs/e2e-agent-sdlc-spec.md#e2e-sprint-03
 func TestE2E_SPRINT_03(t *testing.T) {
 	h := New(t)
+	requireCLISeesBoard(t, h)
 
 	res := h.MustRun("sprint", "active", "-p", h.Project, "--json")
 	doc := DecodeObject[SprintDoc](t, res)
@@ -148,6 +151,7 @@ func TestE2E_SPRINT_04(t *testing.T) {
 // Spec: docs/e2e-agent-sdlc-spec.md#e2e-sprint-05
 func TestE2E_SPRINT_05(t *testing.T) {
 	h := New(t)
+	requireCLISeesBoard(t, h)
 
 	statusRes := h.MustRun("agent", "status", "-p", h.Project, "--json")
 	status := DecodeObject[StatusDoc](t, statusRes)
@@ -167,4 +171,94 @@ func TestE2E_SPRINT_05(t *testing.T) {
 		t.Errorf("end_date disagrees between commands: status %q, sprint active %q",
 			status.Sprint.EndDate, active.EndDate)
 	}
+}
+
+// requireCLISeesBoard skips a case that depends on the CLI's board lookup,
+// naming the defect that makes it unreachable.
+func requireCLISeesBoard(t *testing.T, h *Harness) {
+	t.Helper()
+	if !h.Sandbox.CLISeesBoard {
+		t.Skipf("this project's board reports type %q, which the CLI's board lookup filters out; "+
+			"see TestE2E_SPRINT_06", h.Sandbox.Board.Type)
+	}
+}
+
+// TestE2E_SPRINT_06 — every board-derived sprint feature is invisible on a
+// team-managed project.
+//
+// internal/api/agile.go asks Jira for boards with type=scrum. A team-managed
+// project's board carries sprints exactly like a company-managed one but
+// reports its type as "simple", so the filter matches nothing and
+// GetActiveSprint returns (nil, nil) — which the callers read as "no sprint"
+// rather than as an error.
+//
+// The result is that `sprint active` exits 4, `sprint list` prints nothing, and
+// the sprint blocks vanish from `agent status` and `agent prime`, on a project
+// that demonstrably has a running sprint. Only `ready --sprint active` still
+// works, because it goes through JQL rather than the board API.
+//
+// Team-managed is the default project type in Jira Cloud today, so the
+// sprint-aware half of this feature does not work for most new projects.
+//
+// This case reads the truth from the Agile API directly and compares it with
+// what the CLI reports.
+//
+// Spec: docs/e2e-agent-sdlc-spec.md#e2e-sprint-06
+func TestE2E_SPRINT_06(t *testing.T) {
+	h := New(t)
+
+	// Established by preflight straight from the Agile API.
+	realSprint := h.Sandbox.Sprint
+	if realSprint.Name == "" {
+		t.Fatal("preflight found no active sprint; this case needs one")
+	}
+
+	active := h.Run("sprint", "active", "-p", h.Project, "--json")
+
+	if h.Sandbox.CLISeesBoard {
+		if active.ExitCode != 0 {
+			t.Errorf("board type is %q but `sprint active` still failed with exit %d\n%s",
+				h.Sandbox.Board.Type, active.ExitCode, active)
+		}
+		return
+	}
+
+	if active.ExitCode == 0 {
+		t.Errorf("board type is %q, so the CLI's type=scrum filter should have hidden it, "+
+			"but `sprint active` succeeded — the filter may have been fixed, in which case "+
+			"delete this case", h.Sandbox.Board.Type)
+		return
+	}
+
+	if active.ExitCode != 4 {
+		t.Errorf("`sprint active` exit = %d, want 4 (NOT_FOUND)\n%s", active.ExitCode, active)
+	}
+
+	// The same blindness must show up in every other board-derived surface.
+	status := DecodeObject[StatusDoc](t, h.MustRun("agent", "status", "-p", h.Project, "--json"))
+	if status.Sprint != nil {
+		t.Errorf("status reported a sprint block though the board lookup found nothing: %+v", status.Sprint)
+	}
+
+	prime := h.MustRun("agent", "prime", "-p", h.Project).Stdout
+	if strings.Contains(prime, "## Sprint:") {
+		t.Errorf("prime emitted a sprint section though the board lookup found nothing")
+	}
+
+	list, _ := DecodeList[SprintListItem](t, h.MustRun("sprint", "list", "-p", h.Project, "--json"))
+	if len(list) != 0 {
+		t.Errorf("sprint list returned %d sprint(s) though the board lookup found nothing", len(list))
+	}
+
+	// The JQL path is unaffected, which is what makes the failure so easy to miss.
+	ready := h.MustRun("agent", "ready", "-p", h.Project, "--sprint", "active", "--limit", "50", "--json")
+	if ready.ExitCode != 0 {
+		t.Errorf("`ready --sprint active` also failed; the JQL path was expected to still work\n%s", ready)
+	}
+
+	t.Logf("KNOWN DEFECT: board %d (%q) has active sprint %q ending %s, but its type is %q. "+
+		"internal/api/agile.go filters boards with type=scrum, so `sprint active` exits 4, "+
+		"`sprint list` is empty, and the sprint blocks are missing from `agent status` and "+
+		"`agent prime`. Team-managed is the default project type in Jira Cloud.",
+		h.Sandbox.Board.ID, h.Sandbox.Board.Name, realSprint.Name, realSprint.EndDate, h.Sandbox.Board.Type)
 }

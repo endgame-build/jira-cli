@@ -104,17 +104,21 @@ func (f *Fixtures) Create(spec IssueSpec) Issue {
 // Block links the two issues so that `blocked` reports "blocked is blocked by
 // blocker".
 //
-// Jira renders a link record {type: Blocks, inwardIssue: A, outwardIssue: B} on
-// A as "A is blocked by B", which is what agent.IsBlocked looks for.
+// The POST body's inwardIssue is the issue that does the blocking, so the
+// blocker goes in inwardIssue and the blocked issue in outwardIssue. Verified
+// against Jira Cloud: posting {Blocks, inwardIssue: A, outwardIssue: B} yields
+// "B is blocked by A". This is the reverse of the reading most people take from
+// Atlassian's example, which is why requireBlockedBy below re-reads the issue
+// and fails loudly rather than trusting the write.
 func (f *Fixtures) Block(blocked, blocker Issue) {
 	f.t.Helper()
 	err := f.api.CreateIssueLink(context.Background(), &api.CreateIssueLinkInput{
 		Type:         api.IssueLinkTypeRef{Name: "Blocks"},
-		InwardIssue:  api.LinkedIssueRef{Key: blocked.Key},
-		OutwardIssue: api.LinkedIssueRef{Key: blocker.Key},
+		InwardIssue:  api.LinkedIssueRef{Key: blocker.Key},
+		OutwardIssue: api.LinkedIssueRef{Key: blocked.Key},
 	})
 	if err != nil {
-		f.t.Fatalf("fixture link %s <- %s: %v", blocked.Key, blocker.Key, err)
+		f.t.Fatalf("fixture link %s blocked-by %s: %v", blocked.Key, blocker.Key, err)
 	}
 	f.requireBlockedBy(blocked.Key, blocker.Key)
 }

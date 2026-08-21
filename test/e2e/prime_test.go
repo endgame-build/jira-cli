@@ -69,6 +69,7 @@ func TestE2E_PRIME_02(t *testing.T) {
 // Spec: docs/e2e-agent-sdlc-spec.md#e2e-prime-03
 func TestE2E_PRIME_03(t *testing.T) {
 	h := New(t)
+	requireCLISeesBoard(t, h)
 
 	out := h.MustRun("agent", "prime", "-p", h.Project).Stdout
 

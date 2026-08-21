@@ -32,6 +32,13 @@ type Sandbox struct {
 
 	// TaskType is the project's plain task type name.
 	TaskType string
+
+	// CLISeesBoard records whether the CLI's own board lookup can find this
+	// board. Team-managed projects report their board type as "simple", but
+	// internal/api/agile.go asks Jira for type=scrum, so every board-derived
+	// sprint feature is invisible on them. TestE2E_SPRINT_06 pins the defect;
+	// the cases that depend on that path skip when this is false.
+	CLISeesBoard bool
 }
 
 var (
@@ -103,15 +110,21 @@ func checkSandbox() (*Sandbox, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot list boards for %q: %w", projectKey, err)
 	}
+
+	// Accept "simple" as well as "scrum". A team-managed project's board carries
+	// sprints but reports its type as "simple", and preflight has to describe the
+	// instance as it really is rather than as the CLI wishes it were — otherwise
+	// the suite would refuse to run on exactly the projects where the sprint
+	// commands are broken, and the defect would stay invisible.
 	var board *api.Board
 	for i := range boards {
-		if boards[i].Type == "scrum" {
+		if boards[i].Type == "scrum" || boards[i].Type == "simple" {
 			board = &boards[i]
 			break
 		}
 	}
 	if board == nil {
-		return nil, fmt.Errorf("project %q has no Scrum board; the sprint commands need one", projectKey)
+		return nil, fmt.Errorf("project %q has no board carrying sprints; the sprint commands need one", projectKey)
 	}
 
 	sprints, err := client.GetSprintsForBoard(ctx, board.ID, "active")
@@ -148,12 +161,13 @@ func checkSandbox() (*Sandbox, error) {
 	}
 
 	return &Sandbox{
-		Client:      client,
-		ProjectKey:  projectKey,
-		AccountID:   me.AccountID,
-		Board:       *board,
-		Sprint:      sprint,
-		SubtaskType: subtaskType,
-		TaskType:    taskType,
+		Client:       client,
+		ProjectKey:   projectKey,
+		AccountID:    me.AccountID,
+		Board:        *board,
+		Sprint:       sprint,
+		SubtaskType:  subtaskType,
+		TaskType:     taskType,
+		CLISeesBoard: board.Type == "scrum",
 	}, nil
 }
