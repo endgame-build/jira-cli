@@ -1,6 +1,6 @@
 module github.com/endgame-build/jira-cli
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/adrg/xdg v0.5.3
@@ -28,6 +28,6 @@ require (
 	github.com/itchyny/timefmt-go v0.1.8 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.22.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 )
