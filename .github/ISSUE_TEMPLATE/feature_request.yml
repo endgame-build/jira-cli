@@ -1,0 +1,41 @@
+name: Feature request
+description: A command, flag, or behavior that is missing
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        jira-cli is a non-interactive CLI for the Jira Cloud REST API v3. Requests
+        for an interactive terminal UI, or for Jira Server and Data Center
+        support, fall outside its scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do and where the CLI stops you.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed command or flag
+      description: How it would look on the command line, and what it would print.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today
+      description: The workaround you currently use, including other tools.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues
+          required: true
+        - label: This works without an interactive terminal
+          required: true

@@ -1,0 +1,59 @@
+name: Bug report
+description: Something the CLI does wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste an API token, a real instance hostname, or issue data you
+        cannot make public. Replace them with placeholders.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What the command did, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The exact command, with secrets redacted.
+      render: shell
+      placeholder: |
+        jira issue list --project PROJ --status Open
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Full output, including the exit code from `echo $?`.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `jira meta version`.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.2 arm64
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I am running the latest release
+          required: true
+        - label: I searched the existing issues
+          required: true
+        - label: This is Jira Cloud, not Server or Data Center
+          required: true

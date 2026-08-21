@@ -1,4 +1,4 @@
-.PHONY: build test test-e2e test-e2e-one e2e-sweep lint install clean hooks
+.PHONY: build test test-e2e test-e2e-one e2e-sweep lint install clean hooks notices
 
 VERSION ?= dev
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
@@ -47,3 +47,6 @@ hooks:
 	@command -v pre-commit >/dev/null 2>&1 || { echo "Install pre-commit: brew install pre-commit"; exit 1; }
 	pre-commit install --install-hooks
 	@echo "pre-commit hooks installed"
+
+notices:
+	./scripts/gen-third-party-notices.sh
