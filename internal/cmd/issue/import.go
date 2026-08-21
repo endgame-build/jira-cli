@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -17,6 +18,7 @@ import (
 	"github.com/endgame-build/jira-cli/internal/api"
 	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/factory"
+	"github.com/endgame-build/jira-cli/internal/mapping"
 	"github.com/endgame-build/jira-cli/internal/markdown"
 	"github.com/endgame-build/jira-cli/internal/output"
 )
@@ -35,6 +37,7 @@ type ImportOptions struct {
 	Files []string // positional args: file paths
 	Dir   string   // --dir: import all .md files from directory
 	Force bool     // --force: overwrite on conflict
+	Map   string   // --map: jira-sync.yaml field-map for hub-style frontmatter
 }
 
 // importAction is a typed constant for import result actions.
@@ -82,6 +85,7 @@ func NewCmdImport(f *factory.Factory) *cobra.Command {
 
 	cmd.Flags().StringVarP(&opts.Dir, "dir", "d", "", "Import all .md files from directory (mutually exclusive with file args)")
 	cmd.Flags().BoolVar(&opts.Force, "force", false, "Overwrite on conflict (skip timestamp check)")
+	cmd.Flags().StringVar(&opts.Map, "map", "", "Path to a jira-sync.yaml field-map for documents using hub-style frontmatter (name/jira_key/initiative/…)")
 
 	return cmd
 }
@@ -91,12 +95,31 @@ func runImport(opts *ImportOptions) error {
 	f := opts.Factory
 	ctx := context.Background()
 
-	// Collect and parse files.
-	var issueFiles []*markdown.IssueFile
+	// Load the field-map config when --map is set (opt-in; hub-style frontmatter).
+	var mapCfg *mapping.Config
 	var err error
+	if opts.Map != "" {
+		mapCfg, err = mapping.LoadConfig(opts.Map)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Collect and parse files. With --map, documents use hub-style frontmatter and
+	// are translated into the canonical model; without it, standard parsing applies.
+	var issueFiles []*markdown.IssueFile
 
 	if opts.Dir != "" {
-		issueFiles, err = markdown.ParseDir(opts.Dir)
+		if mapCfg != nil {
+			issueFiles, err = mapping.ParseMappedDir(opts.Dir, mapCfg)
+		} else {
+			issueFiles, err = markdown.ParseDir(opts.Dir)
+		}
+		if err != nil {
+			return err
+		}
+	} else if mapCfg != nil {
+		issueFiles, err = mapping.ParseMappedFiles(opts.Files, mapCfg)
 		if err != nil {
 			return err
 		}
@@ -203,6 +226,7 @@ func runImport(opts *ImportOptions) error {
 	}
 
 	results := []importResult{}
+	syncedAt := time.Now().UTC().Format(time.RFC3339)
 
 	// Process creates first.
 	for _, issueFile := range creates {
@@ -232,6 +256,15 @@ func runImport(opts *ImportOptions) error {
 		if err != nil {
 			emitPartialResults(f.IOStreams.Err, results)
 			return annotateImportError(err, issueFile.Frontmatter.Key, issueFile.Path)
+		}
+
+		// With --map, write the assigned key + sync time back into the source
+		// document so re-runs update (not re-create) — hub files carry identity
+		// in jira_key, not in a PROJ-NEW-N temp key.
+		if mapCfg != nil {
+			if err := mapping.WriteBack(issueFile.Path, created.Key, syncedAt); err != nil {
+				fmt.Fprintf(f.IOStreams.Err, "warning: created %s but failed to write key back to %s: %v\n", created.Key, issueFile.Path, err)
+			}
 		}
 
 		results = append(results, importResult{
@@ -296,6 +329,14 @@ func runImport(opts *ImportOptions) error {
 		if err := client.EditIssue(ctx, key, input); err != nil {
 			emitPartialResults(f.IOStreams.Err, results)
 			return annotateImportError(err, key, issueFile.Path)
+		}
+
+		// With --map, refresh last_synced_at so the next run's conflict check
+		// compares against this push.
+		if mapCfg != nil {
+			if err := mapping.WriteBack(issueFile.Path, key, syncedAt); err != nil {
+				fmt.Fprintf(f.IOStreams.Err, "warning: updated %s but failed to write sync time back to %s: %v\n", key, issueFile.Path, err)
+			}
 		}
 
 		results = append(results, importResult{
@@ -411,6 +452,13 @@ func setCommonFields(fields map[string]interface{}, fm markdown.Frontmatter) {
 	}
 	if fm.Labels != nil {
 		fields["labels"] = fm.Labels
+	}
+	if len(fm.Components) > 0 {
+		comps := make([]map[string]interface{}, len(fm.Components))
+		for i, c := range fm.Components {
+			comps[i] = map[string]interface{}{"name": c}
+		}
+		fields["components"] = comps
 	}
 	if fm.AssigneeID != "" {
 		fields["assignee"] = map[string]interface{}{"accountId": fm.AssigneeID}

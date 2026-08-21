@@ -891,6 +891,40 @@ parent: PROJ-100
 	}
 }
 
+func TestImportCreateWithComponents(t *testing.T) {
+	var capturedBody string
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{captureCreate: &capturedBody}))
+
+	dir := t.TempDir()
+	path := writeImportFile(t, dir, "issue.md", `---
+key: PROJ-NEW-1
+summary: Component Issue
+type: Task
+project: PROJ
+components:
+  - Hub
+---
+`)
+
+	opts := &ImportOptions{Factory: f, Files: []string{path}}
+	if err := runImport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+	comps, ok := fields["components"].([]interface{})
+	if !ok || len(comps) != 1 {
+		t.Fatalf("components = %v, want one element", fields["components"])
+	}
+	if got := comps[0].(map[string]interface{})["name"]; got != "Hub" {
+		t.Errorf("components[0].name = %v, want Hub", got)
+	}
+}
+
 func TestImportDirFlag(t *testing.T) {
 	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{}))
 
