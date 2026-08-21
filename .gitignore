@@ -52,6 +52,10 @@ deploy/
 .claude/
 .crit/
 docs/plan-tree-flag-export.md
+# Point-in-time record of a single e2e run, not documentation.
+docs/e2e-findings.md
+# Competitive analysis; published outside the repo if at all.
+docs/jira-cli-comparison.md
 docs/plans/
 docs/brainstorms/
 docs/reviews/
