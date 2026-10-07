@@ -369,3 +369,161 @@ func TestDocJiraKey(t *testing.T) {
 		t.Errorf("null jira_key should yield empty, got %q", k)
 	}
 }
+
+func TestParseMappedFile_CreateCustomFields(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := writeFile(t, dir, "jira-sync.yaml", `
+project: SB
+issue_types: { epic: Epic, story: Task }
+create_fields:
+  epic:
+    Investment Category: "Run"
+    story_points: 3
+  story:
+    team: "Platform"
+streams:
+  EP-LMP:
+    stream_label: "stream:lmp"
+    create_fields: { Investment Category: "Grow" }
+  EP-TECH: { stream_label: "stream:tech" }
+`)
+	cfg, err := LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		doc  string
+		want map[string]interface{}
+	}{
+		{
+			name: "epic create: stream create_fields override type create_fields",
+			doc:  "id: EP-LMP-01\nname: A\n",
+			want: map[string]interface{}{"investment_category": "Grow", "story_points": 3},
+		},
+		{
+			name: "epic create: stream without create_fields uses type create_fields",
+			doc:  "id: EP-TECH-01\nname: B\n",
+			want: map[string]interface{}{"investment_category": "Run", "story_points": 3},
+		},
+		{
+			name: "story create: story create_fields plus stream create_fields",
+			doc:  "id: EP-LMP-01-01\nname: C\nparent_epic_jira_key: SB-1\n",
+			want: map[string]interface{}{"team": "Platform", "investment_category": "Grow"},
+		},
+		{
+			name: "update never sends create fields",
+			doc:  "id: EP-LMP-02\nname: D\njira_key: SB-9\n",
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := writeFile(t, t.TempDir(), "doc.md", "---\n"+tt.doc+"---\nBody.")
+			n := 0
+			f, err := ParseMappedFile(p, cfg, &n)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := f.Frontmatter.CustomFields
+			if len(got) != len(tt.want) {
+				t.Fatalf("CustomFields = %v, want %v", got, tt.want)
+			}
+			for k, v := range tt.want {
+				if got[k] != v {
+					t.Errorf("CustomFields[%q] = %v, want %v", k, got[k], v)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadConfig_CreateFieldsValidation(t *testing.T) {
+	base := "project: SB\nissue_types: { epic: Epic, story: Task }\n"
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{"unknown doc type", "create_fields:\n  bug:\n    team: X\n"},
+		{"built-in field", "create_fields:\n  epic:\n    priority: High\n"},
+		{"built-in field on stream", "streams:\n  EP-X:\n    create_fields: { labels: x }\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := writeFile(t, t.TempDir(), "jira-sync.yaml", base+tt.yaml)
+			if _, err := LoadConfig(p); err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestParseMappedFile_SummaryFieldMap(t *testing.T) {
+	base := "project: SB\nissue_types: { epic: Epic, story: Task }\n"
+	doc := "---\nid: EP-SPAM-01\ntitle: \"Posting limits to protect network integrations\"\n---\nBody."
+	tests := []struct {
+		name    string
+		mapYAML string
+		want    string
+		wantErr string
+	}{
+		{"from title", "field_map:\n  summary: { from: title }\n", "Posting limits to protect network integrations", ""},
+		{"template with id prefix", "field_map:\n  summary: { template: \"[{id}] {title}\" }\n", "[EP-SPAM-01] Posting limits to protect network integrations", ""},
+		{"default from name is missing", "", "", "missing 'name'"},
+		{"template key missing", "field_map:\n  summary: { template: \"[{id}] {name}\" }\n", "", "missing 'name'"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfg, err := LoadConfig(writeFile(t, dir, "jira-sync.yaml", base+tt.mapYAML))
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			n := 0
+			f, err := ParseMappedFile(writeFile(t, dir, "EP-SPAM-01.md", doc), cfg, &n)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.Frontmatter.Summary != tt.want {
+				t.Errorf("Summary = %q, want %q", f.Frontmatter.Summary, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_FieldMapValidation(t *testing.T) {
+	base := "project: SB\nissue_types: { epic: Epic, story: Task }\nfield_map:\n"
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{"documented defaults load", "  description: { from: body, format: adf }\n  priority: { from: priority, via: priority_map }\n  labels: { from: stream, via: stream_label }\n  parent: { via: links }\n", false},
+		{"summary from and template", "  summary: { from: title, template: \"{id}\" }\n", true},
+		{"summary via", "  summary: { from: title, via: x }\n", true},
+		{"non-default description", "  description: { from: summary_text }\n", true},
+		{"unknown field", "  assignee: { from: owner }\n", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := LoadConfig(writeFile(t, t.TempDir(), "jira-sync.yaml", base+tt.yaml))
+			if (err != nil) != tt.wantErr {
+				t.Errorf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// The shipped example must load: every key it documents is one the code honors.
+func TestLoadConfig_ExampleFile(t *testing.T) {
+	if _, err := LoadConfig(filepath.Join("..", "..", "docs", "jira-sync.example.yaml")); err != nil {
+		t.Fatalf("docs/jira-sync.example.yaml: %v", err)
+	}
+}

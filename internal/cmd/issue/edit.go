@@ -79,7 +79,7 @@ func NewCmdEdit(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringSliceVarP(&opts.Labels, "labels", "l", nil, "Comma-separated labels (replaces all)")
 	cmd.Flags().StringSliceVar(&opts.AddLabels, "add-labels", nil, "Labels to add (comma-separated)")
 	cmd.Flags().StringSliceVar(&opts.RemoveLabels, "remove-labels", nil, "Labels to remove (comma-separated)")
-	cmd.Flags().StringArrayVar(&opts.Fields, "field", nil, "Custom field (key=value, repeatable)")
+	cmd.Flags().StringArrayVar(&opts.Fields, "field", nil, "Custom field (key=value, repeatable). A JSON object/array value is sent as JSON; a plain customfield_* value is wrapped per the field type (select → {\"value\":...})")
 
 	return cmd
 }
@@ -221,6 +221,8 @@ func runEdit(opts *EditOptions) error {
 		updatedFields = append(updatedFields, "labels")
 	}
 
+	var fieldKeys []string
+	fieldValues := map[string]string{}
 	for _, kv := range opts.Fields {
 		key, value, ok := parseField(kv)
 		if !ok {
@@ -232,8 +234,18 @@ func runEdit(opts *EditOptions) error {
 			fmt.Fprintf(f.IOStreams.Err, "Warning: --field %q ignored (overridden by named flag --%s)\n", key, key)
 			continue
 		}
-		fields[key] = value
-		updatedFields = append(updatedFields, key)
+		if _, seen := fieldValues[key]; !seen {
+			fieldKeys = append(fieldKeys, key)
+			updatedFields = append(updatedFields, key)
+		}
+		fieldValues[key] = value
+	}
+	resolved, err := resolveFieldValues(ctx, client, fieldKeys, fieldValues)
+	if err != nil {
+		return err
+	}
+	for k, v := range resolved {
+		fields[k] = v
 	}
 
 	// Dry-run: fetch current issue and show diff preview without mutating.
@@ -376,7 +388,7 @@ func runEditDryRun(ctx context.Context, f *factory.Factory, client *api.Client, 
 
 	// Custom fields.
 	for _, kv := range opts.Fields {
-		key, value, ok := parseField(kv)
+		key, _, ok := parseField(kv)
 		if !ok || namedFieldKey(key) {
 			continue
 		}
@@ -387,7 +399,7 @@ func runEditDryRun(ctx context.Context, f *factory.Factory, client *api.Client, 
 		changes = append(changes, editChange{
 			Field: key,
 			From:  from,
-			To:    value,
+			To:    fields[key],
 		})
 	}
 

@@ -77,10 +77,9 @@ func ParseMappedFile(path string, cfg *Config, tempCounter *int) (*markdown.Issu
 	}
 
 	id := str(raw, "id")
-	name := str(raw, "name")
-	if name == "" {
-		return nil, clierrors.NewValidationError("mapped file missing 'name': " + path).
-			WithSuggestion("hub epics/stories must carry a 'name:' used as the JIRA summary")
+	summary, err := cfg.Summary(raw, path)
+	if err != nil {
+		return nil, err
 	}
 
 	isStory := str(raw, "parent_epic_id") != "" || str(raw, "parent_epic_jira_key") != "" ||
@@ -88,7 +87,7 @@ func ParseMappedFile(path string, cfg *Config, tempCounter *int) (*markdown.Issu
 
 	fm := markdown.Frontmatter{
 		ID:      id,
-		Summary: name,
+		Summary: summary,
 		Project: firstNonEmpty(str(raw, "jira_project"), cfg.Project),
 		Updated: str(raw, "last_synced_at"), // conflict anchor: last push time
 	}
@@ -126,8 +125,19 @@ func ParseMappedFile(path string, cfg *Config, tempCounter *int) (*markdown.Issu
 	}
 
 	// Labels: the lightweight stream tag, derived from the id prefix (EP-LMP-… → EP-LMP).
-	if label := streamLabel(id, cfg); label != "" {
-		fm.Labels = []string{label}
+	stream, hasStream := streamFor(id, cfg)
+	if hasStream && stream.Label != "" {
+		fm.Labels = []string{stream.Label}
+	}
+
+	// Custom fields: constants that a create screen requires. Set on create only,
+	// so a push never overwrites a later edit in JIRA.
+	if markdown.IsTempKey(fm.Key) {
+		docType := "epic"
+		if isStory {
+			docType = "story"
+		}
+		fm.CustomFields = createFields(cfg, docType, stream)
 	}
 
 	// Components: map the doc's ownership-area key (`component:`) to a JIRA
@@ -172,16 +182,30 @@ func applyParent(fm *markdown.Frontmatter, raw map[string]interface{}, cfg *Conf
 
 var streamKeyRe = regexp.MustCompile(`^([A-Z]+-[A-Z]+)`)
 
-// streamLabel derives the JIRA stream label from a hub id prefix (EP-LMP-00 → EP-LMP).
-func streamLabel(id string, cfg *Config) string {
+// streamFor resolves the stream config from a hub id prefix (EP-LMP-00 → EP-LMP).
+func streamFor(id string, cfg *Config) (Stream, bool) {
 	m := streamKeyRe.FindStringSubmatch(id)
 	if m == nil {
-		return ""
+		return Stream{}, false
 	}
-	if s, ok := cfg.Streams[m[1]]; ok {
-		return s.Label
+	s, ok := cfg.Streams[m[1]]
+	return s, ok
+}
+
+// createFields merges the per-type create_fields with the stream's
+// create_fields (the stream wins on conflict). Returns nil when nothing is set.
+func createFields(cfg *Config, docType string, stream Stream) map[string]interface{} {
+	out := make(map[string]interface{})
+	for k, v := range cfg.CreateFields[docType] {
+		out[k] = v
 	}
-	return ""
+	for k, v := range stream.CreateFields {
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // WriteBack rewrites a mapped file's frontmatter after a push: it sets jira_key

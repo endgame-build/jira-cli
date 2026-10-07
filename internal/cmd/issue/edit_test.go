@@ -1190,3 +1190,69 @@ func TestComputeLabelDelta(t *testing.T) {
 		})
 	}
 }
+
+// withFieldMeta serves GET /field for --field value resolution, else delegates.
+func withFieldMeta(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode(fieldValueTestFields)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func TestEditFieldOptionValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		field string
+	}{
+		{"JSON object", `customfield_13191={"value":"Other"}`},
+		{"plain value wrapped by schema", "customfield_13191=Other"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedBody string
+			f, _, _ := newTestEditFactory(t, withFieldMeta(editHandler(&capturedBody)), nil)
+			opts := &EditOptions{Factory: f, KeyOrID: "SB-2", Fields: []string{tt.field}}
+			if err := runEdit(opts); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			var reqBody struct {
+				Fields map[string]interface{} `json:"fields"`
+			}
+			if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+				t.Fatalf("invalid request JSON: %v", err)
+			}
+			got, ok := reqBody.Fields["customfield_13191"].(map[string]interface{})
+			if !ok || got["value"] != "Other" {
+				t.Errorf("customfield_13191 = %#v, want {\"value\":\"Other\"}", reqBody.Fields["customfield_13191"])
+			}
+		})
+	}
+}
+
+func TestEditDryRunFieldShowsResolvedValue(t *testing.T) {
+	f, tio, _ := newTestEditFactory(t, withFieldMeta(editAndGetHandler(nil)), nil)
+	f.DryRun = true
+	f.OutputJSON = true
+
+	opts := &EditOptions{Factory: f, KeyOrID: "PROJ-123", Fields: []string{"customfield_13191=Growth"}}
+	if err := runEdit(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result struct {
+		Payload []editChange `json:"payload"`
+	}
+	if err := json.Unmarshal(tio.OutBuf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, tio.OutBuf.String())
+	}
+	if len(result.Payload) != 1 {
+		t.Fatalf("changes = %v, want 1", result.Payload)
+	}
+	to, ok := result.Payload[0].To.(map[string]interface{})
+	if !ok || to["value"] != "Growth" {
+		t.Errorf("to = %#v, want {\"value\":\"Growth\"}", result.Payload[0].To)
+	}
+}

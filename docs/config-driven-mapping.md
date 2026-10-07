@@ -16,11 +16,20 @@ See [`jira-sync.example.yaml`](./jira-sync.example.yaml) for a fully annotated e
 jira issue import ./epics/**/*.md --map ./jira-sync.yaml --force
 ```
 
-- `name` → summary, body → ADF description, `priority` → the project's priority (via `priority_map`),
+- `field_map.summary` sets the summary source: `{ from: title }` reads another frontmatter key, and
+  `{ template: "[{id}] {title}" }` builds it from frontmatter keys (here, the hub id shows on board
+  cards and `summary ~ "EP-SPAM-01"` finds the issue). The default is `{ from: name }`. A missing key
+  fails the import with an error. The other `field_map` keys state fixed behavior and cannot change yet.
+- `name` (or `field_map.summary`) → summary, body → ADF description, `priority` → the project's priority (via `priority_map`),
   `stream` → a `stream:*` label (derived from the id prefix), and the parent is resolved from the
   document's `initiative` (epic) or `parent_epic_jira_key` (story) per the `links` mechanism.
 - A document without a `jira_key` is **created**; after create, the assigned key and `last_synced_at`
   are **written back** into the source file so re-runs update instead of re-creating.
+- `create_fields` sets constant custom fields on **create only**: per document type (`epic`, `story`),
+  and per stream (`streams.<prefix>.create_fields`, which wins on conflict). Use it for custom fields
+  that the project's create screen requires. Keys are Jira field names, normalized like frontmatter
+  custom fields. Object-type values (option, team, user) resolve through the `.jira-field-values.json`
+  sidecar, the same as an import without `--map`. `--dry-run` lists them under `custom_fields`.
 - `status` and `assignee` are **never pushed** — they are Jira-first (see below).
 
 ## Pull state — Jira → document
