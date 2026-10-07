@@ -58,7 +58,7 @@ func NewCmdCreate(f *factory.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.Priority, "priority", "", "Priority (e.g. High, Medium, Low)")
 	cmd.Flags().StringSliceVarP(&opts.Labels, "labels", "l", nil, "Comma-separated labels")
 	cmd.Flags().StringVar(&opts.Parent, "parent", "", "Parent issue key (for subtasks)")
-	cmd.Flags().StringArrayVar(&opts.Fields, "field", nil, "Custom field (key=value, repeatable)")
+	cmd.Flags().StringArrayVar(&opts.Fields, "field", nil, "Custom field (key=value, repeatable). A JSON object/array value is sent as JSON; a plain customfield_* value is wrapped per the field type (select → {\"value\":...})")
 
 	meta.MarkRequired(cmd, "project", "type", "summary")
 
@@ -169,6 +169,8 @@ func runCreate(opts *CreateOptions) error {
 		"labels": true, "parent": true,
 	}
 
+	var fieldKeys []string
+	fieldValues := map[string]string{}
 	for _, kv := range opts.Fields {
 		key, value, ok := parseField(kv)
 		if !ok {
@@ -180,7 +182,17 @@ func runCreate(opts *CreateOptions) error {
 			fmt.Fprintf(f.IOStreams.Err, "Warning: --field %q ignored (overridden by named flag --%s)\n", key, key)
 			continue
 		}
-		fields[key] = value
+		if _, seen := fieldValues[key]; !seen {
+			fieldKeys = append(fieldKeys, key)
+		}
+		fieldValues[key] = value
+	}
+	resolved, err := resolveFieldValues(ctx, client, fieldKeys, fieldValues)
+	if err != nil {
+		return err
+	}
+	for k, v := range resolved {
+		fields[k] = v
 	}
 
 	// Dry-run: validate via createmeta and output preview without creating.

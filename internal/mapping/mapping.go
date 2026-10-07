@@ -77,10 +77,9 @@ func ParseMappedFile(path string, cfg *Config, tempCounter *int) (*markdown.Issu
 	}
 
 	id := str(raw, "id")
-	name := str(raw, "name")
-	if name == "" {
-		return nil, clierrors.NewValidationError("mapped file missing 'name': " + path).
-			WithSuggestion("hub epics/stories must carry a 'name:' used as the JIRA summary")
+	summary, err := cfg.Summary(raw, path)
+	if err != nil {
+		return nil, err
 	}
 
 	isStory := str(raw, "parent_epic_id") != "" || str(raw, "parent_epic_jira_key") != "" ||
@@ -88,7 +87,7 @@ func ParseMappedFile(path string, cfg *Config, tempCounter *int) (*markdown.Issu
 
 	fm := markdown.Frontmatter{
 		ID:      id,
-		Summary: name,
+		Summary: summary,
 		Project: firstNonEmpty(str(raw, "jira_project"), cfg.Project),
 		Updated: str(raw, "last_synced_at"), // conflict anchor: last push time
 	}

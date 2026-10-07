@@ -9,6 +9,8 @@ package mapping
 import (
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 
 	clierrors "github.com/endgame-build/jira-cli/internal/errors"
 	"github.com/endgame-build/jira-cli/internal/markdown"
@@ -34,7 +36,105 @@ type Config struct {
 	// frontmatter custom fields (e.g. "Investment Category" → investment_category);
 	// object-type values resolve through the .jira-field-values.json sidecar.
 	CreateFields map[string]map[string]interface{} `yaml:"create_fields"`
-	Pull         Pull                              `yaml:"pull"`
+	// FieldMap declares how document fields feed JIRA fields. Only summary is
+	// configurable; the other keys document fixed behavior (see fixedFieldMap).
+	FieldMap map[string]FieldMapping `yaml:"field_map"`
+	Pull     Pull                    `yaml:"pull"`
+}
+
+// FieldMapping is one field_map entry.
+type FieldMapping struct {
+	From     string `yaml:"from,omitempty"`
+	Via      string `yaml:"via,omitempty"`
+	Format   string `yaml:"format,omitempty"`
+	Template string `yaml:"template,omitempty"` // summary only, e.g. "[{id}] {title}"
+}
+
+// fixedFieldMap is the push behavior that is not configurable yet. A field_map
+// entry for these keys must match it, so a config never states a mapping that
+// the CLI silently ignores.
+var fixedFieldMap = map[string]FieldMapping{
+	"description": {From: "body", Format: "adf"},
+	"priority":    {From: "priority", Via: "priority_map"},
+	"labels":      {From: "stream", Via: "stream_label"},
+	"parent":      {Via: "links"},
+}
+
+var templatePlaceholderRe = regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
+
+// Summary builds the JIRA summary from a document's frontmatter per
+// field_map.summary: a template ("[{id}] {title}"), a source key (from: title),
+// or the default source key "name".
+func (c *Config) Summary(raw map[string]interface{}, path string) (string, error) {
+	m := c.FieldMap["summary"]
+	if m.Template == "" {
+		from := firstNonEmpty(m.From, "name")
+		v := str(raw, from)
+		if v == "" {
+			return "", clierrors.NewValidationError(fmt.Sprintf("mapped file missing '%s': %s", from, path)).
+				WithSuggestion(fmt.Sprintf("documents must carry a '%s:' used as the JIRA summary (field_map.summary)", from))
+		}
+		return v, nil
+	}
+	var missing []string
+	out := templatePlaceholderRe.ReplaceAllStringFunc(m.Template, func(ph string) string {
+		key := ph[1 : len(ph)-1]
+		v := str(raw, key)
+		if v == "" {
+			missing = append(missing, key)
+		}
+		return v
+	})
+	if len(missing) > 0 {
+		return "", clierrors.NewValidationError(
+			fmt.Sprintf("mapped file missing %s for field_map.summary template: %s", quoteJoin(missing), path),
+		)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// validateFieldMap rejects field_map entries that the push side does not honor.
+func (c *Config) validateFieldMap(path string) error {
+	for field, m := range c.FieldMap {
+		if field == "summary" {
+			if m.From != "" && m.Template != "" {
+				return clierrors.NewValidationError("map config field_map.summary: set 'from' or 'template', not both: " + path)
+			}
+			if m.Via != "" || m.Format != "" {
+				return clierrors.NewValidationError("map config field_map.summary: only 'from' or 'template' is supported: " + path)
+			}
+			continue
+		}
+		fixed, ok := fixedFieldMap[field]
+		if !ok {
+			return clierrors.NewValidationError(fmt.Sprintf("map config field_map.%s: unknown field: %s", field, path)).
+				WithSuggestion("field_map supports summary, description, priority, labels, parent")
+		}
+		if m != fixed {
+			return clierrors.NewValidationError(fmt.Sprintf("map config field_map.%s: only the default mapping is supported: %s", field, path)).
+				WithSuggestion(fmt.Sprintf("use %s, or remove the entry; only field_map.summary is configurable", fixed))
+		}
+	}
+	return nil
+}
+
+// String renders a mapping in flow-YAML form for error messages.
+func (m FieldMapping) String() string {
+	var parts []string
+	for _, kv := range [][2]string{{"from", m.From}, {"via", m.Via}, {"format", m.Format}, {"template", m.Template}} {
+		if kv[1] != "" {
+			parts = append(parts, kv[0]+": "+kv[1])
+		}
+	}
+	return "{ " + strings.Join(parts, ", ") + " }"
+}
+
+func quoteJoin(keys []string) string {
+	q := make([]string, len(keys))
+	for i, k := range keys {
+		q[i] = "'" + k + "'"
+	}
+	return strings.Join(q, ", ")
 }
 
 // Pull configures the JIRA-first reconciliation (status + assignee → hub).
@@ -109,6 +209,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.IssueTypes.Epic == "" || cfg.IssueTypes.Story == "" {
 		return nil, clierrors.NewValidationError("map config missing 'issue_types.epic' or 'issue_types.story': " + path)
+	}
+	if err := cfg.validateFieldMap(path); err != nil {
+		return nil, err
 	}
 	if err := cfg.normalizeCreateFields(path); err != nil {
 		return nil, err

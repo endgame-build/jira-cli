@@ -16,7 +16,11 @@ See [`jira-sync.example.yaml`](./jira-sync.example.yaml) for a fully annotated e
 jira issue import ./epics/**/*.md --map ./jira-sync.yaml --force
 ```
 
-- `name` → summary, body → ADF description, `priority` → the project's priority (via `priority_map`),
+- `field_map.summary` sets the summary source: `{ from: title }` reads another frontmatter key, and
+  `{ template: "[{id}] {title}" }` builds it from frontmatter keys (here, the hub id shows on board
+  cards and `summary ~ "EP-SPAM-01"` finds the issue). The default is `{ from: name }`. A missing key
+  fails the import with an error. The other `field_map` keys state fixed behavior and cannot change yet.
+- `name` (or `field_map.summary`) → summary, body → ADF description, `priority` → the project's priority (via `priority_map`),
   `stream` → a `stream:*` label (derived from the id prefix), and the parent is resolved from the
   document's `initiative` (epic) or `parent_epic_jira_key` (story) per the `links` mechanism.
 - A document without a `jira_key` is **created**; after create, the assigned key and `last_synced_at`

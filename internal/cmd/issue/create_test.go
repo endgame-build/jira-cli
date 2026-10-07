@@ -67,6 +67,12 @@ func createHandler(captureBody *string) http.HandlerFunc {
 			return
 		}
 
+		// Field metadata for --field value resolution.
+		if r.Method == http.MethodGet && r.URL.Path == "/field" {
+			json.NewEncoder(w).Encode(fieldValueTestFields)
+			return
+		}
+
 		// Createmeta endpoint for dry-run validation.
 		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "createmeta") {
 			json.NewEncoder(w).Encode(map[string]interface{}{

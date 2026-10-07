@@ -32,8 +32,12 @@ priority_map:
   Low: "Low"
 
 # CONTENT push (import --map): document -> Jira. Only these fields are written.
+# Only `summary` is configurable. The other entries state the fixed behavior; they
+# are optional, and a value other than the one shown fails to load.
 field_map:
-  summary:     { from: name }                        # frontmatter `name` -> summary
+  summary:     { from: name }                        # frontmatter `name` -> summary (default)
+  # summary:   { from: title }                       # use another frontmatter key
+  # summary:   { template: "[{id}] {title}" }        # or build it from frontmatter keys
   description: { from: body, format: adf }           # markdown body -> ADF description
   priority:    { from: priority, via: priority_map }
   labels:      { from: stream, via: stream_label }   # the per-stream label below

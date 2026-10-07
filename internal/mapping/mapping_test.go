@@ -458,3 +458,72 @@ func TestLoadConfig_CreateFieldsValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestParseMappedFile_SummaryFieldMap(t *testing.T) {
+	base := "project: SB\nissue_types: { epic: Epic, story: Task }\n"
+	doc := "---\nid: EP-SPAM-01\ntitle: \"Posting limits to protect network integrations\"\n---\nBody."
+	tests := []struct {
+		name    string
+		mapYAML string
+		want    string
+		wantErr string
+	}{
+		{"from title", "field_map:\n  summary: { from: title }\n", "Posting limits to protect network integrations", ""},
+		{"template with id prefix", "field_map:\n  summary: { template: \"[{id}] {title}\" }\n", "[EP-SPAM-01] Posting limits to protect network integrations", ""},
+		{"default from name is missing", "", "", "missing 'name'"},
+		{"template key missing", "field_map:\n  summary: { template: \"[{id}] {name}\" }\n", "", "missing 'name'"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfg, err := LoadConfig(writeFile(t, dir, "jira-sync.yaml", base+tt.mapYAML))
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			n := 0
+			f, err := ParseMappedFile(writeFile(t, dir, "EP-SPAM-01.md", doc), cfg, &n)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.Frontmatter.Summary != tt.want {
+				t.Errorf("Summary = %q, want %q", f.Frontmatter.Summary, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_FieldMapValidation(t *testing.T) {
+	base := "project: SB\nissue_types: { epic: Epic, story: Task }\nfield_map:\n"
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{"documented defaults load", "  description: { from: body, format: adf }\n  priority: { from: priority, via: priority_map }\n  labels: { from: stream, via: stream_label }\n  parent: { via: links }\n", false},
+		{"summary from and template", "  summary: { from: title, template: \"{id}\" }\n", true},
+		{"summary via", "  summary: { from: title, via: x }\n", true},
+		{"non-default description", "  description: { from: summary_text }\n", true},
+		{"unknown field", "  assignee: { from: owner }\n", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := LoadConfig(writeFile(t, t.TempDir(), "jira-sync.yaml", base+tt.yaml))
+			if (err != nil) != tt.wantErr {
+				t.Errorf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// The shipped example must load: every key it documents is one the code honors.
+func TestLoadConfig_ExampleFile(t *testing.T) {
+	if _, err := LoadConfig(filepath.Join("..", "..", "docs", "jira-sync.example.yaml")); err != nil {
+		t.Fatalf("docs/jira-sync.example.yaml: %v", err)
+	}
+}
