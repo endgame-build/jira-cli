@@ -7,9 +7,11 @@
 package mapping
 
 import (
+	"fmt"
 	"os"
 
 	clierrors "github.com/endgame-build/jira-cli/internal/errors"
+	"github.com/endgame-build/jira-cli/internal/markdown"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,7 +29,12 @@ type Config struct {
 	// in some projects, so this is pushed like priority — see setCommonFields.
 	ComponentMap map[string]string `yaml:"component_map"`
 	Streams      map[string]Stream `yaml:"streams"`
-	Pull         Pull              `yaml:"pull"`
+	// CreateFields sets constant custom fields per document type ("epic" or
+	// "story") on create only. A stream can add or override them (see Stream). Keys are Jira field names, normalized like
+	// frontmatter custom fields (e.g. "Investment Category" → investment_category);
+	// object-type values resolve through the .jira-field-values.json sidecar.
+	CreateFields map[string]map[string]interface{} `yaml:"create_fields"`
+	Pull         Pull                              `yaml:"pull"`
 }
 
 // Pull configures the JIRA-first reconciliation (status + assignee → hub).
@@ -79,10 +86,11 @@ type Link struct {
 	Via string `yaml:"via"`
 }
 
-// Stream holds the per-stream JIRA label (and optional investment category).
+// Stream holds the per-stream JIRA label and optional create_fields. A stream's
+// create_fields override the per-type create_fields for the same field.
 type Stream struct {
-	Label              string `yaml:"stream_label"`
-	InvestmentCategory string `yaml:"investment_category,omitempty"`
+	Label        string                 `yaml:"stream_label"`
+	CreateFields map[string]interface{} `yaml:"create_fields,omitempty"`
 }
 
 // LoadConfig reads and validates a jira-sync.yaml mapping config.
@@ -102,5 +110,54 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.IssueTypes.Epic == "" || cfg.IssueTypes.Story == "" {
 		return nil, clierrors.NewValidationError("map config missing 'issue_types.epic' or 'issue_types.story': " + path)
 	}
+	if err := cfg.normalizeCreateFields(path); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+// normalizeCreateFields validates create_fields (per type and per stream) and
+// rewrites field keys to the normalized names the import pipeline resolves
+// against Jira.
+func (c *Config) normalizeCreateFields(path string) error {
+	for docType, fields := range c.CreateFields {
+		if docType != "epic" && docType != "story" {
+			return clierrors.NewValidationError(
+				fmt.Sprintf("map config create_fields.%s: unknown document type (want 'epic' or 'story'): %s", docType, path),
+			)
+		}
+		normalized, err := normalizeFieldKeys(fields, "create_fields."+docType, path)
+		if err != nil {
+			return err
+		}
+		c.CreateFields[docType] = normalized
+	}
+	for prefix, stream := range c.Streams {
+		normalized, err := normalizeFieldKeys(stream.CreateFields, "streams."+prefix+".create_fields", path)
+		if err != nil {
+			return err
+		}
+		stream.CreateFields = normalized
+		c.Streams[prefix] = stream
+	}
+	return nil
+}
+
+// normalizeFieldKeys returns fields with each key normalized to its frontmatter
+// custom-field name. Built-in keys are rejected.
+func normalizeFieldKeys(fields map[string]interface{}, where, path string) (map[string]interface{}, error) {
+	if fields == nil {
+		return nil, nil
+	}
+	normalized := make(map[string]interface{}, len(fields))
+	for name, val := range fields {
+		key := markdown.NormalizeFieldName(name)
+		if key == "" || markdown.IsBuiltinKey(key) {
+			return nil, clierrors.NewValidationError(
+				fmt.Sprintf("map config %s.%s: not a custom field: %s", where, name, path),
+			).WithSuggestion("create_fields sets custom fields only; use priority_map, component_map, or streams for built-in fields")
+		}
+		normalized[key] = val
+	}
+	return normalized, nil
 }

@@ -1312,3 +1312,60 @@ func TestImportCustomFieldWrapping(t *testing.T) {
 		})
 	}
 }
+
+func TestImportMapCreateFields(t *testing.T) {
+	var capturedBody string
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{fields: customFieldTestFields, captureCreate: &capturedBody}))
+
+	dir := t.TempDir()
+
+	sidecar := markdown.FieldValueMap{
+		"team": {
+			"Platform": json.RawMessage(`{"id":"team-123","name":"Platform"}`),
+		},
+	}
+	if err := markdown.SaveFieldValues(filepath.Join(dir, markdown.FieldValuesFileName), sidecar); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
+
+	mapPath := writeImportFile(t, dir, "jira-sync.yaml", `
+project: PROJ
+issue_types: { epic: Epic, story: Task }
+create_fields:
+  epic: { Story Points: 3 }
+streams:
+  EP-LMP:
+    stream_label: "stream:lmp"
+    create_fields: { Team: Platform }
+`)
+	path := writeImportFile(t, dir, "EP-LMP-01.md", `---
+id: EP-LMP-01
+name: Mapped epic
+---
+Body.
+`)
+
+	opts := &ImportOptions{
+		Factory: f,
+		Files:   []string{path},
+		Map:     mapPath,
+	}
+	if err := runImport(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+
+	// Stream create_fields resolve through the sidecar.
+	if fields["customfield_10001"] != "team-123" {
+		t.Errorf("customfield_10001 = %v, want team-123 from sidecar", fields["customfield_10001"])
+	}
+	// Per-type create_fields pass scalars through.
+	if sp, ok := fields["customfield_10002"].(float64); !ok || sp != 3 {
+		t.Errorf("customfield_10002 = %v, want 3", fields["customfield_10002"])
+	}
+}

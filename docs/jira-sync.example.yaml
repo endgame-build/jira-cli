@@ -39,10 +39,24 @@ field_map:
   labels:      { from: stream, via: stream_label }   # the per-stream label below
   parent:      { via: links }                        # epic->initiative, story->parent epic
 
+# Constant custom fields per document type, sent on CREATE only (never on update,
+# so edits made in Jira are kept). Use this for fields that the project's create
+# screen requires. Keys are Jira field names (normalized: "Investment Category" ->
+# investment_category). Object-type values (option, team, user) resolve through the
+# .jira-field-values.json sidecar (`jira schema field-values --project PROJ`).
+create_fields:
+  epic:
+    investment_category: "Run the business"
+  story: {}
+
 # Streams: distinguish document families by a Jira label, derived from the id
 # prefix (e.g. EP-LMP-01 -> EP-LMP). Everything else (project/type/parent) is shared.
+# A stream can also set create_fields; they override the per-type values above.
 streams:
-  EP-LMP:  { stream_label: "stream:lmp" }
+  EP-LMP:
+    stream_label: "stream:lmp"
+    create_fields:
+      investment_category: "Grow the business"
   EP-GTM:  { stream_label: "stream:gtm" }
   EP-TECH: { stream_label: "stream:tech" }
 

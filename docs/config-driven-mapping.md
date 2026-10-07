@@ -21,6 +21,11 @@ jira issue import ./epics/**/*.md --map ./jira-sync.yaml --force
   document's `initiative` (epic) or `parent_epic_jira_key` (story) per the `links` mechanism.
 - A document without a `jira_key` is **created**; after create, the assigned key and `last_synced_at`
   are **written back** into the source file so re-runs update instead of re-creating.
+- `create_fields` sets constant custom fields on **create only**: per document type (`epic`, `story`),
+  and per stream (`streams.<prefix>.create_fields`, which wins on conflict). Use it for custom fields
+  that the project's create screen requires. Keys are Jira field names, normalized like frontmatter
+  custom fields. Object-type values (option, team, user) resolve through the `.jira-field-values.json`
+  sidecar, the same as an import without `--map`. `--dry-run` lists them under `custom_fields`.
 - `status` and `assignee` are **never pushed** — they are Jira-first (see below).
 
 ## Pull state — Jira → document

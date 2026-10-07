@@ -369,3 +369,92 @@ func TestDocJiraKey(t *testing.T) {
 		t.Errorf("null jira_key should yield empty, got %q", k)
 	}
 }
+
+func TestParseMappedFile_CreateCustomFields(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := writeFile(t, dir, "jira-sync.yaml", `
+project: SB
+issue_types: { epic: Epic, story: Task }
+create_fields:
+  epic:
+    Investment Category: "Run"
+    story_points: 3
+  story:
+    team: "Platform"
+streams:
+  EP-LMP:
+    stream_label: "stream:lmp"
+    create_fields: { Investment Category: "Grow" }
+  EP-TECH: { stream_label: "stream:tech" }
+`)
+	cfg, err := LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		doc  string
+		want map[string]interface{}
+	}{
+		{
+			name: "epic create: stream create_fields override type create_fields",
+			doc:  "id: EP-LMP-01\nname: A\n",
+			want: map[string]interface{}{"investment_category": "Grow", "story_points": 3},
+		},
+		{
+			name: "epic create: stream without create_fields uses type create_fields",
+			doc:  "id: EP-TECH-01\nname: B\n",
+			want: map[string]interface{}{"investment_category": "Run", "story_points": 3},
+		},
+		{
+			name: "story create: story create_fields plus stream create_fields",
+			doc:  "id: EP-LMP-01-01\nname: C\nparent_epic_jira_key: SB-1\n",
+			want: map[string]interface{}{"team": "Platform", "investment_category": "Grow"},
+		},
+		{
+			name: "update never sends create fields",
+			doc:  "id: EP-LMP-02\nname: D\njira_key: SB-9\n",
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := writeFile(t, t.TempDir(), "doc.md", "---\n"+tt.doc+"---\nBody.")
+			n := 0
+			f, err := ParseMappedFile(p, cfg, &n)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := f.Frontmatter.CustomFields
+			if len(got) != len(tt.want) {
+				t.Fatalf("CustomFields = %v, want %v", got, tt.want)
+			}
+			for k, v := range tt.want {
+				if got[k] != v {
+					t.Errorf("CustomFields[%q] = %v, want %v", k, got[k], v)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadConfig_CreateFieldsValidation(t *testing.T) {
+	base := "project: SB\nissue_types: { epic: Epic, story: Task }\n"
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{"unknown doc type", "create_fields:\n  bug:\n    team: X\n"},
+		{"built-in field", "create_fields:\n  epic:\n    priority: High\n"},
+		{"built-in field on stream", "streams:\n  EP-X:\n    create_fields: { labels: x }\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := writeFile(t, t.TempDir(), "jira-sync.yaml", base+tt.yaml)
+			if _, err := LoadConfig(p); err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
