@@ -197,6 +197,11 @@ func TestIsCreate(t *testing.T) {
 		{"PROJ-NEW-1", true},
 		{"PROJ-NEW-42", true},
 		{"ABC-NEW-999", true},
+		{"CP2-NEW-1", true},   // project key with a digit
+		{"A1B-NEW-3", true},   // digits after the first letter
+		{"2CP-NEW-1", false},  // a project key starts with a letter
+		{"A1_B-NEW-3", false}, // no underscore: projectKeyRe rejects it, so the created key would be unusable
+		{"A-NEW-1", false},    // a project key is at least two characters
 		{"PROJ-123", false},
 		{"proj-NEW-1", false}, // lowercase project
 		{"PROJ-NEW-", false},  // no number
