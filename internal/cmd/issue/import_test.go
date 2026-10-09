@@ -1369,3 +1369,44 @@ Body.
 		t.Errorf("customfield_10002 = %v, want 3", fields["customfield_10002"])
 	}
 }
+
+// Two custom fields can share a display name (a site carrying two "Team" fields). The name map
+// keeps one of them, so a document must be able to address the other by its own ID.
+func TestImportCustomFieldByIDWhenNamesCollide(t *testing.T) {
+	fieldsList := []api.Field{
+		{ID: "summary", Name: "Summary"},
+		{ID: "customfield_10414", Name: "Team", Custom: true, Schema: api.FieldSchema{Type: "string"}},
+		{ID: "customfield_10001", Name: "Team", Custom: true, Schema: api.FieldSchema{
+			Type:   "any",
+			Custom: "com.atlassian.teams:rm-teams-custom-field-team",
+		}},
+	}
+	var capturedBody string
+	f, _, _ := newTestImportFactory(t, importHandler(t, importHandlerConfig{fields: fieldsList, captureCreate: &capturedBody}))
+
+	dir := t.TempDir()
+	path := writeImportFile(t, dir, "create.md", `---
+key: PROJ-NEW-1
+summary: New Issue
+type: Task
+project: PROJ
+customfield_10001: team-123
+---
+`)
+
+	if err := runImport(&ImportOptions{Factory: f, Files: []string{path}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal([]byte(capturedBody), &reqBody); err != nil {
+		t.Fatalf("invalid request JSON: %v", err)
+	}
+	fields := reqBody["fields"].(map[string]interface{})
+	if fields["customfield_10001"] != "team-123" {
+		t.Errorf("customfield_10001 = %v, want team-123", fields["customfield_10001"])
+	}
+	if _, set := fields["customfield_10414"]; set {
+		t.Errorf("customfield_10414 was set; only the field named by ID should be")
+	}
+}
