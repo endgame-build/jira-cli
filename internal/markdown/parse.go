@@ -19,8 +19,11 @@ type IssueFile struct {
 	Description string // raw markdown body after frontmatter
 }
 
-// tempKeyPattern matches temporary issue keys like PROJ-NEW-1, PROJ-NEW-42.
-var tempKeyPattern = regexp.MustCompile(`^[A-Z]+-NEW-\d+$`)
+// tempKeyPattern matches temporary issue keys like PROJ-NEW-1, CP2-NEW-42.
+// The project-key part mirrors projectKeyRe in internal/cmd/shared/validate.go: a letter, then one
+// or more letters or digits. Accepting more would create issues whose returned key every other
+// command then rejects.
+var tempKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]+-NEW-\d+$`)
 
 // IsCreate returns true if the issue key matches the temp key pattern (e.g. PROJ-NEW-1).
 func (f *IssueFile) IsCreate() bool {
