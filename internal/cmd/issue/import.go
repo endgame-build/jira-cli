@@ -501,6 +501,11 @@ func buildImportFieldMap(ctx context.Context, client *api.Client, w io.Writer) (
 	fieldMap := make(map[string]importFieldInfo)
 	fieldNames := make(map[string]string) // norm → display name (for warnings)
 	for _, f := range allFields {
+		// A field is always addressable by its own ID (customfield_NNNNN), so a display name
+		// shared by two fields can still be set unambiguously.
+		if id := markdown.NormalizeFieldName(f.ID); strings.HasPrefix(id, "customfield_") {
+			fieldMap[id] = importFieldInfo{ID: f.ID, Schema: f.Schema}
+		}
 		norm := markdown.NormalizeFieldName(f.Name)
 		if norm == "" || markdown.IsBuiltinKey(norm) {
 			continue
